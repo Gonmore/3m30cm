@@ -1,0 +1,418 @@
+# 3m30cm API Reference
+
+> Base URL: `/api/v1`  
+> Autenticación: Bearer token en header `Authorization: Bearer <token>`
+
+---
+
+## Autenticación
+
+### POST `/api/v1/auth/register/athlete`
+
+Registra un nuevo atleta.
+
+**Body:**
+```json
+{
+  "email": "string (required)",
+  "password": "string, min 8 chars (required)",
+  "firstName": "string (optional)",
+  "lastName": "string (optional)",
+  "displayName": "string (optional)",
+  "sport": "string (optional)",
+  "trainsSport": "boolean (default: false)",
+  "sportTrainingDays": "[0-6] array (optional)",
+  "seasonPhase": "OFF_SEASON | PRE_SEASON | IN_SEASON | POST_SEASON (default: OFF_SEASON)",
+  "availableWeekdays": "[0-6] array (optional)",
+  "notes": "string (optional)"
+}
+```
+
+**Respuesta 201:**
+```json
+{
+  "accessToken": "JWT string",
+  "user": { "id", "email", "firstName", "lastName", "platformRole", "teamRoles" },
+  "athleteProfile": { "id", "displayName", "sport", "trainsSport", "seasonPhase", "weeklyAvailability", "sportTrainingDays", "notes" }
+}
+```
+
+**Errores:** `400` payload inválido | `409` email ya existe
+
+---
+
+### POST `/api/v1/auth/login`
+
+**Body:**
+```json
+{
+  "email": "string (required)",
+  "password": "string, min 8 chars (required)"
+}
+```
+
+**Respuesta 200:**
+```json
+{
+  "accessToken": "JWT string",
+  "user": { "id", "email", "firstName", "lastName", "platformRole", "teamRoles" }
+}
+```
+
+**Errores:** `400` payload inválido | `401` credenciales incorrectas
+
+---
+
+### GET `/api/v1/auth/me`
+
+Obtiene el usuario autenticado. **Requiere auth.**
+
+**Respuesta 200:**
+```json
+{
+  "user": { "id", "email", "firstName", "lastName", "platformRole", "memberships": [{ "id", "role", "team": { "id", "name", "slug" } }] }
+}
+```
+
+---
+
+## Atleta
+
+> Todas las rutas requieren autenticación.  
+> Prefijo: `/api/v1/athlete`
+
+### GET `/athlete/profile`
+Obtiene el perfil del atleta autenticado con equipo y asignaciones de coach.
+
+### PUT `/athlete/profile`
+Actualiza perfil de atleta (displayName, sport, seasonPhase, weeklyAvailability, etc.).
+
+### GET `/athlete/sessions`
+Lista las sesiones programadas del atleta.
+
+### GET `/athlete/sessions/:sessionId`
+Detalle completo de una sesión: ejercicios, instrucciones, media assets, bloques.
+
+### PATCH `/athlete/sessions/:sessionId`
+Actualiza estado de sesión (PLANNED → COMPLETED | SKIPPED), notas.
+
+### GET `/athlete/programs`
+Lista los programas personales del atleta.
+
+### GET `/athlete/programs/:programId`
+Detalle de un programa personal con sesiones.
+
+---
+
+## Coach
+
+> Requiere role `COACH` o `SUPERADMIN`.  
+> Prefijo: `/api/v1/coach`
+
+### GET `/coach/dashboard`
+Dashboard del coach: datos de coach, atletas asignados con sus últimos programas y sesiones.
+
+### GET `/coach/athletes`
+Lista atletas asignados al coach.
+
+### GET `/coach/athletes/:athleteId`
+Detalle de un atleta con perfil, equipo y programas.
+
+### GET `/coach/athletes/:athleteId/sessions`
+Sesiones de un atleta específico.
+
+---
+
+## Admin
+
+> Requiere role `SUPERADMIN`.  
+> Prefijo: `/api/v1/admin`
+
+### GET `/admin/summary`
+Métricas generales: conteo de users, teams, athletes, exercises, templates, programs, sessions.
+
+---
+
+## Admin – Ejercicios
+
+> Requiere `SUPERADMIN`. Prefijo: `/api/v1/admin`
+
+### GET `/admin/exercises`
+Lista todos los ejercicios con instrucciones y media assets.
+
+### POST `/admin/exercises`
+Crea ejercicio.
+
+**Body:**
+```json
+{
+  "name": "string, min 2",
+  "slug": "string, lowercase-dashes",
+  "category": "string, min 2",
+  "description": "string (optional)",
+  "equipment": "string (optional)",
+  "requiresLoad": "boolean (default: false)",
+  "perLeg": "boolean (default: false)",
+  "isBlock": "boolean (default: false)",
+  "defaultSeriesProtocol": "NONE | FIXED | PYRAMID | DROP | WAVE | BY_FEEL (default: NONE)",
+  "summary": "string, min 2",
+  "steps": "string, min 5",
+  "safetyNotes": "string (optional)"
+}
+```
+
+### PUT `/admin/exercises/:slug`
+Actualiza un ejercicio por slug.
+
+### POST `/admin/exercises/:slug/media`
+Sube media (imagen, GIF, video) para un ejercicio. Multipart form-data, max 20MB.
+
+### DELETE `/admin/exercises/:slug/media/:mediaId`
+Elimina un media asset de un ejercicio.
+
+---
+
+## Admin – Equipos
+
+> Requiere `SUPERADMIN`. Prefijo: `/api/v1/admin`
+
+### GET `/admin/teams`
+Lista todos los equipos.
+
+### POST `/admin/teams`
+Crea equipo.
+
+**Body:**
+```json
+{
+  "name": "string, min 2",
+  "slug": "string, lowercase-dashes",
+  "description": "string (optional)"
+}
+```
+
+### GET `/admin/teams/:slug`
+Detalle de un equipo con miembros y atletas.
+
+### POST `/admin/teams/:slug/members`
+Agrega miembro (COACH o TEAM_ADMIN) al equipo.
+
+**Body:**
+```json
+{
+  "email": "string",
+  "password": "string, min 8 (optional)",
+  "firstName": "string (optional)",
+  "lastName": "string (optional)",
+  "role": "COACH | TEAM_ADMIN"
+}
+```
+
+### POST `/admin/teams/:slug/athletes`
+Agrega atleta al equipo.
+
+**Body:**
+```json
+{
+  "email": "string",
+  "password": "string, min 8 (optional)",
+  "firstName": "string (optional)",
+  "lastName": "string (optional)",
+  "displayName": "string (optional)",
+  "sport": "string (optional)",
+  "trainsSport": "boolean",
+  "sportTrainingDays": "[0-6] array (optional)",
+  "seasonPhase": "OFF_SEASON | PRE_SEASON | IN_SEASON | POST_SEASON",
+  "availableWeekdays": "[0-6] array (optional)",
+  "notes": "string (optional)"
+}
+```
+
+### POST `/admin/teams/:slug/athletes/:athleteId/assign-coach`
+Asigna coach a atleta.
+
+**Body:**
+```json
+{
+  "coachUserId": "string"
+}
+```
+
+---
+
+## Admin – Plantillas de Programa
+
+> Requiere `SUPERADMIN`. Prefijo: `/api/v1/admin`
+
+### POST `/admin/program-templates`
+Crea plantilla de programa.
+
+**Body:**
+```json
+{
+  "name": "string, min 2",
+  "code": "string, UPPERCASE-DASHES, min 2",
+  "description": "string (optional)",
+  "cycleLengthDays": "number, 1-365 (default: 14)"
+}
+```
+
+### PUT `/admin/program-templates/:code`
+Actualiza plantilla (name, description, cycleLengthDays).
+
+### PUT `/admin/program-templates/:code/days/:dayNumber`
+Crea o actualiza un día de la plantilla.
+
+**Body:**
+```json
+{
+  "title": "string, min 1",
+  "dayType": "TRAINING | REST | ACTIVE_RECOVERY | TESTING | SPORT",
+  "notes": "string (optional)"
+}
+```
+
+### PUT `/admin/program-templates/:code/days/:dayNumber/prescriptions`
+Reemplaza las prescripciones de un día.
+
+**Body:**
+```json
+{
+  "prescriptions": [{
+    "exerciseId": "string",
+    "orderIndex": "number",
+    "seriesProtocol": "NONE | FIXED | PYRAMID | DROP | WAVE | BY_FEEL",
+    "blockLabel": "string (optional)",
+    "sets": "number (optional)",
+    "repsText": "string (optional)",
+    "durationSeconds": "number (optional)",
+    "restSeconds": "number (optional)",
+    "loadText": "string (optional)",
+    "tempoText": "string (optional)",
+    "notes": "string (optional)"
+  }]
+}
+```
+
+---
+
+## Admin – Programas Personales
+
+> Requiere `SUPERADMIN`. Prefijo: `/api/v1/admin`
+
+### POST `/admin/programs/generate`
+Genera un programa personal para un atleta desde una plantilla.
+
+**Body:**
+```json
+{
+  "athleteProfileId": "string",
+  "templateCode": "string (default: JUMP-MANUAL-14D)",
+  "startDate": "YYYY-MM-DD",
+  "phase": "OFF_SEASON | PRE_SEASON | IN_SEASON | POST_SEASON (optional)",
+  "includePreparationPhase": "boolean (default: true)",
+  "notes": "string (optional)"
+}
+```
+
+### PATCH `/admin/programs/:programId/sessions/:sessionId`
+Actualiza título, fecha, estado o notas de una sesión.
+
+---
+
+## Catálogo (público)
+
+### GET `/api/v1/catalog/exercises`
+Lista pública de ejercicios con instrucciones y media.
+
+---
+
+## Plantillas (público)
+
+### GET `/api/v1/templates/program-templates`
+Lista todas las plantillas de programa (id, code, name, description, cycleLengthDays).
+
+### GET `/api/v1/templates/program-templates/:code`
+Detalle completo de una plantilla con días y prescripciones.
+
+---
+
+## Bootstrap
+
+### GET `/api/v1/bootstrap/program-template`
+Devuelve la plantilla de programa embebida (bootstrap/seed data).
+
+---
+
+## Health
+
+### GET `/api/v1/health`
+Health check.
+
+**Respuesta 200:**
+```json
+{
+  "status": "ok",
+  "service": "3m30cm-api",
+  "version": "string",
+  "timestamp": "ISO 8601"
+}
+```
+
+---
+
+## Variables de entorno (API)
+
+| Variable | Descripción | Default |
+|----------|-------------|---------|
+| `NODE_ENV` | development / test / production | development |
+| `PORT` | Puerto del servidor | 4100 |
+| `DATABASE_URL` | URL de PostgreSQL (requerido) | — |
+| `WEB_URL` | URL del frontend (CORS) | http://localhost:4173 |
+| `MINIO_ENDPOINT` | Endpoint de MinIO/S3 | http://localhost:9000 |
+| `MINIO_PUBLIC_BASE_URL` | URL pública para assets | http://localhost:9000 |
+| `MINIO_BUCKET` | Bucket para media | jump-assets |
+| `MINIO_ACCESS_KEY_ID` | Access key de MinIO | minioadmin |
+| `MINIO_SECRET_ACCESS_KEY` | Secret key de MinIO | minioadmin |
+| `JWT_ACCESS_SECRET` | Secreto para firmar JWT (min 16 chars) | change-me-super-secret |
+| `JWT_ACCESS_EXPIRES_IN` | Expiración del token | 7d |
+| `APP_VERSION` | Versión de la API | dev |
+
+---
+
+## Enums
+
+### Role
+`ATHLETE` | `COACH` | `TEAM_ADMIN` | `SUPERADMIN`
+
+### SessionStatus
+`PLANNED` | `COMPLETED` | `SKIPPED`
+
+### SeasonPhase
+`OFF_SEASON` | `PRE_SEASON` | `IN_SEASON` | `POST_SEASON`
+
+### DayType
+`TRAINING` | `REST` | `ACTIVE_RECOVERY` | `TESTING` | `SPORT`
+
+### SeriesProtocol
+`NONE` | `FIXED` | `PYRAMID` | `DROP` | `WAVE` | `BY_FEEL`
+
+### MediaKind
+`IMAGE` | `GIF` | `VIDEO`
+
+---
+
+## Mejoras futuras sugeridas
+
+- [ ] Paginación en endpoints de listado (athletes, sessions, exercises)
+- [ ] Filtros de búsqueda en catálogo de ejercicios (por categoría, equipamiento)
+- [ ] Endpoint de estadísticas de atleta (progresión, carga acumulada)
+- [ ] Webhook/notificaciones push cuando coach asigna nuevo programa
+- [ ] Endpoint de exportación de programa a PDF/calendario
+- [ ] Rate limiting en endpoints públicos
+- [ ] Refresh tokens (actualmente solo access token con 7d TTL)
+- [ ] Versionado de API (v2 con breaking changes)
+- [ ] Endpoint de media bulk upload para múltiples ejercicios
+- [ ] Endpoint de duplicación de plantillas de programa
+- [ ] Soporte multi-idioma en instrucciones de ejercicios (ya existe campo `locale`)
+- [ ] Endpoint de comparación entre sesiones (atleta vs programa ideal)

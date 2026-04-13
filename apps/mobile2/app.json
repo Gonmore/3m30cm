@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "3m30cm GAME",
+    "slug": "3m30cm-game",
+    "scheme": "jump30cm-game",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.supernovatel.jump30cm.game"
+    },
+    "android": {
+      "package": "com.supernovatel.jump30cm.game",
+      "navigationBar": {
+        "backgroundColor": "#000000",
+        "barStyle": "light-content"
+      }
+    }
+  }
+}

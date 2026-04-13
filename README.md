@@ -1,0 +1,159 @@
+# 3m30cm
+
+Monorepo de la plataforma de planificacion y seguimiento de salto vertical para atletas, entrenadores y equipos.
+
+## Stack
+
+- **Apps moviles**: Expo SDK 54 + React Native 0.81 + Expo Router (mobile en puerto 8081, mobile2 gamificada en 8082)
+- **Panel web**: React 19 + Vite + TypeScript
+- **API**: Node.js + Express + Prisma + TypeScript
+- **Base de datos**: PostgreSQL
+- **Media**: MinIO/S3
+- **Infra local**: Docker Compose sobre la red compartida `red-desarrollo`
+- **Infra produccion**: Docker Hub + SSH deploy mediante `deploy.sh`
+
+## Estructura
+
+- `apps/api`: API REST y modelo Prisma
+- `apps/web`: portal web para admin, platform admin y staff
+- `apps/mobile`: app movil del atleta
+- `apps/mobile2`: variante gamificada de la app del atleta
+- `packages/shared`: constantes y tipos de dominio compartidos
+
+## Estado actual
+
+- El microciclo base de 14 dias ya esta modelado como bootstrap en la API.
+- La dosificacion exacta por ejercicio queda como dato editable en el portal admin.
+- El esquema Prisma contempla usuarios, equipos, atletas, catalogo de ejercicios, media, plantillas, sesiones y billing.
+- El portal web permite login, CRUD de ejercicios, carga de media a MinIO, edicion de prescripciones por dia, alta/edicion/baja de equipos, staff, atletas y asignaciones coach-atleta, mas generacion de programas personalizados.
+- La API expone gestion de equipos, membresias, perfiles de atleta, asignacion coach-atleta, generacion de `PersonalProgram` con `ScheduledSession` y endpoints operativos del atleta para agenda y logging.
+- Las app moviles consumen login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local y registro de cumplimiento con metricas.
+- Se eliminan automaticamente los programas archivados de la vista de sesiones cuando se regenera un programa.
+
+## Requisitos previos
+
+1. Tener levantados `postgres-local` y `minio-local` en la red `red-desarrollo`.
+2. Usar Node 20+ y npm 10+ si vas a correr fuera de Docker.
+
+## Desarrollo local
+
+### Provisionar base de datos
+
+Con `postgres-local` disponible en `localhost:5433`, aplica schema y seed inicial:
+
+```bash
+$env:DATABASE_URL='postgresql://postgres:D3v3%2Fop3R@localhost:5433/jump30cm?schema=public'
+npm run prisma:push --workspace @jump/api
+npm run db:seed --workspace @jump/api
+```
+
+### API y web con Docker
+
+La fuente de verdad del entorno local es `.env`. El backend y la web se levantan en contenedores sobre `red-desarrollo`; la app movil se ejecuta fuera de Docker en tu host.
+
+```bash
+docker compose -f docker-compose.local.yml up --build
+```
+
+Al arrancar, la API intenta crear la base indicada en `DATABASE_URL` si no existe, luego ejecuta `prisma db push` y el seed inicial.
+
+Servicios esperados:
+
+- API: `http://localhost:4100/api/v1/health`
+- Login: `POST http://localhost:4100/api/v1/auth/login`
+- Perfil actual: `GET http://localhost:4100/api/v1/auth/me`
+- Resumen admin protegido: `GET http://localhost:4100/api/v1/admin/summary`
+- CRUD admin de ejercicios: `GET/POST/PUT/DELETE http://localhost:4100/api/v1/admin/exercises`
+- Upload de media: `POST http://localhost:4100/api/v1/admin/exercises/:id/media`
+- Reemplazo de prescripciones por dia: `PUT http://localhost:4100/api/v1/admin/program-templates/JUMP-MANUAL-14D/days/:dayNumber/prescriptions`
+- Listado y alta de equipos: `GET/POST http://localhost:4100/api/v1/admin/teams`
+- Actualizacion de equipo: `PUT http://localhost:4100/api/v1/admin/teams/:teamId`
+- Alta de coach o team admin: `POST http://localhost:4100/api/v1/admin/teams/:teamId/members`
+- Edicion y baja de staff: `PUT/DELETE http://localhost:4100/api/v1/admin/teams/:teamId/members/:membershipId`
+- Alta de atleta y perfil deportivo: `POST http://localhost:4100/api/v1/admin/teams/:teamId/athletes`
+- Edicion y baja de atleta del equipo: `PUT/DELETE http://localhost:4100/api/v1/admin/teams/:teamId/athletes/:athleteProfileId`
+- Asignacion coach-atleta: `POST http://localhost:4100/api/v1/admin/teams/:teamId/athletes/:athleteProfileId/assign-coach`
+- Baja de asignacion coach-atleta: `DELETE http://localhost:4100/api/v1/admin/teams/:teamId/athletes/:athleteProfileId/assignments/:assignmentId`
+- Listado de programas personalizados: `GET http://localhost:4100/api/v1/admin/programs`
+- Generacion de programa + sesiones: `POST http://localhost:4100/api/v1/admin/programs/generate`
+- Sesiones de un programa para operaciones manuales: `GET http://localhost:4100/api/v1/admin/programs/:programId/sessions`
+- Detalle admin de una sesion: `GET http://localhost:4100/api/v1/admin/sessions/:sessionId`
+- Reprogramacion y cambio de estado manual: `PUT http://localhost:4100/api/v1/admin/sessions/:sessionId`
+- Perfil del atleta autenticado: `GET http://localhost:4100/api/v1/athlete/me`
+- Programas del atleta: `GET http://localhost:4100/api/v1/athlete/programs`
+- Progreso consolidado del atleta: `GET http://localhost:4100/api/v1/athlete/progress`
+- Agenda del atleta: `GET http://localhost:4100/api/v1/athlete/sessions`
+- Detalle de sesion del atleta: `GET http://localhost:4100/api/v1/athlete/sessions/:sessionId`
+- Logging de cumplimiento: `POST http://localhost:4100/api/v1/athlete/sessions/:sessionId/logs`
+- Registro del device token del atleta: `POST http://localhost:4100/api/v1/athlete/device-tokens`
+- Dashboard coach con atletas, sesiones y logs: `GET http://localhost:4100/api/v1/coach/dashboard`
+- Detalle coach de una sesion asignada: `GET http://localhost:4100/api/v1/coach/sessions/:sessionId`
+- Bootstrap del programa: `http://localhost:4100/api/v1/bootstrap/program-template`
+- Catalogo persistido: `http://localhost:4100/api/v1/catalog/exercises`
+- Plantilla persistida: `http://localhost:4100/api/v1/templates/program-templates/JUMP-MANUAL-14D`
+- Web admin: `http://localhost:4173`
+
+### Credenciales iniciales sembradas
+
+- Email: `admin@3m30cm.local`
+- Password: `Admin123!`
+
+Estas credenciales salen del seed y deben cambiarse cuando el flujo de auth quede completo.
+
+### Mobile con Expo
+
+La app movil no se dockeriza en esta primera iteracion. Ejecutala desde host:
+
+```bash
+npm install
+npm run dev:mobile
+```
+
+Si quieres abrir la version web de Expo desde la raiz del monorepo, usa este comando y no `npx expo start --web` en la raiz, porque ese caso levanta Metro fuera de `apps/mobile` y rompe la resolucion de `expo-router`:
+
+```bash
+npm run dev:mobile:web
+```
+
+Variables utiles para Expo:
+
+- `EXPO_PUBLIC_API_BASE_URL=http://localhost:4100` en simulador local.
+- Si pruebas desde dispositivo fisico, apunta esa variable a una IP accesible desde el telefono.
+
+## Proximos pasos recomendados
+
+1. Integrar billing real para cuentas individuales y equipos.
+2. Añadir captura de metricas mas ricas en el log del atleta (altura de salto, carga, velocidad).
+3. Añadir envio real de push remotas usando los `DeviceToken` registrados.
+4. Expandir la vista coach con drill-down por atleta y filtros de cumplimiento.
+5. Migrar el schema de `prisma db push` a `prisma migrate` para historial de migraciones en produccion.
+
+## Despliegue a produccion
+
+El despliegue cubre solo `apps/api` y `apps/web`. Las apps moviles se distribuyen por Expo/EAS.
+
+### Prerrequisitos en el servidor
+
+- Docker y Docker Compose instalados.
+- Red externa `red-produccion` creada: `docker network create red-produccion`
+- Directorio `~/app-server/proyectos/3m30cm` con un archivo `.env` de produccion.
+- Archivo `docker-compose.prod.yml` copiado al mismo directorio.
+
+### Ejecutar el deploy
+
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+El script:
+1. Construye la imagen de la API (`apps/api/Dockerfile.prod`) con el codigo compilado de TypeScript.
+2. Construye la imagen del web (`apps/web/Dockerfile.prod`) con Vite produccion + nginx, inyectando la URL de la API.
+3. Hace push de ambas imagenes a Docker Hub con tag `YYYYMMDDHHMM`.
+4. Se conecta por SSH al servidor, descarga las nuevas imagenes, aplica el schema Prisma y reinicia los contenedores.
+
+Para ejecutar el seed en el siguiente deploy:
+```bash
+# En el .env del servidor
+RUN_SEED_ON_DEPLOY=1
+```

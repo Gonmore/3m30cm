@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+coverage/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Expo (mobile & mobile2)
+.expo/
+.expo-export-test/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
+# Web (Vite)
+apps/web/dist/
+
+# API
+apps/api/generated/
+apps/api/dev.db
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temp / Office lock files
+~$*

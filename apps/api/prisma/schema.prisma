@@ -1,0 +1,376 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ATHLETE
+  COACH
+  TEAM_ADMIN
+  SUPERADMIN
+}
+
+enum SeasonPhase {
+  PRESEASON
+  IN_SEASON
+  COMPETITION
+  OFF_SEASON
+}
+
+enum DayType {
+  EXPLOSIVE
+  STRENGTH
+  RECOVERY
+  REST
+  UPPER_CORE
+  OTHER
+}
+
+enum ProgramStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum SessionStatus {
+  PLANNED
+  COMPLETED
+  SKIPPED
+  RESCHEDULED
+}
+
+enum MediaKind {
+  IMAGE
+  GIF
+  VIDEO
+}
+
+enum SeriesProtocol {
+  NONE
+  STRENGTH_EXPLOSION
+  PLYOMETRIC_SPEED
+}
+
+enum BillingStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+model User {
+  id                String            @id @default(cuid())
+  email             String            @unique
+  passwordHash      String?
+  platformRole      Role?
+  firstName         String?
+  lastName          String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  memberships       Membership[]
+  athleteProfile    AthleteProfile?
+  coachedAssignments CoachAssignment[] @relation("CoachAssignments")
+  deviceTokens      DeviceToken[]
+  auditLogs         AuditLog[]        @relation("AuditActor")
+}
+
+model Team {
+  id              String          @id @default(cuid())
+  name            String
+  slug            String          @unique
+  description     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  memberships     Membership[]
+  athletes        AthleteProfile[]
+  programTemplates ProgramTemplate[]
+  billingAccounts BillingAccount[]
+  subscriptions   Subscription[]
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  role      Role
+  userId    String
+  teamId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+}
+
+model AthleteProfile {
+  id                String            @id @default(cuid())
+  userId            String            @unique
+  teamId            String?
+  displayName       String?
+  sport             String?
+  trainsSport       Boolean           @default(false)
+  seasonPhase       SeasonPhase       @default(OFF_SEASON)
+  weeklyAvailability Json?
+  sportTrainingDays Json?
+  onboardingCompletedAt DateTime?
+  notes             String?
+  exerciseExclusions Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team              Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  coachAssignments  CoachAssignment[] @relation("AthleteAssignments")
+  personalPrograms  PersonalProgram[]
+  sessionLogs       SessionLog[]
+}
+
+model CoachAssignment {
+  id               String         @id @default(cuid())
+  coachId          String
+  athleteProfileId String
+  createdAt        DateTime       @default(now())
+  coach            User           @relation("CoachAssignments", fields: [coachId], references: [id], onDelete: Cascade)
+  athleteProfile   AthleteProfile @relation("AthleteAssignments", fields: [athleteProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([coachId, athleteProfileId])
+}
+
+model Exercise {
+  id             String                        @id @default(cuid())
+  slug           String                        @unique
+  name           String
+  category       String
+  description    String?
+  equipment      String?
+  requiresLoad   Boolean                       @default(false)
+  perLeg         Boolean                       @default(false)
+  isBlock        Boolean                       @default(false)
+  defaultSeriesProtocol SeriesProtocol         @default(NONE)
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+  instructions   ExerciseInstruction[]
+  mediaAssets    ExerciseMediaAsset[]
+  prescriptions  ExercisePrescriptionTemplate[]
+  sessionExercises SessionExercise[]
+  asBlock        ExerciseBlock?
+  inBlocks       ExerciseBlockItem[]           @relation("BlockItemExercise")
+}
+
+model ExerciseBlock {
+  id         String              @id @default(cuid())
+  exerciseId String              @unique
+  exercise   Exercise            @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  items      ExerciseBlockItem[]
+}
+
+model ExerciseBlockItem {
+  id           String        @id @default(cuid())
+  blockId      String
+  block        ExerciseBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  exerciseId   String
+  exercise     Exercise      @relation("BlockItemExercise", fields: [exerciseId], references: [id], onDelete: Restrict)
+  order        Int           @default(0)
+  setsOverride Int?
+  repsOverride String?
+  notes        String?
+
+  @@unique([blockId, exerciseId])
+}
+
+model ExerciseInstruction {
+  id          String   @id @default(cuid())
+  exerciseId  String
+  locale      String   @default("es")
+  summary     String?
+  steps       String
+  safetyNotes String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  exercise    Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@unique([exerciseId, locale])
+}
+
+model ExerciseMediaAsset {
+  id         String    @id @default(cuid())
+  exerciseId String
+  kind       MediaKind
+  bucket     String
+  objectKey  String
+  url        String?
+  title      String?
+  isPrimary  Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  exercise   Exercise  @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+}
+
+model ProgramTemplate {
+  id              String               @id @default(cuid())
+  teamId          String?
+  name            String
+  code            String               @unique
+  description     String?
+  cycleLengthDays Int                  @default(14)
+  isEditable      Boolean              @default(true)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  team            Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  days            ProgramDayTemplate[]
+  personalPrograms PersonalProgram[]
+}
+
+model ProgramDayTemplate {
+  id                String                       @id @default(cuid())
+  programTemplateId String
+  dayNumber         Int
+  title             String
+  dayType           DayType
+  notes             String?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  programTemplate   ProgramTemplate              @relation(fields: [programTemplateId], references: [id], onDelete: Cascade)
+  prescriptions     ExercisePrescriptionTemplate[]
+
+  @@unique([programTemplateId, dayNumber])
+}
+
+model ExercisePrescriptionTemplate {
+  id                 String             @id @default(cuid())
+  programDayTemplateId String
+  exerciseId         String
+  orderIndex         Int
+  seriesProtocol     SeriesProtocol     @default(NONE)
+  blockLabel         String?
+  sets               Int?
+  repsText           String?
+  durationSeconds    Int?
+  restSeconds        Int?
+  loadText           String?
+  tempoText          String?
+  notes              String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  programDayTemplate ProgramDayTemplate @relation(fields: [programDayTemplateId], references: [id], onDelete: Cascade)
+  exercise           Exercise           @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+
+  @@unique([programDayTemplateId, orderIndex])
+}
+
+model PersonalProgram {
+  id               String         @id @default(cuid())
+  athleteProfileId String
+  templateId       String?
+  name             String
+  startDate        DateTime
+  phase            SeasonPhase    @default(OFF_SEASON)
+  status           ProgramStatus  @default(DRAFT)
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  athleteProfile   AthleteProfile @relation(fields: [athleteProfileId], references: [id], onDelete: Cascade)
+  template         ProgramTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  sessions         ScheduledSession[]
+}
+
+model ScheduledSession {
+  id              String           @id @default(cuid())
+  personalProgramId String
+  scheduledDate   DateTime
+  title           String
+  dayType         DayType
+  status          SessionStatus    @default(PLANNED)
+  notes           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  personalProgram PersonalProgram  @relation(fields: [personalProgramId], references: [id], onDelete: Cascade)
+  sessionExercises SessionExercise[]
+  logs            SessionLog[]
+}
+
+model SessionExercise {
+  id               String           @id @default(cuid())
+  scheduledSessionId String
+  exerciseId       String
+  orderIndex       Int
+  seriesProtocol   SeriesProtocol   @default(NONE)
+  sets             Int?
+  repsText         String?
+  durationSeconds  Int?
+  restSeconds      Int?
+  loadText         String?
+  notes            String?
+  completedAt      DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  scheduledSession ScheduledSession @relation(fields: [scheduledSessionId], references: [id], onDelete: Cascade)
+  exercise         Exercise         @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+
+  @@unique([scheduledSessionId, orderIndex])
+}
+
+model SessionLog {
+  id               String           @id @default(cuid())
+  scheduledSessionId String
+  athleteProfileId String
+  notes            String?
+  perceivedExertion Int?
+  metrics          Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  scheduledSession ScheduledSession @relation(fields: [scheduledSessionId], references: [id], onDelete: Cascade)
+  athleteProfile   AthleteProfile   @relation(fields: [athleteProfileId], references: [id], onDelete: Cascade)
+}
+
+model DeviceToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  platform  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BillingAccount {
+  id                 String         @id @default(cuid())
+  teamId             String
+  provider           String
+  externalCustomerId String?
+  status             BillingStatus  @default(TRIALING)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  team               Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  subscriptions      Subscription[]
+
+  @@unique([teamId, provider])
+}
+
+model Subscription {
+  id               String         @id @default(cuid())
+  teamId           String
+  billingAccountId String?
+  planCode         String
+  status           BillingStatus  @default(TRIALING)
+  startedAt        DateTime       @default(now())
+  expiresAt        DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  team             Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  billingAccount   BillingAccount? @relation(fields: [billingAccountId], references: [id], onDelete: SetNull)
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorUserId String?
+  entityType String
+  entityId   String
+  action     String
+  payload    Json?
+  createdAt  DateTime @default(now())
+  actor      User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+}

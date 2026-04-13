@@ -1,0 +1,35 @@
+{
+  "name": "3m30cm-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace @jump/api",
+    "dev:web": "npm run dev --workspace @jump/web",
+    "dev:mobile": "npm --prefix apps/mobile run dev",
+    "dev:mobile:web": "npm --prefix apps/mobile run web",
+    "dev:mobile:debug": "npm --prefix apps/mobile exec expo start -- --lan --clear --port 8081",
+    "dev:mobile2": "npm --prefix apps/mobile2 run dev",
+    "dev:mobile2:web": "npm --prefix apps/mobile2 run web",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "prisma:generate": "npm run prisma:generate --workspace @jump/api"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.17",
+    "@types/react-dom": "19.1.9"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "overrides": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "@types/react": "19.1.17",
+    "@types/react-dom": "19.1.9"
+  }
+}

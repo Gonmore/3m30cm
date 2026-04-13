@@ -1,0 +1,78 @@
+import { randomUUID } from "node:crypto";
+import { extname } from "node:path";
+
+import { DeleteObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client, CreateBucketCommand } from "@aws-sdk/client-s3";
+
+import { env } from "../config/env.js";
+
+const s3Client = new S3Client({
+  region: env.MINIO_REGION,
+  endpoint: env.MINIO_ENDPOINT,
+  credentials: {
+    accessKeyId: env.MINIO_ACCESS_KEY_ID,
+    secretAccessKey: env.MINIO_SECRET_ACCESS_KEY,
+  },
+  forcePathStyle: env.MINIO_FORCE_PATH_STYLE,
+});
+
+let bucketReady = false;
+
+export async function ensureBucket() {
+  if (bucketReady) {
+    return;
+  }
+
+  try {
+    await s3Client.send(
+      new HeadBucketCommand({
+        Bucket: env.MINIO_BUCKET,
+      }),
+    );
+  } catch {
+    await s3Client.send(
+      new CreateBucketCommand({
+        Bucket: env.MINIO_BUCKET,
+      }),
+    );
+  }
+
+  bucketReady = true;
+}
+
+export async function uploadExerciseMedia(params: {
+  exerciseId: string;
+  fileName: string;
+  contentType: string;
+  data: Buffer;
+}) {
+  await ensureBucket();
+
+  const extension = extname(params.fileName) || ".bin";
+  const objectKey = `exercises/${params.exerciseId}/${Date.now()}-${randomUUID()}${extension}`;
+
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: env.MINIO_BUCKET,
+      Key: objectKey,
+      Body: params.data,
+      ContentType: params.contentType,
+    }),
+  );
+
+  const baseUrl = env.MINIO_PUBLIC_BASE_URL.replace(/\/$/, "");
+  const url = `${baseUrl}/${env.MINIO_BUCKET}/${objectKey}`;
+
+  return {
+    objectKey,
+    url,
+  };
+}
+
+export async function deleteExerciseMedia(objectKey: string) {
+  await s3Client.send(
+    new DeleteObjectCommand({
+      Bucket: env.MINIO_BUCKET,
+      Key: objectKey,
+    }),
+  );
+}

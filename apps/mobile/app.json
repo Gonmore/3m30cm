@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "3m30cm",
+    "slug": "3m30cm",
+    "scheme": "jump30cm",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.supernovatel.jump30cm"
+    },
+    "android": {
+      "package": "com.supernovatel.jump30cm",
+      "navigationBar": {
+        "backgroundColor": "#000000",
+        "barStyle": "light-content"
+      }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+services:
+  api-3m30cm:
+    image: gonmore14/api-3m30cm:${APP_VERSION:-latest}
+    container_name: api-3m30cm
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      APP_VERSION: ${APP_VERSION:-latest}
+    ports:
+      - "4100:4100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:4100/api/v1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - red-produccion
+
+  web-3m30cm:
+    image: gonmore14/web-3m30cm:${APP_VERSION:-latest}
+    container_name: web-3m30cm
+    restart: unless-stopped
+    depends_on:
+      api-3m30cm:
+        condition: service_healthy
+    ports:
+      - "4173:80"
+    networks:
+      - red-produccion
+
+  # --- Herramientas (solo se ejecutan con --profile tools) ---
+  api-migrate:
+    image: gonmore14/api-3m30cm:${APP_VERSION:-latest}
+    container_name: api-3m30cm-migrate
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    command: ["npx", "prisma", "db", "push", "--skip-generate"]
+    networks:
+      - red-produccion
+    profiles:
+      - tools
+
+  api-seed:
+    image: gonmore14/api-3m30cm:${APP_VERSION:-latest}
+    container_name: api-3m30cm-seed
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    command: ["sh", "-c", "npm run db:seed --workspace @jump/api"]
+    networks:
+      - red-produccion
+    profiles:
+      - tools
+
+networks:
+  red-produccion:
+    external: true
