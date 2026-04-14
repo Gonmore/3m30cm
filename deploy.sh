@@ -6,8 +6,7 @@ USER_DOCKER="gonmore14"
 SERVER_USER="home"
 SERVER_IP="192.168.10.57"
 SERVER_PATH="~/app-server/proyectos/3m30cm"
-API_PROD="https://3m30cm.supernovatel.com"
-WEB_PROD="https://3m30cm-app.supernovatel.com"
+PROD_URL="https://3m30cm.supernovatel.com"
 VERSION=$(date +%Y%m%d%H%M)
 
 echo "🏗️  1. Iniciando construcción de versión: $VERSION"
@@ -18,10 +17,10 @@ docker build -t $USER_DOCKER/api-3m30cm:$VERSION \
   .
 docker push $USER_DOCKER/api-3m30cm:$VERSION
 
-# Build & Push Web (inyectando URL de producción de la API en el bundle de Vite)
+# Build & Push Web (inyectando URL de producción en el bundle de Vite)
 docker build -t $USER_DOCKER/web-3m30cm:$VERSION \
   -f apps/web/Dockerfile.prod \
-  --build-arg VITE_API_BASE_URL=$API_PROD \
+  --build-arg VITE_API_BASE_URL=$PROD_URL \
   .
 docker push $USER_DOCKER/web-3m30cm:$VERSION
 
@@ -65,5 +64,5 @@ ssh "$SERVER_USER@$SERVER_IP" "SERVER_PATH=$SERVER_PATH VERSION=$VERSION bash -s
 EOF
 
 echo "✅ 3. Despliegue exitoso de la versión $VERSION"
-echo "   API  → $API_PROD/api/v1/health"
-echo "   Web  → $WEB_PROD"
+echo "   → $PROD_URL"
+echo "   → $PROD_URL/api/v1/health"
