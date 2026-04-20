@@ -29,6 +29,16 @@ ssh "$SERVER_USER@$SERVER_IP" "SERVER_PATH=$SERVER_PATH VERSION=$VERSION bash -s
   set -e
   cd "$SERVER_PATH"
 
+  if [ ! -f .env ]; then
+    echo "❌ Falta .env en $SERVER_PATH" >&2
+    exit 1
+  fi
+
+  if [ ! -f docker-compose.prod.yml ]; then
+    echo "❌ Falta docker-compose.prod.yml en $SERVER_PATH" >&2
+    exit 1
+  fi
+
   # NO "source" .env: docker env-files permiten espacios sin quotes
   # que rompen el parser de shell. Solo leemos RUN_SEED_ON_DEPLOY de forma segura.
   RUN_SEED_ON_DEPLOY=0
@@ -42,18 +52,20 @@ ssh "$SERVER_USER@$SERVER_IP" "SERVER_PATH=$SERVER_PATH VERSION=$VERSION bash -s
   # Creamos o sobreescribimos el archivo de versión
   echo "APP_VERSION=$VERSION" > .env.version
 
+  COMPOSE=(docker compose -f docker-compose.prod.yml --env-file .env --env-file .env.version)
+
   echo "📥 Descargando nuevas imágenes ($VERSION)..."
-  docker compose -f docker-compose.prod.yml --env-file .env --env-file .env.version pull
+  "${COMPOSE[@]}" pull
 
   echo "🗄️  Aplicando schema Prisma (db push)..."
-  docker compose -f docker-compose.prod.yml --env-file .env --env-file .env.version --profile tools run --rm api-migrate </dev/null
+  "${COMPOSE[@]}" --profile tools run --rm api-migrate </dev/null
 
   echo "🔄 Reiniciando contenedores..."
-  docker compose -f docker-compose.prod.yml --env-file .env --env-file .env.version up -d
+  "${COMPOSE[@]}" up -d
 
   if [ "${RUN_SEED_ON_DEPLOY:-0}" = "1" ] || [ "${RUN_SEED_ON_DEPLOY:-0}" = "true" ] || [ "${RUN_SEED_ON_DEPLOY:-0}" = "TRUE" ]; then
     echo "🌱 Ejecutando seed (tools profile)..."
-    docker compose -f docker-compose.prod.yml --env-file .env --env-file .env.version --profile tools run --rm api-seed </dev/null
+    "${COMPOSE[@]}" --profile tools run --rm api-seed </dev/null
   else
     echo "🌱 Seed omitido (set RUN_SEED_ON_DEPLOY=1 para ejecutarlo)"
   fi
