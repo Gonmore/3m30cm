@@ -51,6 +51,8 @@ npm run db:seed --workspace @jump/api
 
 La fuente de verdad del entorno local es `.env`. El backend y la web se levantan en contenedores sobre `red-desarrollo`; la app movil se ejecuta fuera de Docker en tu host.
 
+La web usa `/api/*` relativo por defecto tanto en desarrollo como en produccion. En local, Vite proxy pasa esas requests a `API_PROXY_TARGET`; `VITE_API_BASE_URL` queda solo como override opcional para casos especiales.
+
 ```bash
 docker compose -f docker-compose.local.yml up --build
 ```
@@ -148,7 +150,7 @@ chmod +x deploy.sh
 
 El script:
 1. Construye la imagen de la API (`apps/api/Dockerfile.prod`) con el codigo compilado de TypeScript.
-2. Construye la imagen del web (`apps/web/Dockerfile.prod`) con Vite produccion + nginx, inyectando la URL de la API.
+2. Construye la imagen del web (`apps/web/Dockerfile.prod`) con Vite produccion + nginx; el frontend consume `/api/*` sobre el mismo dominio por defecto.
 3. Hace push de ambas imagenes a Docker Hub con tag `YYYYMMDDHHMM`.
 4. Se conecta por SSH al servidor, descarga las nuevas imagenes, aplica el schema Prisma y reinicia los contenedores.
 

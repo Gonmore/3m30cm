@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
+const apiBaseUrl = configuredApiBaseUrl.replace(/\/$/, "");
 const tokenStorageKey = "jump-admin-access-token";
 const templateCode = "JUMP-MANUAL-14D";
 const weekdayLabels = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
@@ -624,7 +625,8 @@ function mapSessionToEditor(session: AdminSessionRecord): SessionEditorState {
 }
 
 async function requestJson<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const response = await fetch(`${apiBaseUrl}${normalizedPath}`, {
     ...options,
     headers: {
       ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),

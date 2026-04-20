@@ -14,9 +14,8 @@ echo "🏗️  1. Iniciando construcción de versión: $VERSION"
 docker build -t $USER_DOCKER/backend-farmasnt:$VERSION ./backend
 docker push $USER_DOCKER/backend-farmasnt:$VERSION
 
-# Build & Push Frontend (Inyectando URL de producción)
+# Build & Push Frontend
 docker build -t $USER_DOCKER/frontend-farmasnt:$VERSION \
-  --build-arg VITE_API_BASE_URL=$API_PROD \
   ./frontend
 docker push $USER_DOCKER/frontend-farmasnt:$VERSION
 

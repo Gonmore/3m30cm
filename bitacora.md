@@ -181,7 +181,7 @@ Se creó la infraestructura de despliegue para backend y web (las apps móviles 
 | Archivo | Descripción |
 |---------|-------------|
 | `apps/api/Dockerfile.prod` | Imagen de producción: instala deps + genera Prisma client + compila TS |
-| `apps/web/Dockerfile.prod` | Multi-stage: Vite build con `VITE_API_BASE_URL` inyectado → nginx alpine |
+| `apps/web/Dockerfile.prod` | Multi-stage: Vite build + nginx alpine |
 | `apps/web/nginx.conf` | Proxy `/api/*` → `api-3m30cm:4100`, SPA fallback, gzip |
 | `docker-compose.prod.yml` | Compose de producción con servicios `api-3m30cm`, `web-3m30cm` y profiles `api-migrate` / `api-seed` |
 | `deploy.sh` | Script de deploy: build → push → SSH → pull → schema push → restart |
@@ -193,4 +193,21 @@ Se creó la infraestructura de despliegue para backend y web (las apps móviles 
 4. Limpieza de imágenes antiguas
 
 **Pendiente:** migrar de `prisma db push` a `prisma migrate` cuando se quiera historial de migraciones.
+
+---
+
+### 12. Unificación de entorno local y producción para el web admin
+
+**Objetivo:** evitar cambios manuales en `.env` al pasar de local a producción.
+
+**Cambios aplicados:**
+1. El frontend web ahora consume `/api/*` relativo por defecto y solo usa `VITE_API_BASE_URL` si se define explícitamente.
+2. `apps/web/Dockerfile.prod` dejó de depender de un `build-arg` para la URL de API.
+3. `deploy.sh` ya no inyecta `VITE_API_BASE_URL` al construir la imagen web.
+4. `.env.example` y `.env` local quedaron alineados con el mismo shape base de producción: `RUN_SEED_ON_DEPLOY`, `SMTP_*`, `API_PROXY_TARGET` y override opcional para `VITE_API_BASE_URL`.
+
+**Resultado:**
+- En desarrollo, Vite resuelve `/api/*` vía proxy hacia `API_PROXY_TARGET`.
+- En producción, nginx del contenedor web reenvía `/api/*` a `api-3m30cm:4100` dentro de Docker.
+- El deploy inicial solo requiere que el `.env` remoto tenga secretos y endpoints reales; no hace falta reconfigurar la URL del frontend en cada release.
 

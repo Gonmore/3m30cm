@@ -17,10 +17,9 @@ docker build -t $USER_DOCKER/api-3m30cm:$VERSION \
   .
 docker push $USER_DOCKER/api-3m30cm:$VERSION
 
-# Build & Push Web (inyectando URL de producción en el bundle de Vite)
+# Build & Push Web
 docker build -t $USER_DOCKER/web-3m30cm:$VERSION \
   -f apps/web/Dockerfile.prod \
-  --build-arg VITE_API_BASE_URL=$PROD_URL \
   .
 docker push $USER_DOCKER/web-3m30cm:$VERSION
 

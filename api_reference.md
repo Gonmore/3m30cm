@@ -372,11 +372,20 @@ Health check.
 | `MINIO_ENDPOINT` | Endpoint de MinIO/S3 | http://localhost:9000 |
 | `MINIO_PUBLIC_BASE_URL` | URL pública para assets | http://localhost:9000 |
 | `MINIO_BUCKET` | Bucket para media | jump-assets |
+| `MINIO_REGION` | Región reportada al cliente S3 | us-east-1 |
 | `MINIO_ACCESS_KEY_ID` | Access key de MinIO | minioadmin |
 | `MINIO_SECRET_ACCESS_KEY` | Secret key de MinIO | minioadmin |
+| `MINIO_FORCE_PATH_STYLE` | Fuerza path-style para MinIO/S3 compatible | true |
 | `JWT_ACCESS_SECRET` | Secreto para firmar JWT (min 16 chars) | change-me-super-secret |
 | `JWT_ACCESS_EXPIRES_IN` | Expiración del token | 7d |
 | `APP_VERSION` | Versión de la API | dev |
+| `RUN_SEED_ON_DEPLOY` | Flag operativa para ejecutar seed desde deploy.sh | 0 |
+
+Notas:
+
+- En producción `WEB_URL` debe ser `https://3m30cm.supernovatel.com`.
+- `MINIO_PUBLIC_BASE_URL` debe ser la base pública del host, sin incluir el bucket, porque la API construye la URL final como `base/bucket/objectKey`.
+- La web admin usa `/api/*` relativo por defecto; `VITE_API_BASE_URL` es un override opcional del frontend y no un requisito del backend.
 
 ---
 

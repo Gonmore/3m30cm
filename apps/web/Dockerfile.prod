@@ -13,10 +13,6 @@ RUN npm ci
 # Copy web source
 COPY apps/web/ ./apps/web/
 
-# Inject production API URL at build time (Vite bakes VITE_* vars into the bundle)
-ARG VITE_API_BASE_URL
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
-
 # Build static assets
 RUN npm run build --workspace @jump/web
 
