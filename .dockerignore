@@ -1,0 +1,15 @@
+*
+
+!package.json
+!package-lock.json
+!tsconfig.base.json
+
+!apps/
+!apps/api/
+!apps/api/**
+!apps/web/
+!apps/web/**
+
+!packages/
+!packages/shared/
+!packages/shared/**
