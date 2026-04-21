@@ -137,7 +137,7 @@ El despliegue cubre solo `apps/api` y `apps/web`. Las apps moviles se distribuye
 ### Prerrequisitos en el servidor
 
 - Docker y Docker Compose instalados.
-- Red externa `red-produccion` creada: `docker network create red-produccion`
+- Red externa Docker disponible. Por defecto este proyecto usa `red-interna` en producción. Si tu servidor usa otro nombre, puedes sobreescribirlo con `DOCKER_EXTERNAL_NETWORK` en el `.env` del servidor.
 - Directorio `~/app-server/proyectos/3m30cm` con un archivo `.env` de produccion.
 - Archivo `docker-compose.prod.yml` copiado al mismo directorio.
 

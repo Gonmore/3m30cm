@@ -52,6 +52,19 @@ ssh "$SERVER_USER@$SERVER_IP" "SERVER_PATH=$SERVER_PATH VERSION=$VERSION bash -s
   # Creamos o sobreescribimos el archivo de versión
   echo "APP_VERSION=$VERSION" > .env.version
 
+  DOCKER_EXTERNAL_NETWORK=red-interna
+  if [ -f .env ]; then
+    value=$(grep -E '^DOCKER_EXTERNAL_NETWORK=' .env | tail -n 1 | cut -d= -f2- | tr -d '\r')
+    if [ -n "${value:-}" ]; then
+      DOCKER_EXTERNAL_NETWORK="$value"
+    fi
+  fi
+
+  if ! docker network inspect "$DOCKER_EXTERNAL_NETWORK" >/dev/null 2>&1; then
+    echo "❌ Falta la red Docker externa '$DOCKER_EXTERNAL_NETWORK' en el servidor" >&2
+    exit 1
+  fi
+
   COMPOSE=(docker compose -f docker-compose.prod.yml --env-file .env --env-file .env.version)
 
   echo "📥 Descargando nuevas imágenes ($VERSION)..."

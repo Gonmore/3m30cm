@@ -61,3 +61,4 @@ services:
 networks:
   red-produccion:
     external: true
+    name: ${DOCKER_EXTERNAL_NETWORK:-red-interna}

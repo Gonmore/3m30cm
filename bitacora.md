@@ -211,3 +211,17 @@ Se creó la infraestructura de despliegue para backend y web (las apps móviles 
 - En producción, nginx del contenedor web reenvía `/api/*` a `api-3m30cm:4100` dentro de Docker.
 - El deploy inicial solo requiere que el `.env` remoto tenga secretos y endpoints reales; no hace falta reconfigurar la URL del frontend en cada release.
 
+---
+
+### 13. Ajuste de red externa para producción real
+
+**Problema:** el `docker-compose.prod.yml` asumía una red externa llamada `red-produccion`, pero el servidor real expone Postgres, MinIO y otros servicios sobre `red-interna`.
+
+**Cambios aplicados:**
+1. `docker-compose.prod.yml` ahora resuelve la red externa por nombre real usando `DOCKER_EXTERNAL_NETWORK`, con default `red-interna`.
+2. `deploy.sh` valida antes de correr migraciones que la red externa exista en el servidor y falla con un mensaje claro si no está.
+
+**Resultado:**
+- El deploy funciona con la red real del servidor sin tocar el script en cada release.
+- Si en otro entorno la red cambia de nombre, basta con definir `DOCKER_EXTERNAL_NETWORK` en el `.env` remoto.
+
