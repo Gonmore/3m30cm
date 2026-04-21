@@ -4,10 +4,14 @@
   "version": "0.1.0",
   "main": "expo-router/entry",
   "scripts": {
-    "dev": "expo start --offline --port 8081",
-    "android": "expo start --android --offline --port 8081",
-    "ios": "expo start --ios --offline --port 8081",
-    "web": "expo start --web --port 8081",
+    "dev": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --offline --port 8081",
+    "prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com node ../../node_modules/expo/bin/cli start --offline --port 8081",
+    "android": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --android --offline --port 8081",
+    "android:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com node ../../node_modules/expo/bin/cli start --android --offline --port 8081",
+    "ios": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --ios --offline --port 8081",
+    "ios:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com node ../../node_modules/expo/bin/cli start --ios --offline --port 8081",
+    "web": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --web --port 8081",
+    "web:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com node ../../node_modules/expo/bin/cli start --web --port 8081",
     "build": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },

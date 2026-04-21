@@ -2,6 +2,13 @@
 
 Monorepo de la plataforma de planificacion y seguimiento de salto vertical para atletas, entrenadores y equipos.
 
+## Documentacion clave
+
+- `README.md`: entrada rapida del repo.
+- `supernovatel.md`: infraestructura actual, flujo Docker local, despliegue con `deploy.sh` y patron reutilizable para proyectos futuros.
+- `api_reference.md`: endpoints y variables de entorno de la API.
+- `bitacora.md`: registro historico de decisiones y cambios.
+
 ## Stack
 
 - **Apps moviles**: Expo SDK 54 + React Native 0.81 + Expo Router (mobile en puerto 8081, mobile2 gamificada en 8082)
@@ -104,23 +111,56 @@ Estas credenciales salen del seed y deben cambiarse cuando el flujo de auth qued
 
 ### Mobile con Expo
 
-La app movil no se dockeriza en esta primera iteracion. Ejecutala desde host:
+Las apps moviles no se dockerizan. Se ejecutan desde tu host y ya traen dos modos explicitos:
+
+- `dev`: fuerza modo local.
+- `prod`: fuerza consumo del backend publico `https://3m30cm.supernovatel.com`.
+
+Comandos principales:
+
+```bash
+npm --prefix apps/mobile run dev
+npm --prefix apps/mobile run prod
+
+npm --prefix apps/mobile2 run dev
+npm --prefix apps/mobile2 run prod
+```
+
+Atajos desde la raiz para modo local:
 
 ```bash
 npm install
 npm run dev:mobile
+npm run dev:mobile2
 ```
 
-Si quieres abrir la version web de Expo desde la raiz del monorepo, usa este comando y no `npx expo start --web` en la raiz, porque ese caso levanta Metro fuera de `apps/mobile` y rompe la resolucion de `expo-router`:
+Si quieres abrir Expo Web desde la raiz del monorepo, usa estos comandos y no `npx expo start --web` en la raiz, porque ese caso levanta Metro fuera de `apps/mobile` o `apps/mobile2` y rompe la resolucion de `expo-router`:
 
 ```bash
 npm run dev:mobile:web
+npm run dev:mobile2:web
 ```
 
-Variables utiles para Expo:
+Equivalentes por app:
 
-- `EXPO_PUBLIC_API_BASE_URL=http://localhost:4100` en simulador local.
-- Si pruebas desde dispositivo fisico, apunta esa variable a una IP accesible desde el telefono.
+- `npm --prefix apps/mobile run android`
+- `npm --prefix apps/mobile run android:prod`
+- `npm --prefix apps/mobile run ios`
+- `npm --prefix apps/mobile run ios:prod`
+- `npm --prefix apps/mobile run web`
+- `npm --prefix apps/mobile run web:prod`
+- `npm --prefix apps/mobile2 run android`
+- `npm --prefix apps/mobile2 run android:prod`
+- `npm --prefix apps/mobile2 run ios`
+- `npm --prefix apps/mobile2 run ios:prod`
+- `npm --prefix apps/mobile2 run web`
+- `npm --prefix apps/mobile2 run web:prod`
+
+Notas de runtime:
+
+- En `dev`, los scripts limpian `EXPO_PUBLIC_API_BASE_URL` y la app cae al flujo local definido en `runtimeConfig.ts`.
+- En `prod`, los scripts fuerzan `EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com`.
+- Ya no hace falta editar `.env` para alternar entre backend local y backend publico.
 
 ## Proximos pasos recomendados
 
@@ -153,6 +193,8 @@ El script:
 2. Construye la imagen del web (`apps/web/Dockerfile.prod`) con Vite produccion + nginx; el frontend consume `/api/*` sobre el mismo dominio por defecto.
 3. Hace push de ambas imagenes a Docker Hub con tag `YYYYMMDDHHMM`.
 4. Se conecta por SSH al servidor, descarga las nuevas imagenes, aplica el schema Prisma y reinicia los contenedores.
+
+Para el detalle completo del flujo, convenciones y decisiones de infraestructura, ver `supernovatel.md`.
 
 Para ejecutar el seed en el siguiente deploy:
 ```bash

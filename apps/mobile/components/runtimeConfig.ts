@@ -43,16 +43,35 @@ function getExpoHostIp() {
   return null;
 }
 
+function normalizeConfiguredApiUrl(url: URL) {
+  const normalizedPath = url.pathname.replace(/\/+$/, "");
+
+  if (normalizedPath === "/api") {
+    url.pathname = "";
+  }
+
+  return url;
+}
+
 function buildBaseUrl(port: number, fallback: string) {
   const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
 
   if (configured) {
     try {
-      const url = new URL(configured);
-      url.port = String(port);
+      const url = normalizeConfiguredApiUrl(new URL(configured));
+
+      // If the env already includes an explicit port, reuse the same host and swap
+      // to the service port we need locally (API 4100, MinIO 9000).
+      if (url.port) {
+        url.port = String(port);
+        return url.origin;
+      }
+
+      // Production URLs typically terminate on 443/80 behind a reverse proxy and
+      // should be used as-is instead of forcing an internal container port.
       return url.origin;
     } catch {
-      return configured;
+      return configured.replace(/\/api\/?$/, "").replace(/\/$/, "");
     }
   }
 

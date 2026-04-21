@@ -225,3 +225,41 @@ Se creó la infraestructura de despliegue para backend y web (las apps móviles 
 - El deploy funciona con la red real del servidor sin tocar el script en cada release.
 - Si en otro entorno la red cambia de nombre, basta con definir `DOCKER_EXTERNAL_NETWORK` en el `.env` remoto.
 
+---
+
+### 14. Mobile y mobile2 con modos explicitos dev/prod
+
+**Problema:** cambiar entre backend local y backend publico desde Expo era fragil porque dependia de como se cargaba `EXPO_PUBLIC_API_BASE_URL` al ejecutar la app desde subdirectorios.
+
+**Cambios aplicados:**
+1. Se agrego `cross-env` en la raiz del monorepo para tener overrides portables en Windows.
+2. `apps/mobile/package.json` ahora separa `dev` y `prod`, mas sus variantes `android`, `ios` y `web`.
+3. `apps/mobile2/package.json` replica el mismo patron para el puerto `8082`.
+4. En `dev`, los scripts limpian `EXPO_PUBLIC_API_BASE_URL` para forzar el flujo local.
+5. En `prod`, los scripts fijan `EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com`.
+
+**Resultado:**
+- `npm --prefix apps/mobile run dev` significa siempre local.
+- `npm --prefix apps/mobile run prod` significa siempre produccion.
+- `npm --prefix apps/mobile2 run dev` significa siempre local.
+- `npm --prefix apps/mobile2 run prod` significa siempre produccion.
+
+Esto evita volver a editar `.env` para cambiar de ambiente y reduce errores de conectividad falsos en Expo.
+
+---
+
+### 15. Documentacion operativa reutilizable
+
+Se creo `supernovatel.md` en la raiz como documento operativo del proyecto.
+
+**Contenido principal:**
+- infraestructura actual
+- flujo Docker local
+- despliegue con `deploy.sh`
+- contenedores y red externa
+- convenciones para Expo en modo `dev` y `prod`
+- checklist reutilizable para el siguiente proyecto
+
+**Objetivo:**
+dejar capturado el patron real que ya funciona en `3m30cm` para reutilizarlo desde la fase de desarrollo del siguiente producto, en lugar de reconstruir decisiones de infraestructura sobre la marcha.
+

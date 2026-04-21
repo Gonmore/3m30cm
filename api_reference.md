@@ -387,6 +387,16 @@ Notas:
 - `MINIO_PUBLIC_BASE_URL` debe ser la base pública del host, sin incluir el bucket, porque la API construye la URL final como `base/bucket/objectKey`.
 - La web admin usa `/api/*` relativo por defecto; `VITE_API_BASE_URL` es un override opcional del frontend y no un requisito del backend.
 
+### Nota operativa
+
+La infraestructura completa del proyecto, el flujo Docker local, el deploy con `deploy.sh` y la separacion `dev`/`prod` de las apps Expo estan documentados en `supernovatel.md`.
+
+Como contexto rapido:
+
+- local: la API y la web corren en Docker; Expo corre fuera de Docker
+- produccion: `deploy.sh` construye, hace push y luego ejecuta `pull + api-migrate + up -d` por SSH
+- mobile/mobile2: `run dev` apunta a local y `run prod` apunta al backend publico
+
 ---
 
 ## Enums
