@@ -39,7 +39,7 @@ services:
       - .env
     environment:
       NODE_ENV: production
-    command: ["npx", "prisma", "db", "push", "--skip-generate"]
+    command: ["npm", "run", "prisma:push", "--workspace", "@jump/api", "--", "--skip-generate"]
     networks:
       - red-produccion
     profiles:
@@ -52,7 +52,7 @@ services:
       - .env
     environment:
       NODE_ENV: production
-    command: ["sh", "-c", "npm run db:seed --workspace @jump/api"]
+    command: ["npm", "run", "db:seed", "--workspace", "@jump/api"]
     networks:
       - red-produccion
     profiles:
