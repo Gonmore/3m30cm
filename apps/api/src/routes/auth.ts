@@ -1,12 +1,15 @@
 import bcrypt from "bcryptjs";
 import { Prisma, SeasonPhase } from "@prisma/client";
 import { type Request, type Response, Router } from "express";
+import { randomBytes } from "crypto";
+import nodemailer from "nodemailer";
 import { z } from "zod";
 
 import { prisma } from "../config/prisma.js";
+import { env } from "../config/env.js";
 import { buildTrainingDaysJson, buildWeekdaysJson } from "../lib/athlete-programs.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
-import { createAccessToken } from "../lib/auth.js";
+import { createAccessToken, verifyGoogleIdToken } from "../lib/auth.js";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -221,5 +224,238 @@ authRouter.get("/me", requireAuth, async (req: AuthenticatedRequest, res: Respon
   } catch (error) {
     console.error("Failed to fetch current user", error);
     res.status(500).json({ message: "Failed to fetch current user" });
+  }
+});
+
+// ── Google OAuth ─────────────────────────────────────────────────────────────
+
+const googleSchema = z.object({ idToken: z.string().min(1) });
+
+authRouter.post("/google", async (req: Request, res: Response) => {
+  try {
+    const { idToken } = googleSchema.parse(req.body);
+    const googlePayload = await verifyGoogleIdToken(idToken);
+
+    const email = googlePayload.email.toLowerCase();
+
+    // Find or create user
+    let user = await prisma.user.findUnique({
+      where: { email },
+      include: { memberships: { select: { role: true } } },
+    });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email,
+          firstName: googlePayload.firstName,
+          lastName: googlePayload.lastName,
+          avatarUrl: googlePayload.picture,
+          oauthProvider: "google",
+          oauthProviderId: googlePayload.googleSub,
+          athleteProfile: {
+            create: {
+              displayName: `${googlePayload.firstName ?? ""} ${googlePayload.lastName ?? ""}`.trim() || email,
+            },
+          },
+        },
+        include: { memberships: { select: { role: true } } },
+      });
+    } else if (!user.oauthProviderId) {
+      // Existing password account — link Google
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          oauthProvider: "google",
+          oauthProviderId: googlePayload.googleSub,
+          avatarUrl: user.avatarUrl ?? googlePayload.picture,
+        },
+        include: { memberships: { select: { role: true } } },
+      });
+    }
+
+    const token = createAccessToken({
+      sub: user.id,
+      email: user.email,
+      platformRole: user.platformRole,
+      teamRoles: user.memberships.map((m) => m.role),
+    });
+
+    res.json({
+      accessToken: token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatarUrl: user.avatarUrl,
+        platformRole: user.platformRole,
+        teamRoles: user.memberships.map((m) => m.role),
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: "Invalid payload", issues: error.issues });
+      return;
+    }
+    console.error("Google auth failed", error);
+    res.status(401).json({ message: "Google authentication failed" });
+  }
+});
+
+// ── Forgot password ───────────────────────────────────────────────────────────
+
+const forgotPasswordSchema = z.object({ email: z.string().email() });
+
+authRouter.post("/forgot-password", async (req: Request, res: Response) => {
+  try {
+    const { email } = forgotPasswordSchema.parse(req.body);
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+
+    // Always respond 200 to prevent email enumeration
+    if (!user || !user.passwordHash) {
+      res.json({ message: "Si existe una cuenta, recibirás un email con instrucciones." });
+      return;
+    }
+
+    const token = randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + env.PASSWORD_RESET_EXPIRES_MINUTES * 60 * 1000);
+
+    // Invalidate previous tokens for this user
+    await prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    await prisma.passwordResetToken.create({
+      data: { userId: user.id, token, expiresAt },
+    });
+
+    const resetUrl = `${env.WEB_URL}/reset-password?token=${token}`;
+    const deepLink = `jump30cm-game://reset-password?token=${token}`;
+    const resetMessageText = `Abre este enlace en la app para restablecer tu contraseña:\n\n${deepLink}\n\nO desde el navegador:\n${resetUrl}\n\nEl enlace expira en ${env.PASSWORD_RESET_EXPIRES_MINUTES} minutos.`;
+    const resetMessageHtml = `<p>Toca el botón para restablecer tu contraseña:</p><p><a href="${deepLink}">Restablecer contraseña</a></p><p>O copia este enlace en tu navegador:<br><a href="${resetUrl}">${resetUrl}</a></p><p>El enlace expira en ${env.PASSWORD_RESET_EXPIRES_MINUTES} minutos.</p>`;
+
+    const logResetFallback = () => {
+      console.info(`[DEV] Password reset token for ${email}: ${token}`);
+      console.info(`[DEV] Password reset deep link for ${email}: ${deepLink}`);
+      console.info(`[DEV] Password reset web URL for ${email}: ${resetUrl}`);
+    };
+
+    if (env.SMTP_HOST && env.SMTP_USER) {
+      const transporter = nodemailer.createTransport({
+        host: env.SMTP_HOST,
+        port: env.SMTP_PORT,
+        secure: env.SMTP_SECURE,
+        auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+        tls: env.SMTP_TLS_SERVERNAME ? { servername: env.SMTP_TLS_SERVERNAME } : undefined,
+      });
+
+      try {
+        await transporter.sendMail({
+          from: env.SMTP_FROM,
+          to: user.email,
+          subject: "Restablecer contraseña — 3m30cm",
+          text: resetMessageText,
+          html: resetMessageHtml,
+        });
+      } catch (mailError) {
+        if (env.NODE_ENV !== "production") {
+          console.warn("SMTP send failed in non-production, using log fallback", mailError);
+          logResetFallback();
+        } else {
+          throw mailError;
+        }
+      }
+    } else {
+      // Dev fallback: log the token
+      logResetFallback();
+    }
+
+    res.json({ message: "Si existe una cuenta, recibirás un email con instrucciones." });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: "Invalid payload", issues: error.issues });
+      return;
+    }
+    console.error("Forgot password failed", error);
+    res.status(500).json({ message: "Forgot password failed" });
+  }
+});
+
+// ── Reset password (from email link) ─────────────────────────────────────────
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+authRouter.post("/reset-password", async (req: Request, res: Response) => {
+  try {
+    const { token, newPassword } = resetPasswordSchema.parse(req.body);
+
+    const record = await prisma.passwordResetToken.findUnique({ where: { token } });
+
+    if (!record || record.usedAt || record.expiresAt < new Date()) {
+      res.status(400).json({ message: "El enlace es inválido o ha expirado." });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
+      prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
+    ]);
+
+    res.json({ message: "Contraseña actualizada correctamente." });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: "Invalid payload", issues: error.issues });
+      return;
+    }
+    console.error("Reset password failed", error);
+    res.status(500).json({ message: "Reset password failed" });
+  }
+});
+
+// ── Change password (authenticated) ──────────────────────────────────────────
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+authRouter.patch("/change-password", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) { res.status(401).json({ message: "Authentication required" }); return; }
+
+    const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
+
+    if (!user?.passwordHash) {
+      res.status(400).json({ message: "Esta cuenta no tiene contraseña configurada (OAuth)." });
+      return;
+    }
+
+    const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isValid) {
+      res.status(401).json({ message: "La contraseña actual es incorrecta." });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+
+    res.json({ message: "Contraseña actualizada correctamente." });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: "Invalid payload", issues: error.issues });
+      return;
+    }
+    console.error("Change password failed", error);
+    res.status(500).json({ message: "Change password failed" });
   }
 });

@@ -76,3 +76,29 @@ export async function deleteExerciseMedia(objectKey: string) {
     }),
   );
 }
+
+export async function uploadAvatarMedia(params: {
+  userId: string;
+  fileName: string;
+  contentType: string;
+  data: Buffer;
+}) {
+  await ensureBucket();
+
+  const extension = extname(params.fileName) || ".jpg";
+  const objectKey = `avatars/${params.userId}/${Date.now()}-${randomUUID()}${extension}`;
+
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: env.MINIO_BUCKET,
+      Key: objectKey,
+      Body: params.data,
+      ContentType: params.contentType,
+    }),
+  );
+
+  const baseUrl = env.MINIO_PUBLIC_BASE_URL.replace(/\/$/, "");
+  const url = `${baseUrl}/${env.MINIO_BUCKET}/${objectKey}`;
+
+  return { objectKey, url };
+}

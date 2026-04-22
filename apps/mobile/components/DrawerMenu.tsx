@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { C, R, S } from "./tokens";
+import { R, S } from "./tokens";
+import { useTheme } from "./ThemeContext";
+import type { ColorPalette } from "./ThemeContext";
 
 export type AppScreen = "hoy" | "ejercicios" | "programa" | "evolucion";
 
@@ -34,6 +36,8 @@ export default function DrawerMenu({
   onLogout,
 }: DrawerMenuProps) {
   const insets = useSafeAreaInsets();
+  const { C } = useTheme();
+  const styles = makeStyles(C);
   const translateX = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const opacity    = useRef(new Animated.Value(0)).current;
 
@@ -119,106 +123,107 @@ export default function DrawerMenu({
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: C.overlay,
-  },
-  drawer: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 0,
-    width: DRAWER_WIDTH,
-    backgroundColor: C.drawerBg,
-    borderRightWidth: 1,
-    borderRightColor: C.borderStrong,
-    paddingHorizontal: S.md,
-    paddingBottom: S.xl,
-    gap: S.xs,
-  },
-  profileHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: S.sm,
-    paddingVertical: S.sm,
-    paddingHorizontal: S.xs,
-    marginBottom: S.xs,
-  },
-  profileAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: R.full,
-    backgroundColor: C.amber,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  profileAvatarText: {
-    color: C.bg,
-    fontWeight: "800",
-    fontSize: 16,
-  },
-  profileInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  profileName: {
-    color: C.text,
-    fontWeight: "700",
-    fontSize: 15,
-  },
-  profileEmail: {
-    color: C.textMuted,
-    fontSize: 12,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: C.border,
-    marginVertical: S.xs,
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: S.sm,
-    paddingVertical: 14,
-    paddingHorizontal: S.sm,
-    borderRadius: R.md,
-    position: "relative",
-  },
-  menuItemActive: {
-    backgroundColor: C.amberDim,
-  },
-  menuIcon: {
-    fontSize: 18,
-    width: 26,
-    textAlign: "center",
-    color: C.textMuted,
-  },
-  menuIconActive: {
-    color: C.amber,
-  },
-  menuLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: C.textSub,
-    flex: 1,
-  },
-  menuLabelActive: {
-    color: C.amber,
-  },
-  menuLabelDanger: {
-    color: C.danger,
-  },
-  activeBar: {
-    position: "absolute",
-    right: 0,
-    top: "25%",
-    bottom: "25%",
-    width: 3,
-    borderRadius: R.full,
-    backgroundColor: C.amber,
-  },
-});
+function makeStyles(C: ColorPalette) {
+  return StyleSheet.create({
+    overlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: C.overlay,
+    },
+    drawer: {
+      position: "absolute",
+      top: 0,
+      bottom: 0,
+      left: 0,
+      width: DRAWER_WIDTH,
+      backgroundColor: C.drawerBg,
+      borderRightWidth: 1,
+      borderRightColor: C.borderStrong,
+      paddingHorizontal: S.md,
+      paddingBottom: S.xl,
+      gap: S.xs,
+    },
+    profileHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: S.sm,
+      paddingVertical: S.sm,
+      paddingHorizontal: S.xs,
+      marginBottom: S.xs,
+    },
+    profileAvatar: {
+      width: 44,
+      height: 44,
+      borderRadius: R.full,
+      backgroundColor: C.amber,
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
+    },
+    profileAvatarText: {
+      color: C.bg,
+      fontWeight: "800",
+      fontSize: 16,
+    },
+    profileInfo: {
+      flex: 1,
+      gap: 2,
+    },
+    profileName: {
+      color: C.text,
+      fontWeight: "700",
+      fontSize: 15,
+    },
+    profileEmail: {
+      color: C.textMuted,
+      fontSize: 12,
+    },
+    divider: {
+      height: 1,
+      backgroundColor: C.border,
+      marginVertical: S.xs,
+    },
+    menuItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: S.sm,
+      paddingVertical: 14,
+      paddingHorizontal: S.sm,
+      borderRadius: R.md,
+      position: "relative",
+    },
+    menuItemActive: {
+      backgroundColor: C.amberDim,
+    },
+    menuIcon: {
+      fontSize: 18,
+      width: 26,
+      textAlign: "center",
+      color: C.textMuted,
+    },
+    menuIconActive: {
+      color: C.amber,
+    },
+    menuLabel: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: C.textSub,
+      flex: 1,
+    },
+    menuLabelActive: {
+      color: C.amber,
+    },
+    menuLabelDanger: {
+      color: C.danger,
+    },
+    activeBar: {
+      position: "absolute",
+      right: 0,
+      top: "25%",
+      bottom: "25%",
+      width: 3,
+      borderRadius: R.full,
+      backgroundColor: C.amber,
+    },
+  });
+}
 
-// Re-export types

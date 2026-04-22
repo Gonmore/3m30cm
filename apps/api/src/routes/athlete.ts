@@ -1,10 +1,12 @@
 import { DayType, Prisma, ProgramStatus, SeasonPhase, SeriesProtocol, SessionStatus } from "@prisma/client";
 import { type Response, Router } from "express";
+import multer from "multer";
 import { z } from "zod";
 
 import { prisma } from "../config/prisma.js";
 import { atLocalMidday, buildTrainingDaysJson, buildWeekdaysJson, generatePersonalProgram, parseWeekdaysJson } from "../lib/athlete-programs.js";
 import { buildSeriesProtocolGuidance } from "../lib/exercise-series.js";
+import { uploadAvatarMedia } from "../lib/minio.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const athleteProfileInclude = {
@@ -14,6 +16,8 @@ const athleteProfileInclude = {
       email: true,
       firstName: true,
       lastName: true,
+      avatarUrl: true,
+      oauthProvider: true,
     },
   },
   team: {
@@ -1515,5 +1519,51 @@ athleteRouter.post("/device-tokens", async (req: AuthenticatedRequest, res: Resp
 
     console.error("Failed to register device token", error);
     res.status(500).json({ message: "Failed to register device token" });
+  }
+});
+
+// ── Avatar upload ──────────────────────────────────────────────────────────
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  },
+});
+
+athleteRouter.patch("/me/avatar", avatarUpload.single("avatar"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    if (!userId) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+
+    if (!req.file) {
+      res.status(400).json({ error: "No image file provided" });
+      return;
+    }
+
+    const { url } = await uploadAvatarMedia({
+      userId,
+      fileName: req.file.originalname,
+      contentType: req.file.mimetype,
+      data: req.file.buffer,
+    });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl: url },
+    });
+
+    res.json({ avatarUrl: url });
+  } catch (error) {
+    console.error("Failed to upload avatar", error);
+    res.status(500).json({ error: "Failed to upload avatar" });
   }
 });

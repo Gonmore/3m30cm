@@ -5,8 +5,17 @@
     "scheme": "jump30cm-game",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/img/Estrella_SNT.png",
     "userInterfaceStyle": "dark",
-    "plugins": ["expo-router"],
+    "splash": {
+      "image": "./assets/img/Estrella_SNT.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A1628"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-web-browser"
+    ],
     "experiments": {
       "typedRoutes": true
     },
@@ -16,6 +25,10 @@
     },
     "android": {
       "package": "com.supernovatel.jump30cm.game",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/img/Estrella_SNT.png",
+        "backgroundColor": "#0A1628"
+      },
       "navigationBar": {
         "backgroundColor": "#000000",
         "barStyle": "light-content"

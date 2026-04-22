@@ -63,6 +63,53 @@ Registra un nuevo atleta.
 
 ---
 
+### POST `/api/v1/auth/forgot-password`
+
+Solicita un token de reset para la cuenta indicada.
+
+**Body:**
+```json
+{
+  "email": "string (required)"
+}
+```
+
+**Respuesta 200:**
+```json
+{
+  "message": "Si la cuenta existe, te enviaremos instrucciones para restablecer la contraseña"
+}
+```
+
+**Notas operativas:**
+- En producción intenta enviar el correo real por SMTP.
+- En desarrollo, si el SMTP falla por credenciales inválidas o configuración incompleta, el endpoint mantiene `200` y deja en logs el token, el deep link `jump30cm-game://reset-password?...` y la URL web `${WEB_URL}/reset-password?...` para seguir probando el flujo.
+
+---
+
+### POST `/api/v1/auth/reset-password`
+
+Consume un token de reset y define una nueva contraseña.
+
+**Body:**
+```json
+{
+  "token": "string (required)",
+  "password": "string, min 8 chars (required)"
+}
+```
+
+**Respuesta 200:**
+```json
+{
+  "message": "Password updated successfully"
+}
+```
+
+**Errores:** `400` token o payload inválido | `404` token inexistente o expirado
+
+---
+
 ### GET `/api/v1/auth/me`
 
 Obtiene el usuario autenticado. **Requiere auth.**
@@ -369,6 +416,13 @@ Health check.
 | `PORT` | Puerto del servidor | 4100 |
 | `DATABASE_URL` | URL de PostgreSQL (requerido) | — |
 | `WEB_URL` | URL del frontend (CORS) | http://localhost:4173 |
+| `SMTP_HOST` | Host SMTP para login/forgot-password | — |
+| `SMTP_PORT` | Puerto SMTP | 587 |
+| `SMTP_SECURE` | Usa SMTPS directo (`true`) o STARTTLS (`false`) | false |
+| `SMTP_TLS_SERVERNAME` | Hostname del certificado TLS cuando `SMTP_HOST` es alias/CNAME | — |
+| `SMTP_USER` | Usuario SMTP | — |
+| `SMTP_PASS` | Password SMTP | — |
+| `SMTP_FROM` | Remitente usado en correos transaccionales | noreply@3m30cm.supernovatel.com |
 | `MINIO_ENDPOINT` | Endpoint de MinIO/S3 | http://localhost:9000 |
 | `MINIO_PUBLIC_BASE_URL` | URL pública para assets | http://localhost:9000 |
 | `MINIO_BUCKET` | Bucket para media | jump-assets |
@@ -384,6 +438,7 @@ Health check.
 Notas:
 
 - En producción `WEB_URL` debe ser `https://3m30cm.supernovatel.com`.
+- Si el SMTP presenta un certificado para otro dominio distinto de `SMTP_HOST`, define `SMTP_TLS_SERVERNAME` con el hostname real que aparece en el certificado.
 - `MINIO_PUBLIC_BASE_URL` debe ser la base pública del host, sin incluir el bucket, porque la API construye la URL final como `base/bucket/objectKey`.
 - La web admin usa `/api/*` relativo por defecto; `VITE_API_BASE_URL` es un override opcional del frontend y no un requisito del backend.
 

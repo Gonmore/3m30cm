@@ -263,3 +263,84 @@ Se creo `supernovatel.md` en la raiz como documento operativo del proyecto.
 **Objetivo:**
 dejar capturado el patron real que ya funciona en `3m30cm` para reutilizarlo desde la fase de desarrollo del siguiente producto, en lugar de reconstruir decisiones de infraestructura sobre la marcha.
 
+---
+
+### 16. Google OAuth Android documentado para mobile2
+
+**Datos fijos del proyecto:**
+- Package / applicationId de `apps/mobile2`: `com.supernovatel.jump30cm.game`
+- Scheme de deep link: `jump30cm-game`
+
+**OAuth Android local:**
+- Client ID configurado para desarrollo: `346093521498-pgavsthdan4bjfsjilgg6pbkq0436jhp.apps.googleusercontent.com`
+- SHA-1 debug usado para crearlo: `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`
+
+**Decisión operativa:**
+- El backend ahora acepta múltiples client IDs de Google en `GOOGLE_CLIENT_ID_ANDROID` separados por coma.
+- Esto permite tener un client ID Android para debug/local y otro para release/producción dentro del mismo proyecto de Google sin volver a tocar código.
+- La app Expo en `apps/mobile2` sigue usando un único `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` por build, que debe corresponder al certificado con el que se firma ese build.
+
+**Obtención del SHA-1 de producción:**
+- Si el APK/AAB se firma con un keystore propio en servidor, usar `keytool -list -v -keystore /ruta/al/release.keystore -alias <alias> -storepass <storepass> -keypass <keypass>`.
+- Si la distribución final usa Google Play App Signing, el SHA-1 de producción que importa para OAuth sale de Play Console, en Integridad de la app, certificado de firma de la app.
+
+---
+
+### 17. Forgot-password estabilizado para TLS real y pruebas locales
+
+**Problemas detectados:**
+- El proveedor SMTP presentaba certificado TLS para un hostname distinto al alias usado en `SMTP_HOST`.
+- En local, cuando las credenciales SMTP seguían siendo placeholders o inválidas, `forgot-password` devolvía `500` y bloqueaba el test del flujo.
+
+**Cambios aplicados:**
+1. Se añadió `SMTP_TLS_SERVERNAME` al backend para validar TLS contra el hostname correcto del certificado.
+2. `POST /api/v1/auth/forgot-password` ahora en desarrollo devuelve `200` incluso si el envío SMTP falla, y escribe en logs:
+	- token de reset
+	- deep link `jump30cm-game://reset-password?...`
+	- URL web `${WEB_URL}/reset-password?...`
+3. En producción el endpoint mantiene fallo real si no puede entregar el correo, para no ocultar una caída del proveedor o credenciales rotas.
+
+**Resultado:**
+- El flujo de reset queda usable en local aunque el SMTP todavía no esté listo.
+- El mismo código soporta el caso real de alias DNS + certificado distinto sin desactivar validación TLS.
+
+---
+
+### 18. Limpieza de TypeScript y build en mobile2
+
+**Problemas detectados:**
+- `apps/mobile2/app/index.tsx` tenía errores de narrowing en la respuesta de Google Auth y un estilo faltante.
+- `apps/mobile2` heredaba errores desde componentes compartidos de `apps/mobile/components`.
+
+**Cambios aplicados:**
+1. Se corrigió el narrowing de `googleResponse.type === "success"` antes de leer `authentication`.
+2. Se agregó el estilo faltante `authSt.helperText`.
+3. `apps/mobile/components/ProfileModal.tsx` se alineó con `toggleTheme` en lugar del API viejo `toggleMode`.
+4. `apps/mobile/components/ThemeContext.tsx` pasó de tipar la paleta como `typeof dark` a una interfaz compatible con dark y light.
+5. Se validó `npm --prefix apps/mobile2 run build` con salida limpia.
+
+**Resultado:**
+- `apps/mobile2` queda TypeScript-clean tanto en la pantalla principal como en los componentes compartidos que consume.
+
+---
+
+### 19. Build Android local y limpieza de Problems en VS Code
+
+**Problemas detectados:**
+- `apps/mobile2` no tenía todo el árbol Android listo para un `assembleRelease` reproducible desde Windows.
+- VS Code mostraba errores falsos en `node_modules/*/tsconfig.json` de paquetes Expo (`expo-auth-session`, `expo-linking`, `expo-web-browser`, `expo-image-picker`).
+
+**Cambios aplicados:**
+1. Se incorporó el scaffold Android de `apps/mobile2` y el helper `apps/mobile2/scripts/build-android-apk.mjs`.
+2. El script `npm --prefix apps/mobile2 run apk:prod` ahora:
+	- detecta un JDK util
+	- detecta Android SDK
+	- recrea `android/local.properties`
+	- detiene daemons Gradle previos
+	- ejecuta `gradlew assembleRelease`
+3. Se añadió `.vscode/settings.json` para desactivar `project diagnostics` del tsserver y excluir `node_modules`, `.expo` y `dist` del análisis de workspace.
+
+**Resultado:**
+- El APK release ya tiene camino operativo documentado para Windows cuando el SDK está presente.
+- El workspace queda limpio en VS Code sin parchear dependencias dentro de `node_modules`.
+

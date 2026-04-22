@@ -20,6 +20,19 @@ const envSchema = z.object({
   SEED_SUPERADMIN_EMAIL: z.string().email().default("admin@3m30cm.local"),
   SEED_SUPERADMIN_PASSWORD: z.string().min(8).default("Admin123!"),
   APP_VERSION: z.string().min(1).default("dev"),
+  // Google OAuth
+  GOOGLE_CLIENT_ID_WEB: z.string().optional(),
+  GOOGLE_CLIENT_ID_ANDROID: z.string().optional(),
+  GOOGLE_CLIENT_ID_IOS: z.string().optional(),
+  // SMTP (password reset emails)
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z.coerce.boolean().default(false),
+  SMTP_TLS_SERVERNAME: z.string().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().default("noreply@3m30cm.supernovatel.com"),
+  PASSWORD_RESET_EXPIRES_MINUTES: z.coerce.number().int().positive().default(60),
 });
 
 export const env = envSchema.parse(process.env);

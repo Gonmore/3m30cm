@@ -1,11 +1,19 @@
 ﻿import Constants from "expo-constants";
+import * as AuthSession from "expo-auth-session";
 import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
+import { Ionicons } from "@expo/vector-icons";
+import * as Google from "expo-auth-session/providers/google";
+import * as WebBrowser from "expo-web-browser";
+import { useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { C, R, S } from "@mobile/components/tokens";
+import { useTheme } from "@mobile/components/ThemeContext";
 import AppHeader from "@mobile/components/AppHeader";
 import DrawerMenu, { type AppScreen } from "@mobile/components/DrawerMenu";
 import JumpGuideModal from "@mobile/components/JumpGuideModal";
+import { ProfileModal } from "@mobile/components/ProfileModal";
+import CoachDashboardScreen from "@mobile/components/screens/CoachDashboardScreen";
 import { apiBaseUrl, rewriteLocalAssetUrl } from "@mobile/components/runtimeConfig";
 import EjerciciosScreen from "@mobile/components/screens/EjerciciosScreen";
 import EvolucionScreen from "@mobile/components/screens/EvolucionScreen";
@@ -27,8 +35,49 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+// Required for expo-auth-session to handle browser redirects
+WebBrowser.maybeCompleteAuthSession();
+
 const accessTokenStorageKey = "jump-athlete-access-token";
 const calendarSyncStorageKey = "jump-athlete-calendar-sync";
+
+/** Decode a JWT payload without verifying the signature (client-side only). */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "==".slice(0, (4 - (base64.length % 4)) % 4);
+    const json = decodeURIComponent(
+      atob(padded)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function isCoachToken(token: string): boolean {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return false;
+  const platformRole = payload.platformRole as string | null;
+  const teamRoles = payload.teamRoles as string[] | null;
+  return (
+    platformRole === "COACH" ||
+    platformRole === "SUPERADMIN" ||
+    (Array.isArray(teamRoles) && teamRoles.includes("COACH"))
+  );
+}
+
+function hasAthleteRole(token: string): boolean {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return false;
+  const teamRoles = payload.teamRoles as string[] | null;
+  return Array.isArray(teamRoles) && teamRoles.includes("ATHLETE");
+}
 const reminderSyncStorageKey = "jump-athlete-reminder-sync";
 const trendWindowStorageKey = "jump-athlete-trend-window";
 const favoriteSessionStorageKey = "jump-athlete-favorite-session";
@@ -132,6 +181,8 @@ interface AthleteProfileResponse {
       email: string;
       firstName: string | null;
       lastName: string | null;
+      avatarUrl: string | null;
+      oauthProvider: string | null;
     };
     team: {
       id: string;
@@ -1108,33 +1159,47 @@ async function requestJson<T>(path: string, options: RequestInit = {}, accessTok
   return data;
 }
 
-// ── Auth screen styles (dark game theme) ──────────────────
-const authSt = StyleSheet.create({
-  safeArea:       { flex: 1, backgroundColor: C.bg },
-  scroll:         { flexGrow: 1, paddingHorizontal: S.lg, paddingBottom: S.xl, gap: S.md },
-  logoWrap:       { alignItems: 'center', paddingTop: 48, paddingBottom: S.lg, gap: S.sm },
-  logo:           { width: 160, height: 52 },
-  logoSub:        { color: C.textMuted, fontSize: 11, letterSpacing: 2.5, textTransform: 'uppercase' },
-  tabRow:         { flexDirection: 'row', backgroundColor: C.surface, borderRadius: R.full, padding: 4 },
-  tab:            { flex: 1, paddingVertical: 10, borderRadius: R.full, alignItems: 'center' },
-  tabActive:      { backgroundColor: C.amber },
-  tabText:        { color: C.textMuted, fontWeight: '600', fontSize: 14 },
-  tabTextActive:  { color: C.bg, fontWeight: '800' },
-  card:           { backgroundColor: C.surface, borderRadius: R.xl, padding: S.lg, borderWidth: 1, borderColor: C.border, gap: S.sm },
-  cardTitle:      { color: C.text, fontSize: 18, fontWeight: '700', marginBottom: 4 },
-  input:          { backgroundColor: C.surfaceRaise, borderRadius: R.md, paddingHorizontal: S.md, paddingVertical: 13, color: C.text, fontSize: 15, borderWidth: 1, borderColor: C.border },
-  primaryBtn:     { backgroundColor: C.amber, borderRadius: R.full, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
-  primaryBtnText: { color: C.bg, fontWeight: '800', fontSize: 15, letterSpacing: 0.4 },
-  errorText:      { color: C.danger, fontWeight: '600', fontSize: 13, textAlign: 'center' },
-  successText:    { color: C.teal, fontWeight: '600', fontSize: 13, textAlign: 'center' },
-  footer:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#000', paddingVertical: 14, paddingHorizontal: S.lg },
-  footerText:     { color: 'rgba(255,255,255,0.38)', fontSize: 10, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' },
-  byBadge:        { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center' },
-  byText:         { color: 'rgba(255,255,255,0.38)', fontSize: 7, fontWeight: '700' },
-  footerLogo:     { width: 72, height: 26, opacity: 0.42 },
-});
-
 export default function HomeScreen() {
+  const { C } = useTheme();
+  const { resetToken } = useLocalSearchParams<{ resetToken?: string }>();
+  const authSt = useMemo(() => StyleSheet.create({
+    safeArea:       { flex: 1, backgroundColor: C.bg },
+    scroll:         { flexGrow: 1, paddingHorizontal: S.lg, paddingBottom: S.xl, gap: S.md },
+    logoWrap:       { alignItems: 'center', paddingTop: 48, paddingBottom: S.lg, gap: S.sm },
+    logo:           { width: 160, height: 52 },
+    logoSub:        { color: C.textMuted, fontSize: 11, letterSpacing: 2.5, textTransform: 'uppercase' },
+    tabRow:         { flexDirection: 'row', backgroundColor: C.surface, borderRadius: R.full, padding: 4 },
+    tab:            { flex: 1, paddingVertical: 10, borderRadius: R.full, alignItems: 'center' },
+    tabActive:      { backgroundColor: C.amber },
+    tabText:        { color: C.textMuted, fontWeight: '600', fontSize: 14 },
+    tabTextActive:  { color: C.bg, fontWeight: '800' },
+    card:           { backgroundColor: C.surface, borderRadius: R.xl, padding: S.lg, borderWidth: 1, borderColor: C.border, gap: S.sm },
+    cardTitle:      { color: C.text, fontSize: 18, fontWeight: '700', marginBottom: 4 },
+    input:          { backgroundColor: C.surfaceRaise, borderRadius: R.md, paddingHorizontal: S.md, paddingVertical: 13, color: C.text, fontSize: 15, borderWidth: 1, borderColor: C.border },
+    pwRow:          { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surfaceRaise, borderRadius: R.md, borderWidth: 1, borderColor: C.border },
+    pwInput:        { flex: 1, paddingHorizontal: S.md, paddingVertical: 13, color: C.text, fontSize: 15 },
+    pwToggle:       { paddingHorizontal: 12, paddingVertical: 13 },
+    primaryBtn:     { backgroundColor: C.amber, borderRadius: R.full, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
+    primaryBtnText: { color: C.bg, fontWeight: '800', fontSize: 15, letterSpacing: 0.4 },
+    errorText:      { color: C.danger, fontWeight: '600', fontSize: 13, textAlign: 'center' },
+    successText:    { color: C.teal, fontWeight: '600', fontSize: 13, textAlign: 'center' },
+    footer:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#000', paddingVertical: 14, paddingHorizontal: S.lg },
+    footerText:     { color: 'rgba(255,255,255,0.38)', fontSize: 10, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' },
+    byBadge:        { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center' },
+    byText:         { color: 'rgba(255,255,255,0.38)', fontSize: 7, fontWeight: '700' },
+    footerLogo:     { width: 72, height: 26, opacity: 0.42 },
+    forgotLink:     { color: C.textMuted, fontSize: 13, textAlign: 'center', paddingVertical: 4 },
+    divider:        { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    dividerLine:    { flex: 1, height: 1, backgroundColor: C.border },
+    dividerText:    { color: C.textMuted, fontSize: 13 },
+    socialBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: C.borderStrong, borderRadius: R.full, paddingVertical: 12, backgroundColor: C.surfaceRaise },
+    socialBtnDisabled: { opacity: 0.5 },
+    socialBtnText:  { color: C.text, fontWeight: '600', fontSize: 14 },
+    helperText:     { color: C.textMuted, fontSize: 12, lineHeight: 18, textAlign: 'center' },
+    modalOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', paddingHorizontal: S.lg },
+    modalCard:      { backgroundColor: C.surface, borderRadius: R.xl, padding: S.lg, gap: S.sm, borderWidth: 1, borderColor: C.border },
+  }), [C]);
+
   const [booting, setBooting] = useState(true);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -1158,6 +1223,14 @@ export default function HomeScreen() {
   const [progress, setProgress] = useState<AthleteProgressResponse | null>(null);
   const [trendWindow, setTrendWindow] = useState<TrendWindow>("28D");
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [forgotPasswordVisible, setForgotPasswordVisible] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+  const [resetPasswordVisible, setResetPasswordVisible] = useState(false);
+  const [resetPasswordToken, setResetPasswordToken] = useState("");
+  const [resetPasswordNew, setResetPasswordNew] = useState("");
+  const [showResetPassword, setShowResetPassword] = useState(false);
   const [athleteSetup, setAthleteSetup] = useState<AthleteSetupState>(emptyAthleteSetup);
   const [startDateMode, setStartDateMode] = useState<'hoy' | 'manana' | 'otra'>('hoy');
   const [availableTemplates, setAvailableTemplates] = useState<PublicTemplateMeta[]>([]);
@@ -1175,6 +1248,15 @@ export default function HomeScreen() {
     void loadValidCachedSessionIds().then(setCachedSessionIds);
   }, []);
 
+  // Handle deep link reset token from _layout router push
+  useEffect(() => {
+    if (resetToken) {
+      setResetPasswordToken(resetToken);
+      setResetPasswordNew("");
+      setResetPasswordVisible(true);
+    }
+  }, [resetToken]);
+
   useEffect(() => {
     requestJson<{ templates: PublicTemplateMeta[] }>("/api/v1/templates/program-templates")
       .then((res) => {
@@ -1188,9 +1270,69 @@ export default function HomeScreen() {
 
   const [notificationPermission, setNotificationPermission] = useState<PermissionState>("unknown");
   const [calendarPermission, setCalendarPermission] = useState<PermissionState>("unknown");
+
+  const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB;
+  const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS;
+  const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID;
+  const expoProxyProjectFullName = ((Constants.expoConfig as (typeof Constants.expoConfig & { originalFullName?: string }) | null)?.originalFullName)
+    ?? (Constants.expoConfig?.owner
+      ? `@${Constants.expoConfig.owner}/${Constants.expoConfig.slug}`
+      : `@anonymous/${Constants.expoConfig?.slug ?? "3m30cm-game"}`);
+  const googleExpoGoRedirectUri = isExpoGo && googleWebClientId
+    ? `https://auth.expo.io/${expoProxyProjectFullName}`
+    : undefined;
+  const googleExpoGoReturnUrl = isExpoGo ? AuthSession.getDefaultReturnUrl() : undefined;
+  const googlePlatformClientConfigured = isExpoGo
+    ? Boolean(googleWebClientId)
+    : Platform.select({
+      android: Boolean(googleAndroidClientId),
+      ios: Boolean(googleIosClientId),
+      default: Boolean(googleWebClientId),
+    });
+
+  // Google OAuth hook
+  const [googleRequest, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
+    clientId: isExpoGo ? googleWebClientId : undefined,
+    androidClientId: !isExpoGo ? googleAndroidClientId ?? googleWebClientId ?? "missing-android-client-id" : undefined,
+    iosClientId: !isExpoGo ? googleIosClientId ?? googleWebClientId : undefined,
+    webClientId: googleWebClientId,
+    redirectUri: googleExpoGoRedirectUri,
+    responseType: isExpoGo ? AuthSession.ResponseType.IdToken : undefined,
+  });
+
+  const googleExpoGoPromptUrl = useMemo(() => {
+    if (!isExpoGo || !googleRequest?.url || !googleExpoGoRedirectUri || !googleExpoGoReturnUrl) {
+      return undefined;
+    }
+
+    const query = new URLSearchParams({
+      authUrl: googleRequest.url,
+      returnUrl: googleExpoGoReturnUrl,
+    });
+
+    return `${googleExpoGoRedirectUri}/start?${query.toString()}`;
+  }, [googleExpoGoRedirectUri, googleExpoGoReturnUrl, googleRequest?.url]);
+
+  useEffect(() => {
+    if (googleResponse?.type !== "success") {
+      return;
+    }
+
+    const googleIdToken = ("authentication" in googleResponse ? googleResponse.authentication?.idToken : undefined)
+      ?? googleResponse.params?.id_token;
+
+    if (googleIdToken) {
+      void handleGoogleSignIn(googleIdToken);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [googleResponse]);
   // ── New navigation state ──────────────────────────────────
   const [activeScreen, setActiveScreen] = useState<AppScreen>("hoy");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | null>(null);
+  // Coach role: "coach" = pure coach view, "athlete" = pure athlete, "both" = switcher
+  const [activeRole, setActiveRole] = useState<"athlete" | "coach">("athlete");
   const [exerciseStep, setExerciseStep] = useState(0);
   const [jumpGuideVisible, setJumpGuideVisible] = useState(false);
   const [todayProgressStep, setTodayProgressStep] = useState(0);
@@ -1372,6 +1514,11 @@ export default function HomeScreen() {
 
         if (savedToken) {
           setAccessToken(savedToken);
+          if (isCoachToken(savedToken) && !hasAthleteRole(savedToken)) {
+            setActiveRole("coach");
+          } else {
+            setActiveRole("athlete");
+          }
         }
       } finally {
         setBooting(false);
@@ -1533,6 +1680,7 @@ export default function HomeScreen() {
       setProfile(profileResponse.athleteProfile);
       setActiveProgram(profileResponse.activeProgram);
       setPlanningRecommendation(profileResponse.planningRecommendation);
+      setCurrentAvatarUrl(profileResponse.athleteProfile.user.avatarUrl ?? null);
       setPrograms(programsResponse.programs);
       setSessions(sessionsResponse.sessions);
       setProgress(progressResponse);
@@ -2022,6 +2170,12 @@ export default function HomeScreen() {
 
       await writeStoredValue(accessTokenStorageKey, response.accessToken);
       setAccessToken(response.accessToken);
+      // Route coach-only users directly to coach dashboard
+      if (isCoachToken(response.accessToken) && !hasAthleteRole(response.accessToken)) {
+        setActiveRole("coach");
+      } else {
+        setActiveRole("athlete");
+      }
       setMessage("Sesion iniciada correctamente.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo iniciar sesion");
@@ -2055,10 +2209,78 @@ export default function HomeScreen() {
 
       await writeStoredValue(accessTokenStorageKey, response.accessToken);
       setAccessToken(response.accessToken);
+      setActiveRole("athlete"); // Registered users are always athletes
       setLoginForm({ email: athleteSetup.email, password: athleteSetup.password });
       setMessage("Cuenta creada. Completa tu contexto y genera tu primer bloque desde la app.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo crear la cuenta");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogleSignIn(idToken: string) {
+    try {
+      setLoading(true);
+      setError("");
+      const response = await requestJson<LoginResponse>("/api/v1/auth/google", {
+        method: "POST",
+        body: JSON.stringify({ idToken }),
+      });
+      await writeStoredValue(accessTokenStorageKey, response.accessToken);
+      setAccessToken(response.accessToken);
+      if (isCoachToken(response.accessToken) && !hasAthleteRole(response.accessToken)) {
+        setActiveRole("coach");
+      } else {
+        setActiveRole("athlete");
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo iniciar sesion con Google");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleForgotPassword() {
+    if (!forgotPasswordEmail.trim()) {
+      setError("Ingresa tu email para restablecer la contraseña.");
+      return;
+    }
+    try {
+      setLoading(true);
+      setError("");
+      await requestJson<{ message: string }>("/api/v1/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: forgotPasswordEmail }),
+      });
+      setForgotPasswordVisible(false);
+      setForgotPasswordEmail("");
+      setMessage("Si existe una cuenta, recibirás un email con instrucciones.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo enviar el email");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResetPassword() {
+    if (!resetPasswordNew || resetPasswordNew.length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
+    try {
+      setLoading(true);
+      setError("");
+      await requestJson<{ message: string }>("/api/v1/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ token: resetPasswordToken, newPassword: resetPasswordNew }),
+      });
+      setResetPasswordVisible(false);
+      setResetPasswordToken("");
+      setResetPasswordNew("");
+      setMessage("Contraseña actualizada. Inicia sesión con tu nueva contraseña.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo restablecer la contraseña");
     } finally {
       setLoading(false);
     }
@@ -2288,17 +2510,47 @@ export default function HomeScreen() {
                   value={loginForm.email}
                   onChangeText={(value) => setLoginForm((current) => ({ ...current, email: value }))}
                 />
-                <TextInput
-                  secureTextEntry
-                  placeholder="Contraseña"
-                  placeholderTextColor={C.textDisabled}
-                  style={authSt.input}
-                  value={loginForm.password}
-                  onChangeText={(value) => setLoginForm((current) => ({ ...current, password: value }))}
-                />
+                <View style={authSt.pwRow}>
+                  <TextInput
+                    secureTextEntry={!showLoginPassword}
+                    placeholder="Contraseña"
+                    placeholderTextColor={C.textDisabled}
+                    style={authSt.pwInput}
+                    value={loginForm.password}
+                    onChangeText={(value) => setLoginForm((current) => ({ ...current, password: value }))}
+                  />
+                  <Pressable style={authSt.pwToggle} onPress={() => setShowLoginPassword((v) => !v)}>
+                    <Ionicons name={showLoginPassword ? "eye-off" : "eye"} size={20} color={C.textMuted} />
+                  </Pressable>
+                </View>
                 <Pressable style={authSt.primaryBtn} onPress={() => void handleLogin()} disabled={loading}>
                   <Text style={authSt.primaryBtnText}>{loading ? "Entrando..." : "Entrar"}</Text>
                 </Pressable>
+                <Pressable onPress={() => { setForgotPasswordEmail(loginForm.email); setForgotPasswordVisible(true); }}>
+                  <Text style={authSt.forgotLink}>¿Olvidaste tu contraseña?</Text>
+                </Pressable>
+                <View style={authSt.divider}>
+                  <View style={authSt.dividerLine} />
+                  <Text style={authSt.dividerText}>o</Text>
+                  <View style={authSt.dividerLine} />
+                </View>
+                <Pressable
+                  style={[authSt.socialBtn, (!googleRequest || !googlePlatformClientConfigured) && authSt.socialBtnDisabled]}
+                  onPress={() => void promptGoogleAsync(googleExpoGoPromptUrl ? { url: googleExpoGoPromptUrl } : undefined)}
+                  disabled={!googleRequest || !googlePlatformClientConfigured || loading}
+                >
+                  <Ionicons name="logo-google" size={18} color={C.text} />
+                  <Text style={authSt.socialBtnText}>Continuar con Google</Text>
+                </Pressable>
+                {Platform.OS === "android" && !googleAndroidClientId ? (
+                  <Text style={authSt.helperText}>
+                    Falta configurar EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID para habilitar Google en Android.
+                  </Text>
+                ) : isExpoGo && googleExpoGoRedirectUri ? (
+                  <Text style={authSt.helperText}>
+                    En Expo Go, Google usa el client web y el redirect URI {googleExpoGoRedirectUri}.
+                  </Text>
+                ) : null}
               </>
             ) : (
               <>
@@ -2328,14 +2580,19 @@ export default function HomeScreen() {
                   value={athleteSetup.email}
                   onChangeText={(value) => setAthleteSetup((current) => ({ ...current, email: value }))}
                 />
-                <TextInput
-                  secureTextEntry
-                  placeholder="Contraseña"
-                  placeholderTextColor={C.textDisabled}
-                  style={authSt.input}
-                  value={athleteSetup.password}
-                  onChangeText={(value) => setAthleteSetup((current) => ({ ...current, password: value }))}
-                />
+                <View style={authSt.pwRow}>
+                  <TextInput
+                    secureTextEntry={!showRegPassword}
+                    placeholder="Contraseña"
+                    placeholderTextColor={C.textDisabled}
+                    style={authSt.pwInput}
+                    value={athleteSetup.password}
+                    onChangeText={(value) => setAthleteSetup((current) => ({ ...current, password: value }))}
+                  />
+                  <Pressable style={authSt.pwToggle} onPress={() => setShowRegPassword((v) => !v)}>
+                    <Ionicons name={showRegPassword ? "eye-off" : "eye"} size={20} color={C.textMuted} />
+                  </Pressable>
+                </View>
                 <TextInput
                   placeholder="Nombre visible"
                   placeholderTextColor={C.textDisabled}
@@ -2360,12 +2617,112 @@ export default function HomeScreen() {
           <View style={authSt.byBadge}><Text style={authSt.byText}>by</Text></View>
           <Image source={require('../assets/img/Logo_Blanco.png')} style={authSt.footerLogo} resizeMode="contain" />
         </View>
+
+        {/* ── Forgot password modal ── */}
+        <Modal visible={forgotPasswordVisible} transparent animationType="fade" onRequestClose={() => setForgotPasswordVisible(false)}>
+          <Pressable style={authSt.modalOverlay} onPress={() => setForgotPasswordVisible(false)}>
+            <Pressable style={authSt.modalCard} onPress={() => { /* prevent close */ }}>
+              <Text style={authSt.cardTitle}>Restablecer contraseña</Text>
+              <Text style={{ color: C.textSub, fontSize: 14, marginBottom: 4 }}>
+                Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña.
+              </Text>
+              <TextInput
+                autoCapitalize="none"
+                keyboardType="email-address"
+                placeholder="Email"
+                placeholderTextColor={C.textDisabled}
+                style={authSt.input}
+                value={forgotPasswordEmail}
+                onChangeText={setForgotPasswordEmail}
+              />
+              <Pressable style={authSt.primaryBtn} onPress={() => void handleForgotPassword()} disabled={loading}>
+                <Text style={authSt.primaryBtnText}>{loading ? "Enviando..." : "Enviar instrucciones"}</Text>
+              </Pressable>
+              <Pressable onPress={() => setForgotPasswordVisible(false)} style={{ alignItems: 'center', paddingVertical: 4 }}>
+                <Text style={{ color: C.textMuted, fontSize: 14 }}>Cancelar</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* ── Reset password modal (from deep link) ── */}
+        <Modal visible={resetPasswordVisible} transparent animationType="fade" onRequestClose={() => setResetPasswordVisible(false)}>
+          <Pressable style={authSt.modalOverlay} onPress={() => setResetPasswordVisible(false)}>
+            <Pressable style={authSt.modalCard} onPress={() => { /* prevent close */ }}>
+              <Text style={authSt.cardTitle}>Nueva contraseña</Text>
+              <Text style={{ color: C.textSub, fontSize: 14, marginBottom: 4 }}>
+                Ingresa tu nueva contraseña (mínimo 8 caracteres).
+              </Text>
+              <View style={authSt.pwRow}>
+                <TextInput
+                  secureTextEntry={!showResetPassword}
+                  placeholder="Nueva contraseña"
+                  placeholderTextColor={C.textDisabled}
+                  style={authSt.pwInput}
+                  value={resetPasswordNew}
+                  onChangeText={setResetPasswordNew}
+                />
+                <Pressable style={authSt.pwToggle} onPress={() => setShowResetPassword((v) => !v)}>
+                  <Ionicons name={showResetPassword ? "eye-off" : "eye"} size={20} color={C.textMuted} />
+                </Pressable>
+              </View>
+              <Pressable style={authSt.primaryBtn} onPress={() => void handleResetPassword()} disabled={loading || resetPasswordNew.length < 8}>
+                <Text style={authSt.primaryBtnText}>{loading ? "Guardando..." : "Guardar contraseña"}</Text>
+              </Pressable>
+              <Pressable onPress={() => setResetPasswordVisible(false)} style={{ alignItems: 'center', paddingVertical: 4 }}>
+                <Text style={{ color: C.textMuted, fontSize: 14 }}>Cancelar</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </SafeAreaView>
     );
   }
 
+  // ── Coach dashboard view ──────────────────────────────────────
+  if (accessToken && activeRole === "coach") {
+    const hasAthlete = hasAthleteRole(accessToken);
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <AppHeader
+          title="⚡  ENTRENADOR"
+          subtitle="Panel de coach"
+          onMenuPress={() => setDrawerOpen(true)}
+          onAvatarPress={() => setProfileModalVisible(true)}
+          avatarUrl={currentAvatarUrl}
+          athleteInitials={profile ? athleteInitials : "CO"}
+        />
+        {hasAthlete && (
+          <View style={{ flexDirection: 'row', backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
+            <Pressable
+              style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: C.textMuted }}
+              onPress={() => setActiveRole("athlete")}
+            >
+              <Text style={{ color: C.textMuted, fontWeight: '600', fontSize: 13 }}>Atleta</Text>
+            </Pressable>
+            <Pressable
+              style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: C.amber }}
+            >
+              <Text style={{ color: C.amber, fontWeight: '700', fontSize: 13 }}>Entrenador</Text>
+            </Pressable>
+          </View>
+        )}
+        <CoachDashboardScreen accessToken={accessToken} apiBase={apiBaseUrl} />
+        <ProfileModal
+          visible={profileModalVisible}
+          onClose={() => setProfileModalVisible(false)}
+          accessToken={accessToken}
+          avatarUrl={currentAvatarUrl}
+          onAvatarChange={(url) => setCurrentAvatarUrl(url)}
+          isOAuthUser={!!profile?.user.oauthProvider}
+          apiBase={apiBaseUrl}
+        />
+      </View>
+    );
+  }
+
   return (
-    <View style={{ flex: 1, backgroundColor: '#0A1628' }}>
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
       {/* ── TOP BAR ───────────────────────────────────── */}
       <AppHeader
         title={
@@ -2384,8 +2741,27 @@ export default function HomeScreen() {
                 : `Racha: ${progress?.summary.currentStreak ?? 0}`
         }
         onMenuPress={() => setDrawerOpen(true)}
+        onAvatarPress={() => setProfileModalVisible(true)}
+        avatarUrl={currentAvatarUrl}
         athleteInitials={athleteInitials}
       />
+
+      {/* Role switcher for users with both athlete + coach roles */}
+      {accessToken && isCoachToken(accessToken) && hasAthleteRole(accessToken) && (
+        <View style={{ flexDirection: 'row', backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <Pressable
+            style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: C.amber }}
+          >
+            <Text style={{ color: C.amber, fontWeight: '700', fontSize: 13 }}>Atleta</Text>
+          </Pressable>
+          <Pressable
+            style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: C.textMuted }}
+            onPress={() => setActiveRole("coach")}
+          >
+            <Text style={{ color: C.textMuted, fontWeight: '600', fontSize: 13 }}>Entrenador</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* ── SCREENS ───────────────────────────────────── */}
       {activeScreen === "hoy" ? (
@@ -2510,6 +2886,17 @@ export default function HomeScreen() {
 
       {/* ── JUMP GUIDE ────────────────────────────────── */}
       <JumpGuideModal visible={jumpGuideVisible} onClose={() => setJumpGuideVisible(false)} />
+
+      {/* ── PROFILE MODAL ─────────────────────────────── */}
+      <ProfileModal
+        visible={profileModalVisible}
+        onClose={() => setProfileModalVisible(false)}
+        accessToken={accessToken ?? ""}
+        avatarUrl={currentAvatarUrl}
+        onAvatarChange={(url) => setCurrentAvatarUrl(url)}
+        isOAuthUser={!!profile?.user.oauthProvider}
+        apiBase={apiBaseUrl}
+      />
 
       {/* ── TOAST ─────────────────────────────────────── */}
       {(error || message) ? (

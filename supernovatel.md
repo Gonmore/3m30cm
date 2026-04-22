@@ -152,6 +152,7 @@ El script hoy hace exactamente esto:
 - La API y la web se etiquetan con la misma version temporal.
 - El script mide tiempos de build, push y tareas remotas para detectar cuellos de botella.
 - El `seed` no corre siempre; queda controlado por variable remota.
+- Si el proveedor SMTP se consume por un alias DNS cuyo certificado TLS pertenece a otro host canonico, hay que definir `SMTP_TLS_SERVERNAME` con el nombre que realmente aparece en el certificado.
 
 ### Requisitos minimos del servidor remoto
 
@@ -162,6 +163,30 @@ El script hoy hace exactamente esto:
 - archivo `.env` remoto correcto
 - `docker-compose.prod.yml` remoto presente
 - red Docker externa existente
+
+### SMTP y reset de contraseña
+
+El flujo de `forgot-password` del backend usa Nodemailer con `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM`.
+
+Cuando el host SMTP publico es un alias o CNAME y el certificado TLS presentado pertenece a otro dominio, no basta con cambiar el puerto: Node validara el nombre del certificado contra el host de conexion y fallara con `ERR_TLS_CERT_ALTNAME_INVALID`.
+
+En ese caso hay que agregar en el `.env`:
+
+```bash
+SMTP_TLS_SERVERNAME=<hostname-que-si-esta-en-el-certificado>
+```
+
+Caso real en `3m30cm`:
+
+- `SMTP_HOST=mail.supernovatel.com`
+- el certificado presentado corresponde a `*.ferozo.com`
+- por eso se debe fijar `SMTP_TLS_SERVERNAME=ferozo.com`
+
+Esto permite mantener el host de conexion actual y a la vez validar TLS contra el nombre correcto del certificado.
+
+En desarrollo, si el SMTP responde pero las credenciales siguen siendo placeholders o invalidas, el backend no debe bloquear las pruebas del flujo: `forgot-password` hace fallback a log y escribe token, deep link y URL web en logs cuando `NODE_ENV !== production`.
+
+En produccion ese fallback no aplica: si falla el envio real del correo, el endpoint mantiene error para no ocultar una caida del proveedor SMTP o credenciales rotas.
 
 ## 6. Apps Expo: dev vs prod
 
@@ -210,6 +235,38 @@ npm --prefix apps/mobile2 run web:prod
 - En `prod`, `EXPO_PUBLIC_API_BASE_URL` se fija a `https://3m30cm.supernovatel.com`.
 - `mobile` usa puerto `8081`.
 - `mobile2` usa puerto `8082` y `--clear`.
+- `mobile2` expone `build` (`tsc --noEmit`) para validar primero el workspace compartido antes de abrir Expo.
+- `mobile2` expone `apk:prod`, que llama a `scripts/build-android-apk.mjs` para detectar JDK/Android SDK, regenerar `android/local.properties` y ejecutar `assembleRelease` desde Windows.
+
+### VS Code y tsconfig de dependencias Expo
+
+Cuando el workspace incluye apps Expo dentro de un monorepo, VS Code puede intentar diagnosticar `tsconfig.json` internos de `node_modules` como si fueran proyectos del workspace y ensuciar Problems con errores irrelevantes.
+
+En `3m30cm` la salida operativa fue dejar un `.vscode/settings.json` con estas decisiones:
+
+- fijar `typescript.tsdk` al TypeScript del repo
+- desactivar `typescript.tsserver.experimental.enableProjectDiagnostics`
+- desactivar `typescript.disableAutomaticTypeAcquisition`
+- excluir `node_modules`, `.expo` y `dist` de watchers y búsqueda
+
+Eso mantiene el editor enfocado en el código del repo y evita tocar dependencias instaladas.
+
+### Google OAuth Android
+
+- El package name / applicationId de `apps/mobile2` es `com.supernovatel.jump30cm.game`.
+- Ese valor debe coincidir con el client OAuth Android creado en Google Cloud.
+- En desarrollo se puede usar un client ID Android asociado al SHA-1 del `debug.keystore`.
+- En producción normalmente habrá otro client ID Android asociado al certificado release o al certificado de firma de Google Play.
+- No hay problema en tener varios client IDs Android dentro del mismo proyecto de Google; es el escenario correcto cuando cambia la firma entre debug y release.
+- En el backend, `GOOGLE_CLIENT_ID_ANDROID` puede contener varios client IDs separados por coma para aceptar ambos audiences.
+
+Para obtener el SHA-1 de producción desde un servidor que tenga el keystore release disponible:
+
+```bash
+keytool -list -v -keystore /ruta/al/release.keystore -alias <alias> -storepass <storepass> -keypass <keypass>
+```
+
+Si el release real se publica con Google Play App Signing, ese SHA-1 no sale del servidor sino de Play Console, en Integridad de la app.
 
 ### Por que se hace asi
 

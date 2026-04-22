@@ -36,6 +36,8 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - La API expone gestion de equipos, membresias, perfiles de atleta, asignacion coach-atleta, generacion de `PersonalProgram` con `ScheduledSession` y endpoints operativos del atleta para agenda y logging.
 - Las app moviles consumen login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local y registro de cumplimiento con metricas.
 - Se eliminan automaticamente los programas archivados de la vista de sesiones cuando se regenera un programa.
+- `forgot-password` ya soporta envio SMTP con override de TLS por `SMTP_TLS_SERVERNAME` y, en desarrollo, hace fallback a log con token, deep link y URL de reset si el SMTP falla, sin bloquear las pruebas locales.
+- `apps/mobile2` ya queda build-clean con `npm --prefix apps/mobile2 run build` y tiene helper dedicado para ensamblar APK release desde Windows cuando hay JDK + Android SDK instalados.
 
 ## Requisitos previos
 
@@ -124,6 +126,8 @@ npm --prefix apps/mobile run prod
 
 npm --prefix apps/mobile2 run dev
 npm --prefix apps/mobile2 run prod
+npm --prefix apps/mobile2 run build
+npm --prefix apps/mobile2 run apk:prod
 ```
 
 Atajos desde la raiz para modo local:
@@ -161,6 +165,9 @@ Notas de runtime:
 - En `dev`, los scripts limpian `EXPO_PUBLIC_API_BASE_URL` y la app cae al flujo local definido en `runtimeConfig.ts`.
 - En `prod`, los scripts fuerzan `EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com`.
 - Ya no hace falta editar `.env` para alternar entre backend local y backend publico.
+- `npm --prefix apps/mobile2 run build` corre `tsc --noEmit` para validar el workspace compartido antes de probar Expo o Android.
+- `npm --prefix apps/mobile2 run apk:prod` usa `apps/mobile2/scripts/build-android-apk.mjs`, detecta `JAVA_HOME`/Android SDK, recrea `android/local.properties` y ejecuta `gradlew assembleRelease`; sin Android SDK instalado el build falla por prerequisito, no por la app.
+- Si VS Code sigue mostrando errores en `node_modules/*/tsconfig.json` de Expo despues de actualizar el repo, recarga la ventana o reinicia TypeScript para que tome `.vscode/settings.json`.
 
 ## Proximos pasos recomendados
 

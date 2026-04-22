@@ -30,6 +30,8 @@ apps/api/dev.db
 
 # IDE / OS
 .vscode/
+!.vscode/
+!.vscode/settings.json
 .DS_Store
 Thumbs.db
 
