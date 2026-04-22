@@ -2,21 +2,20 @@ FROM node:20-alpine AS builder
 
 WORKDIR /workspace
 
-# Copy workspace manifests
-COPY package*.json ./
+# Copy only manifests required by the web app to keep Docker cache isolated
+# from unrelated workspace dependency churn.
 COPY tsconfig.base.json ./
-COPY apps/web/package*.json ./apps/web/
-COPY packages/shared/package*.json ./packages/shared/
+COPY apps/web/package.json ./apps/web/package.json
+COPY apps/web/package-lock.json ./apps/web/package-lock.json
 
-# Install only the web workspace deps needed for the production bundle
-RUN npm ci --workspace @jump/web --include-workspace-root false
+# Install only the web app deps needed for the production bundle.
+RUN npm ci --prefix apps/web --ignore-scripts
 
-# Copy workspace sources needed by the web build
-COPY packages/shared/ ./packages/shared/
+# Copy web sources needed by the build.
 COPY apps/web/ ./apps/web/
 
-# Build static assets
-RUN npm run build --workspace @jump/web
+# Build static assets.
+RUN npm --prefix apps/web run build
 
 # ---------------------------------------------------
 FROM nginx:alpine AS runner

@@ -10,10 +10,12 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "3m30cm-platform": "file:../..",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@types/node": "^22.14.0",
     "@types/react": "^19.1.17",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^4.3.4",

@@ -2,22 +2,22 @@ FROM node:20-alpine AS builder
 
 WORKDIR /workspace
 
-# Copy workspace manifests
-COPY package*.json ./
+# Copy only manifests required by the API app to keep Docker cache isolated
+# from unrelated workspace changes such as mobile/web package-lock updates.
+COPY package.json ./package.json
 COPY tsconfig.base.json ./
-COPY apps/api/package*.json ./apps/api/
-COPY packages/shared/package*.json ./packages/shared/
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/api/package-lock.json ./apps/api/package-lock.json
 
-# Install the API workspace with build dependencies
-RUN npm ci --workspace @jump/api --include-workspace-root false
+# Install the API app with its own lockfile.
+RUN npm ci --prefix apps/api --ignore-scripts
 
-# Copy sources needed by the API build
-COPY packages/shared/ ./packages/shared/
+# Copy API sources needed by the build.
 COPY apps/api/ ./apps/api/
 
-# Generate Prisma client and compile TypeScript
-RUN npm run prisma:generate --workspace @jump/api
-RUN npm run build --workspace @jump/api
+# Generate Prisma client and compile TypeScript.
+RUN npm --prefix apps/api run prisma:generate
+RUN npm --prefix apps/api run build
 
 FROM node:20-alpine AS runner
 
@@ -25,19 +25,18 @@ WORKDIR /workspace
 
 ENV NODE_ENV=production
 
-# Copy only the manifests and Prisma schema needed at runtime
-COPY package*.json ./
-COPY tsconfig.base.json ./
-COPY apps/api/package*.json ./apps/api/
+# Copy only runtime manifests and schema for the API app.
+COPY package.json ./package.json
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/api/package-lock.json ./apps/api/package-lock.json
 COPY apps/api/prisma/ ./apps/api/prisma/
-COPY packages/shared/package*.json ./packages/shared/
 
-# Install only production dependencies required by the API and deploy tools
-RUN npm ci --omit=dev --workspace @jump/api --include-workspace-root false
-RUN npm run prisma:generate --workspace @jump/api
+# Install only production dependencies for the API app.
+RUN npm ci --omit=dev --prefix apps/api --ignore-scripts
+RUN npm --prefix apps/api run prisma:generate
 RUN npm cache clean --force && rm -rf /root/.npm /root/.cache
 
-# Copy the compiled output only
+# Copy the compiled output only.
 COPY --from=builder /workspace/apps/api/dist/ ./apps/api/dist/
 
 EXPOSE 4100
