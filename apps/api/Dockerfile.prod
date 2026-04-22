@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
 WORKDIR /workspace
 
@@ -8,10 +8,10 @@ COPY tsconfig.base.json ./
 COPY apps/api/package*.json ./apps/api/
 COPY packages/shared/package*.json ./packages/shared/
 
-# Install only the API workspace deps needed to build and run deploy tools
+# Install the API workspace with build dependencies
 RUN npm ci --workspace @jump/api --include-workspace-root false
 
-# Copy workspace sources needed by the API build
+# Copy sources needed by the API build
 COPY packages/shared/ ./packages/shared/
 COPY apps/api/ ./apps/api/
 
@@ -19,7 +19,27 @@ COPY apps/api/ ./apps/api/
 RUN npm run prisma:generate --workspace @jump/api
 RUN npm run build --workspace @jump/api
 
+FROM node:20-alpine AS runner
+
+WORKDIR /workspace
+
 ENV NODE_ENV=production
+
+# Copy only the manifests and Prisma schema needed at runtime
+COPY package*.json ./
+COPY tsconfig.base.json ./
+COPY apps/api/package*.json ./apps/api/
+COPY apps/api/prisma/ ./apps/api/prisma/
+COPY packages/shared/package*.json ./packages/shared/
+
+# Install only production dependencies required by the API and deploy tools
+RUN npm ci --omit=dev --workspace @jump/api --include-workspace-root false
+RUN npm run prisma:generate --workspace @jump/api
+RUN npm cache clean --force && rm -rf /root/.npm /root/.cache
+
+# Copy the compiled output only
+COPY --from=builder /workspace/apps/api/dist/ ./apps/api/dist/
+
 EXPOSE 4100
 
 CMD ["node", "./apps/api/dist/index.js"]

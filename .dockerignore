@@ -13,3 +13,11 @@
 !packages/
 !packages/shared/
 !packages/shared/**
+
+# Never send local dependency/build artifacts in the Docker context.
+apps/api/node_modules
+apps/api/dist
+apps/api/.cache
+apps/web/node_modules
+apps/web/dist
+apps/web/.cache

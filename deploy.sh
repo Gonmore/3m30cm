@@ -8,10 +8,29 @@ SERVER_IP="192.168.10.57"
 SERVER_PATH="~/app-server/proyectos/3m30cm"
 PROD_URL="https://3m30cm.supernovatel.com"
 VERSION=$(date +%Y%m%d%H%M)
+USE_REGISTRY_CACHE=${USE_REGISTRY_CACHE:-0}
 
 format_elapsed() {
   local elapsed=$1
   printf "%dm %02ds" $((elapsed / 60)) $((elapsed % 60))
+}
+
+build_and_push_image() {
+  local image=$1
+  local dockerfile=$2
+
+  if [ "$USE_REGISTRY_CACHE" = "1" ] && docker buildx version >/dev/null 2>&1; then
+    docker buildx build \
+      --push \
+      --cache-from "type=registry,ref=${image}:buildcache" \
+      --cache-to "type=registry,ref=${image}:buildcache,mode=max" \
+      -t "${image}:$VERSION" \
+      -f "$dockerfile" \
+      .
+  else
+    docker build -t "${image}:$VERSION" -f "$dockerfile" .
+    docker push "${image}:$VERSION"
+  fi
 }
 
 TOTAL_STARTED=$SECONDS
@@ -20,25 +39,13 @@ echo "🏗️  1. Iniciando construcción de versión: $VERSION"
 
 # Build & Push Backend
 STEP_STARTED=$SECONDS
-docker build -t $USER_DOCKER/api-3m30cm:$VERSION \
-  -f apps/api/Dockerfile.prod \
-  .
-echo "⏱️  Build API local: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
-
-STEP_STARTED=$SECONDS
-docker push $USER_DOCKER/api-3m30cm:$VERSION
-echo "⏱️  Push API Docker Hub: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
+build_and_push_image "$USER_DOCKER/api-3m30cm" "apps/api/Dockerfile.prod"
+echo "⏱️  Build+push API: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
 
 # Build & Push Web
 STEP_STARTED=$SECONDS
-docker build -t $USER_DOCKER/web-3m30cm:$VERSION \
-  -f apps/web/Dockerfile.prod \
-  .
-echo "⏱️  Build Web local: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
-
-STEP_STARTED=$SECONDS
-docker push $USER_DOCKER/web-3m30cm:$VERSION
-echo "⏱️  Push Web Docker Hub: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
+build_and_push_image "$USER_DOCKER/web-3m30cm" "apps/web/Dockerfile.prod"
+echo "⏱️  Build+push Web: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
 
 echo "🚀 2. Actualizando servidor remoto..."
 
@@ -67,10 +74,29 @@ ssh "$SERVER_USER@$SERVER_IP" "SERVER_PATH=$SERVER_PATH VERSION=$VERSION bash -s
   # NO "source" .env: docker env-files permiten espacios sin quotes
   # que rompen el parser de shell. Solo leemos RUN_SEED_ON_DEPLOY de forma segura.
   RUN_SEED_ON_DEPLOY=0
+  SMTP_HOST=
+  SMTP_TLS_SERVERNAME=
   if [ -f .env ]; then
     value=$(grep -E '^RUN_SEED_ON_DEPLOY=' .env | tail -n 1 | cut -d= -f2- | tr -d '\r')
     if [ -n "${value:-}" ]; then
       RUN_SEED_ON_DEPLOY="$value"
+    fi
+
+    value=$(grep -E '^SMTP_HOST=' .env | tail -n 1 | cut -d= -f2- | tr -d '\r')
+    if [ -n "${value:-}" ]; then
+      SMTP_HOST="$value"
+    fi
+
+    value=$(grep -E '^SMTP_TLS_SERVERNAME=' .env | tail -n 1 | cut -d= -f2- | tr -d '\r')
+    if [ -n "${value:-}" ]; then
+      SMTP_TLS_SERVERNAME="$value"
+    fi
+  fi
+
+  if [ -n "${SMTP_HOST:-}" ] && [ -z "${SMTP_TLS_SERVERNAME:-}" ]; then
+    echo "⚠️  SMTP_TLS_SERVERNAME no está definido en el .env remoto."
+    if [ "$SMTP_HOST" = "mail.supernovatel.com" ]; then
+      echo "⚠️  Para mail.supernovatel.com normalmente debes usar SMTP_TLS_SERVERNAME=ferozo.com para evitar el error de certificado."
     fi
   fi
 
