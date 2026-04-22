@@ -60,6 +60,11 @@ npm run db:seed --workspace @jump/api
 
 Ese `npm run prisma:push --workspace @jump/api` se ejecuta desde la raiz del monorepo (`c:\Users\arman\Gon_local\Desarrollos\3m30cm`), no dentro de `apps/api`.
 
+En local hay dos escenarios validos:
+
+- Si lo corres dentro del contenedor `api-3m30cm-dev`, la `.env` raiz ya sirve tal cual porque `DATABASE_URL` apunta a `postgres-local:5432` dentro de la red Docker.
+- Si lo corres desde PowerShell en el host, debes sobreescribir `DATABASE_URL` a `localhost:5433` porque `postgres-local` no resuelve fuera de Docker.
+
 ### API y web con Docker
 
 La fuente de verdad del entorno local es `.env`. El backend y la web se levantan en contenedores sobre `red-desarrollo`; la app movil se ejecuta fuera de Docker en tu host.
@@ -216,6 +221,10 @@ RUN_SEED_ON_DEPLOY=1
 Si antes del deploy quieres aplicar manualmente el cambio de schema en tu entorno actual, hazlo tambien desde la raiz del monorepo:
 
 ```bash
-cd c:\Users\arman\Gon_local\Desarrollos\3m30cm
+# opcion 1: desde el host
+$env:DATABASE_URL='postgresql://postgres:D3v3%2Fop3R@localhost:5433/jump30cm?schema=public'
 npm run prisma:push --workspace @jump/api
+
+# opcion 2: dentro del contenedor local
+docker compose -f docker-compose.local.yml exec api-3m30cm npm run prisma:push --workspace @jump/api
 ```
