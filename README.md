@@ -37,7 +37,9 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - Las app moviles consumen login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local y registro de cumplimiento con metricas.
 - Se eliminan automaticamente los programas archivados de la vista de sesiones cuando se regenera un programa.
 - `forgot-password` ya soporta envio SMTP con override de TLS por `SMTP_TLS_SERVERNAME` y, en desarrollo, hace fallback a log con token, deep link y URL de reset si el SMTP falla, sin bloquear las pruebas locales.
+- `forgot-password` ahora tambien emite un codigo de 6 digitos persistido en Prisma para que `apps/mobile2` pueda restablecer la clave dentro de la app sin depender solo del deep link.
 - `apps/mobile2` ya queda build-clean con `npm --prefix apps/mobile2 run build` y tiene helper dedicado para ensamblar APK release desde Windows cuando hay JDK + Android SDK instalados.
+- `apps/mobile2` resuelve el Google client ID Android desde config embebida de Expo (`app.config.js`), de modo que puede reutilizar `GOOGLE_CLIENT_ID_ANDROID` del `.env` raiz en builds release.
 
 ## Requisitos previos
 
@@ -55,6 +57,8 @@ $env:DATABASE_URL='postgresql://postgres:D3v3%2Fop3R@localhost:5433/jump30cm?sch
 npm run prisma:push --workspace @jump/api
 npm run db:seed --workspace @jump/api
 ```
+
+Ese `npm run prisma:push --workspace @jump/api` se ejecuta desde la raiz del monorepo (`c:\Users\arman\Gon_local\Desarrollos\3m30cm`), no dentro de `apps/api`.
 
 ### API y web con Docker
 
@@ -207,4 +211,11 @@ Para ejecutar el seed en el siguiente deploy:
 ```bash
 # En el .env del servidor
 RUN_SEED_ON_DEPLOY=1
+```
+
+Si antes del deploy quieres aplicar manualmente el cambio de schema en tu entorno actual, hazlo tambien desde la raiz del monorepo:
+
+```bash
+cd c:\Users\arman\Gon_local\Desarrollos\3m30cm
+npm run prisma:push --workspace @jump/api
 ```

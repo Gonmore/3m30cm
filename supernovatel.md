@@ -146,6 +146,13 @@ El script hoy hace exactamente esto:
 14. ejecuta `api-seed` solo si `RUN_SEED_ON_DEPLOY=1`
 15. hace `docker image prune -f`
 
+Si por operacion quieres correr `prisma:push` a mano antes del deploy, el comando correcto es desde la raiz del monorepo, no desde `apps/api`:
+
+```bash
+cd c:\Users\arman\Gon_local\Desarrollos\3m30cm
+npm run prisma:push --workspace @jump/api
+```
+
 ### Cosas importantes del deploy actual
 
 - El frontend web no recibe `VITE_API_BASE_URL` como `build-arg` en produccion.
@@ -237,6 +244,14 @@ npm --prefix apps/mobile2 run web:prod
 - `mobile2` usa puerto `8082` y `--clear`.
 - `mobile2` expone `build` (`tsc --noEmit`) para validar primero el workspace compartido antes de abrir Expo.
 - `mobile2` expone `apk:prod`, que llama a `scripts/build-android-apk.mjs` para detectar JDK/Android SDK, regenerar `android/local.properties` y ejecutar `assembleRelease` desde Windows.
+- `mobile2` tambien embebe `googleClientIds` desde `app.config.js`, leyendo `GOOGLE_CLIENT_ID_ANDROID` del `.env` raiz cuando no exista `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` en runtime.
+- El flujo de reset de contraseña para mobile2 ya no depende solo del deep link: la API emite un codigo de 6 digitos y la app permite confirmar nueva contraseña con `email + code`.
+
+### EAS y recursos nativos
+
+- Si `android/` entra en el paquete del build remoto, EAS trata el proyecto como non-CNG y no resincroniza iconos/splash/config desde `app.json`.
+- Para evitar volver a empaquetar recursos nativos viejos en `apps/mobile2`, `.easignore` excluye `android/` completo.
+- Para el build local de APK en Windows, `apps/mobile2/scripts/build-android-apk.mjs` fuerza `expo prebuild --platform android --clean --no-install` antes de Gradle.
 
 ### VS Code y tsconfig de dependencias Expo
 

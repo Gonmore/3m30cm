@@ -258,6 +258,30 @@ Se creo `supernovatel.md` en la raiz como documento operativo del proyecto.
 - despliegue con `deploy.sh`
 - contenedores y red externa
 - convenciones para Expo en modo `dev` y `prod`
+
+---
+
+### 16. Reset por codigo en app y config release de mobile2
+
+**Objetivo:** cerrar los ultimos huecos del APK de `apps/mobile2` antes de produccion: logo release, Google login Android y reset de contraseña usable dentro de la app.
+
+**Cambios aplicados:**
+1. `apps/mobile2/app.config.js` ahora carga `.env` de la raiz y expone `extra.googleClientIds` y `extra.apiBaseUrl` para builds release.
+2. `apps/mobile2/app/index.tsx` ya no depende solo de `process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`; tambien usa el client ID embebido desde Expo config.
+3. `apps/api/prisma/schema.prisma` agrego `code` en `PasswordResetToken`.
+4. `apps/api/src/routes/auth.ts` ahora genera un codigo de 6 digitos, lo envia por email junto con el deep link y permite `reset-password` por `token` o por `email + code`.
+5. `apps/mobile2/app/index.tsx` abre el modal de nueva contraseña con flujo por codigo si el usuario inicio el reset desde email y mantiene compatibilidad con deep link por token.
+6. `apps/mobile2/scripts/build-android-apk.mjs` ejecuta `expo prebuild --platform android --clean --no-install` antes de Gradle para regenerar recursos nativos locales.
+7. `apps/mobile2/.easignore` ahora excluye `android/` para que EAS regenere recursos nativos remotos desde la config actual en lugar de empaquetar el arbol Android viejo.
+
+**Validacion:**
+- `npm run prisma:generate --workspace @jump/api` OK
+- `npm run build --workspace @jump/api` OK
+- `npm --prefix apps/mobile2 run build` OK
+
+**Operacion:**
+- `npm run prisma:push --workspace @jump/api` debe ejecutarse desde la raiz del monorepo antes de desplegar el cambio de schema.
+- Luego el deploy productivo sigue siendo `./deploy.sh` desde la raiz del repo.
 - checklist reutilizable para el siguiente proyecto
 
 **Objetivo:**

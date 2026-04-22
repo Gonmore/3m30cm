@@ -1,0 +1,7 @@
+node_modules/
+.expo/
+android/
+android/.gradle/
+android/build/
+android/local.properties
+*.log

@@ -1,4 +1,5 @@
 import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -6,8 +7,36 @@ import { spawnSync } from "node:child_process";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
+const workspaceRoot = path.resolve(projectRoot, "../..");
 const androidDir = path.join(projectRoot, "android");
 const localPropertiesPath = path.join(androidDir, "local.properties");
+const expoCliPath = path.resolve(projectRoot, "../../node_modules/expo/bin/cli");
+const require = createRequire(import.meta.url);
+
+function optionalRequire(moduleName) {
+  try {
+    return require(moduleName);
+  } catch {
+    return null;
+  }
+}
+
+function loadEnvFile(filePath, dotenv, dotenvExpand) {
+  if (!dotenv?.config || !existsSync(filePath)) {
+    return;
+  }
+
+  const result = dotenv.config({ path: filePath, override: true });
+  dotenvExpand?.expand?.(result);
+}
+
+const dotenv = optionalRequire("dotenv");
+const dotenvExpand = optionalRequire("dotenv-expand");
+
+loadEnvFile(path.join(workspaceRoot, ".env"), dotenv, dotenvExpand);
+loadEnvFile(path.join(workspaceRoot, ".env.local"), dotenv, dotenvExpand);
+loadEnvFile(path.join(projectRoot, ".env"), dotenv, dotenvExpand);
+loadEnvFile(path.join(projectRoot, ".env.local"), dotenv, dotenvExpand);
 
 const candidateJavaHomes = [
   process.env.JAVA_HOME,
@@ -74,6 +103,15 @@ function runGradle(args, options = {}) {
   });
 }
 
+function runNodeProcess(args, options = {}) {
+  return spawnSync(process.execPath, args, {
+    cwd: options.cwd ?? projectRoot,
+    env,
+    stdio: options.stdio ?? "inherit",
+    shell: false,
+  });
+}
+
 function stopProjectGradleJavaProcesses() {
   if (process.platform !== "win32") {
     return;
@@ -96,6 +134,20 @@ function stopProjectGradleJavaProcesses() {
 
 console.log(`Usando JAVA_HOME=${javaHome}`);
 console.log(`Usando ANDROID SDK=${androidSdkPath}`);
+
+console.log("Ejecutando Expo prebuild para Android...");
+const prebuildResult = runNodeProcess([
+  expoCliPath,
+  "prebuild",
+  "--platform",
+  "android",
+  "--clean",
+  "--no-install",
+]);
+
+if (typeof prebuildResult.status === "number" && prebuildResult.status !== 0) {
+  process.exit(prebuildResult.status);
+}
 
 writeFileSync(localPropertiesPath, `sdk.dir=${androidSdkPath.replace(/\//g, "\\\\")}\n`, "utf8");
 

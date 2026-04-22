@@ -94,6 +94,20 @@ const sessionCacheVersion = 2;
 const offlinePreloadMessage = "cargando todo el contenido de la sesion en el telefono, luego podras entrenar estando offline";
 const sessionCacheRootDirectory = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}jump-session-cache/` : null;
 
+interface AppConfigExtra {
+  apiBaseUrl?: string;
+  googleClientIds?: {
+    web?: string;
+    ios?: string;
+    android?: string;
+  };
+}
+
+function getAppConfigExtra(): AppConfigExtra {
+  const extra = Constants.expoConfig?.extra;
+  return extra && typeof extra === "object" ? (extra as AppConfigExtra) : {};
+}
+
 type CalendarModule = typeof import("expo-calendar");
 type NotificationHandlerConfig = Parameters<typeof import("expo-notifications/build/NotificationsHandler").setNotificationHandler>[0];
 type NotificationPermissionResult = Awaited<ReturnType<typeof import("expo-notifications/build/NotificationPermissions").getPermissionsAsync>>;
@@ -1162,6 +1176,8 @@ async function requestJson<T>(path: string, options: RequestInit = {}, accessTok
 export default function HomeScreen() {
   const { C } = useTheme();
   const { resetToken } = useLocalSearchParams<{ resetToken?: string }>();
+  const appConfigExtra = getAppConfigExtra();
+  const googleClientIds = appConfigExtra.googleClientIds ?? {};
   const authSt = useMemo(() => StyleSheet.create({
     safeArea:       { flex: 1, backgroundColor: C.bg },
     scroll:         { flexGrow: 1, paddingHorizontal: S.lg, paddingBottom: S.xl, gap: S.md },
@@ -1228,6 +1244,8 @@ export default function HomeScreen() {
   const [forgotPasswordVisible, setForgotPasswordVisible] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
   const [resetPasswordVisible, setResetPasswordVisible] = useState(false);
+  const [resetPasswordEmail, setResetPasswordEmail] = useState("");
+  const [resetPasswordCode, setResetPasswordCode] = useState("");
   const [resetPasswordToken, setResetPasswordToken] = useState("");
   const [resetPasswordNew, setResetPasswordNew] = useState("");
   const [showResetPassword, setShowResetPassword] = useState(false);
@@ -1252,6 +1270,8 @@ export default function HomeScreen() {
   useEffect(() => {
     if (resetToken) {
       setResetPasswordToken(resetToken);
+      setResetPasswordEmail("");
+      setResetPasswordCode("");
       setResetPasswordNew("");
       setResetPasswordVisible(true);
     }
@@ -1271,9 +1291,9 @@ export default function HomeScreen() {
   const [notificationPermission, setNotificationPermission] = useState<PermissionState>("unknown");
   const [calendarPermission, setCalendarPermission] = useState<PermissionState>("unknown");
 
-  const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB;
-  const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS;
-  const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID;
+  const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB ?? googleClientIds.web;
+  const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS ?? googleClientIds.ios;
+  const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID ?? googleClientIds.android;
   const expoProxyProjectFullName = ((Constants.expoConfig as (typeof Constants.expoConfig & { originalFullName?: string }) | null)?.originalFullName)
     ?? (Constants.expoConfig?.owner
       ? `@${Constants.expoConfig.owner}/${Constants.expoConfig.slug}`
@@ -2249,13 +2269,19 @@ export default function HomeScreen() {
     try {
       setLoading(true);
       setError("");
+      const email = forgotPasswordEmail.trim().toLowerCase();
       await requestJson<{ message: string }>("/api/v1/auth/forgot-password", {
         method: "POST",
-        body: JSON.stringify({ email: forgotPasswordEmail }),
+        body: JSON.stringify({ email }),
       });
       setForgotPasswordVisible(false);
       setForgotPasswordEmail("");
-      setMessage("Si existe una cuenta, recibirás un email con instrucciones.");
+      setResetPasswordToken("");
+      setResetPasswordEmail(email);
+      setResetPasswordCode("");
+      setResetPasswordNew("");
+      setResetPasswordVisible(true);
+      setMessage("Si existe una cuenta, recibirás un código y un enlace por email.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo enviar el email");
     } finally {
@@ -2268,14 +2294,25 @@ export default function HomeScreen() {
       setError("La contraseña debe tener al menos 8 caracteres.");
       return;
     }
+    const token = resetPasswordToken.trim();
+    const email = resetPasswordEmail.trim().toLowerCase();
+    const code = resetPasswordCode.trim();
+    if (!token && (!email || code.length !== 6)) {
+      setError("Ingresa tu email y el código de 6 dígitos, o abre el enlace del email.");
+      return;
+    }
     try {
       setLoading(true);
       setError("");
       await requestJson<{ message: string }>("/api/v1/auth/reset-password", {
         method: "POST",
-        body: JSON.stringify({ token: resetPasswordToken, newPassword: resetPasswordNew }),
+        body: JSON.stringify(token
+          ? { token, newPassword: resetPasswordNew }
+          : { email, code, newPassword: resetPasswordNew }),
       });
       setResetPasswordVisible(false);
+      setResetPasswordEmail("");
+      setResetPasswordCode("");
       setResetPasswordToken("");
       setResetPasswordNew("");
       setMessage("Contraseña actualizada. Inicia sesión con tu nueva contraseña.");
@@ -2544,7 +2581,7 @@ export default function HomeScreen() {
                 </Pressable>
                 {Platform.OS === "android" && !googleAndroidClientId ? (
                   <Text style={authSt.helperText}>
-                    Falta configurar EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID para habilitar Google en Android.
+                    Falta configurar el client ID de Google para Android.
                   </Text>
                 ) : isExpoGo && googleExpoGoRedirectUri ? (
                   <Text style={authSt.helperText}>
@@ -2624,7 +2661,7 @@ export default function HomeScreen() {
             <Pressable style={authSt.modalCard} onPress={() => { /* prevent close */ }}>
               <Text style={authSt.cardTitle}>Restablecer contraseña</Text>
               <Text style={{ color: C.textSub, fontSize: 14, marginBottom: 4 }}>
-                Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña.
+                Ingresa tu email y te enviaremos un código de 6 dígitos y un enlace para restablecer tu contraseña.
               </Text>
               <TextInput
                 autoCapitalize="none"
@@ -2651,8 +2688,32 @@ export default function HomeScreen() {
             <Pressable style={authSt.modalCard} onPress={() => { /* prevent close */ }}>
               <Text style={authSt.cardTitle}>Nueva contraseña</Text>
               <Text style={{ color: C.textSub, fontSize: 14, marginBottom: 4 }}>
-                Ingresa tu nueva contraseña (mínimo 8 caracteres).
+                {resetPasswordToken
+                  ? "Abre este formulario desde el enlace del email y elige tu nueva contraseña."
+                  : "Ingresa tu email, el código de 6 dígitos y tu nueva contraseña."}
               </Text>
+              {!resetPasswordToken ? (
+                <>
+                  <TextInput
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    placeholder="Email"
+                    placeholderTextColor={C.textDisabled}
+                    style={authSt.input}
+                    value={resetPasswordEmail}
+                    onChangeText={setResetPasswordEmail}
+                  />
+                  <TextInput
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    placeholder="Código de 6 dígitos"
+                    placeholderTextColor={C.textDisabled}
+                    style={authSt.input}
+                    value={resetPasswordCode}
+                    onChangeText={(value) => setResetPasswordCode(value.replace(/\D/g, "").slice(0, 6))}
+                  />
+                </>
+              ) : null}
               <View style={authSt.pwRow}>
                 <TextInput
                   secureTextEntry={!showResetPassword}
@@ -2666,7 +2727,11 @@ export default function HomeScreen() {
                   <Ionicons name={showResetPassword ? "eye-off" : "eye"} size={20} color={C.textMuted} />
                 </Pressable>
               </View>
-              <Pressable style={authSt.primaryBtn} onPress={() => void handleResetPassword()} disabled={loading || resetPasswordNew.length < 8}>
+              <Pressable
+                style={authSt.primaryBtn}
+                onPress={() => void handleResetPassword()}
+                disabled={loading || resetPasswordNew.length < 8 || (!resetPasswordToken.trim() && (!resetPasswordEmail.trim() || resetPasswordCode.trim().length !== 6))}
+              >
                 <Text style={authSt.primaryBtnText}>{loading ? "Guardando..." : "Guardar contraseña"}</Text>
               </Pressable>
               <Pressable onPress={() => setResetPasswordVisible(false)} style={{ alignItems: 'center', paddingVertical: 4 }}>

@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { Prisma, SeasonPhase } from "@prisma/client";
 import { type Request, type Response, Router } from "express";
-import { randomBytes } from "crypto";
+import { randomBytes, randomInt } from "crypto";
 import nodemailer from "nodemailer";
 import { z } from "zod";
 
@@ -319,6 +319,7 @@ authRouter.post("/forgot-password", async (req: Request, res: Response) => {
     }
 
     const token = randomBytes(32).toString("hex");
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
     const expiresAt = new Date(Date.now() + env.PASSWORD_RESET_EXPIRES_MINUTES * 60 * 1000);
 
     // Invalidate previous tokens for this user
@@ -328,16 +329,17 @@ authRouter.post("/forgot-password", async (req: Request, res: Response) => {
     });
 
     await prisma.passwordResetToken.create({
-      data: { userId: user.id, token, expiresAt },
+      data: { userId: user.id, token, code, expiresAt },
     });
 
     const resetUrl = `${env.WEB_URL}/reset-password?token=${token}`;
     const deepLink = `jump30cm-game://reset-password?token=${token}`;
-    const resetMessageText = `Abre este enlace en la app para restablecer tu contraseña:\n\n${deepLink}\n\nO desde el navegador:\n${resetUrl}\n\nEl enlace expira en ${env.PASSWORD_RESET_EXPIRES_MINUTES} minutos.`;
-    const resetMessageHtml = `<p>Toca el botón para restablecer tu contraseña:</p><p><a href="${deepLink}">Restablecer contraseña</a></p><p>O copia este enlace en tu navegador:<br><a href="${resetUrl}">${resetUrl}</a></p><p>El enlace expira en ${env.PASSWORD_RESET_EXPIRES_MINUTES} minutos.</p>`;
+    const resetMessageText = `Usa este código para restablecer tu contraseña: ${code}\n\nAbre este enlace en la app:\n${deepLink}\n\nO desde el navegador:\n${resetUrl}\n\nEl código y el enlace expiran en ${env.PASSWORD_RESET_EXPIRES_MINUTES} minutos.`;
+    const resetMessageHtml = `<div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;"><p>Usa este código para restablecer tu contraseña:</p><p style="font-size:32px;font-weight:700;letter-spacing:8px;margin:12px 0 20px;">${code}</p><p><a href="${deepLink}" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#f2b544;color:#0a1628;text-decoration:none;font-weight:700;">Restablecer contraseña</a></p><p>Si prefieres, también puedes abrir este enlace en el navegador:<br><a href="${resetUrl}">${resetUrl}</a></p><p>El código y el enlace expiran en ${env.PASSWORD_RESET_EXPIRES_MINUTES} minutos.</p></div>`;
 
     const logResetFallback = () => {
       console.info(`[DEV] Password reset token for ${email}: ${token}`);
+      console.info(`[DEV] Password reset code for ${email}: ${code}`);
       console.info(`[DEV] Password reset deep link for ${email}: ${deepLink}`);
       console.info(`[DEV] Password reset web URL for ${email}: ${resetUrl}`);
     };
@@ -386,18 +388,39 @@ authRouter.post("/forgot-password", async (req: Request, res: Response) => {
 // ── Reset password (from email link) ─────────────────────────────────────────
 
 const resetPasswordSchema = z.object({
-  token: z.string().min(1),
+  token: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  code: z.string().regex(/^\d{6}$/).optional(),
   newPassword: z.string().min(8),
+}).refine((payload) => Boolean(payload.token) || Boolean(payload.email && payload.code), {
+  message: "Token or email and code are required",
+  path: ["token"],
 });
 
 authRouter.post("/reset-password", async (req: Request, res: Response) => {
   try {
-    const { token, newPassword } = resetPasswordSchema.parse(req.body);
+    const { token, email, code, newPassword } = resetPasswordSchema.parse(req.body);
+    const normalizedEmail = email?.toLowerCase();
 
-    const record = await prisma.passwordResetToken.findUnique({ where: { token } });
+    if (!token && (!normalizedEmail || !code)) {
+      res.status(400).json({ message: "Email y código son obligatorios cuando no se usa token." });
+      return;
+    }
+
+    const record = token
+      ? await prisma.passwordResetToken.findUnique({ where: { token } })
+      : await prisma.passwordResetToken.findFirst({
+        where: {
+          code: code as string,
+          usedAt: null,
+          expiresAt: { gte: new Date() },
+          user: { is: { email: normalizedEmail as string } },
+        },
+        orderBy: { createdAt: "desc" },
+      });
 
     if (!record || record.usedAt || record.expiresAt < new Date()) {
-      res.status(400).json({ message: "El enlace es inválido o ha expirado." });
+      res.status(400).json({ message: "El enlace o el código son inválidos o han expirado." });
       return;
     }
 

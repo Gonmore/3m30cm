@@ -20,6 +20,12 @@ coverage/
 *.mobileprovision
 *.orig.*
 web-build/
+apps/mobile/android/.gradle/
+apps/mobile/android/build/
+apps/mobile/android/local.properties
+apps/mobile2/android/.gradle/
+apps/mobile2/android/build/
+apps/mobile2/android/local.properties
 
 # Web (Vite)
 apps/web/dist/

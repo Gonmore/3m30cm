@@ -65,7 +65,7 @@ Registra un nuevo atleta.
 
 ### POST `/api/v1/auth/forgot-password`
 
-Solicita un token de reset para la cuenta indicada.
+Solicita un reset para la cuenta indicada. El backend genera un token de enlace y un codigo numerico de 6 digitos reutilizable desde la app.
 
 **Body:**
 ```json
@@ -77,36 +77,41 @@ Solicita un token de reset para la cuenta indicada.
 **Respuesta 200:**
 ```json
 {
-  "message": "Si la cuenta existe, te enviaremos instrucciones para restablecer la contraseña"
+  "message": "Si existe una cuenta, recibirás un email con instrucciones."
 }
 ```
 
 **Notas operativas:**
 - En producción intenta enviar el correo real por SMTP.
-- En desarrollo, si el SMTP falla por credenciales inválidas o configuración incompleta, el endpoint mantiene `200` y deja en logs el token, el deep link `jump30cm-game://reset-password?...` y la URL web `${WEB_URL}/reset-password?...` para seguir probando el flujo.
+- El correo incluye un codigo de 6 digitos, un deep link `jump30cm-game://reset-password?...` y la URL web `${WEB_URL}/reset-password?...`.
+- En desarrollo, si el SMTP falla por credenciales inválidas o configuración incompleta, el endpoint mantiene `200` y deja en logs el token, el codigo, el deep link y la URL web para seguir probando el flujo.
 
 ---
 
 ### POST `/api/v1/auth/reset-password`
 
-Consume un token de reset y define una nueva contraseña.
+Consume un token de reset o un par `email + code` y define una nueva contraseña.
 
 **Body:**
 ```json
 {
-  "token": "string (required)",
-  "password": "string, min 8 chars (required)"
+  "token": "string (optional)",
+  "email": "string (optional when token is present)",
+  "code": "string de 6 dígitos (optional when token is present)",
+  "newPassword": "string, min 8 chars (required)"
 }
 ```
+
+Se debe enviar `token` o bien `email + code`.
 
 **Respuesta 200:**
 ```json
 {
-  "message": "Password updated successfully"
+  "message": "Contraseña actualizada correctamente."
 }
 ```
 
-**Errores:** `400` token o payload inválido | `404` token inexistente o expirado
+**Errores:** `400` token/código/payload inválido o expirado
 
 ---
 

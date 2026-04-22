@@ -28,10 +28,12 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/img/Estrella_SNT.png",
         "backgroundColor": "#0A1628"
-      },
-      "navigationBar": {
-        "backgroundColor": "#000000",
-        "barStyle": "light-content"
+      }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d31c4c56-2d77-4007-8e5e-bb06b5111aa9"
       }
     }
   }
