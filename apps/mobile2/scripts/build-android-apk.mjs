@@ -1,4 +1,4 @@
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,8 @@ const workspaceRoot = path.resolve(projectRoot, "../..");
 const androidDir = path.join(projectRoot, "android");
 const localPropertiesPath = path.join(androidDir, "local.properties");
 const expoCliPath = path.resolve(projectRoot, "../../node_modules/expo/bin/cli");
+const shortPathEnvKey = "JUMP_ANDROID_SHORTPATH_ACTIVE";
+const shortPathAliasDir = path.join(path.parse(workspaceRoot).root, "_j", "jump30cm-build");
 const require = createRequire(import.meta.url);
 
 function optionalRequire(moduleName) {
@@ -40,6 +42,7 @@ loadEnvFile(path.join(projectRoot, ".env.local"), dotenv, dotenvExpand);
 
 const candidateJavaHomes = [
   process.env.JAVA_HOME,
+  "C:/Program Files/Android/Android Studio/jbr",
   "C:/Users/arman/.vscode/extensions/redhat.java-1.54.0-win32-x64/jre/21.0.10-win32-x86_64",
   "C:/Users/arman/OneDrive/OpenBootcamp/Utilitarios/jdk-19.0.2",
 ].filter(Boolean);
@@ -55,7 +58,8 @@ const candidateAndroidSdkPaths = [
 
 function isUsableJavaHome(javaHome) {
   return existsSync(path.join(javaHome, "bin", "java.exe"))
-    && existsSync(path.join(javaHome, "bin", "javac.exe"));
+    && existsSync(path.join(javaHome, "bin", "javac.exe"))
+    && existsSync(path.join(javaHome, "bin", "jlink.exe"));
 }
 
 function isUsableAndroidSdk(sdkPath) {
@@ -65,9 +69,10 @@ function isUsableAndroidSdk(sdkPath) {
 
 const javaHome = candidateJavaHomes.find(isUsableJavaHome);
 const androidSdkPath = candidateAndroidSdkPaths.find(isUsableAndroidSdk);
+const normalizedAndroidSdkPath = androidSdkPath?.replace(/\\/g, "/") ?? null;
 
 if (!javaHome) {
-  console.error("No se encontro un JDK util para Android. Configura JAVA_HOME o instala un JDK con java.exe y javac.exe.");
+  console.error("No se encontro un JDK util para Android. Configura JAVA_HOME o instala un JDK con java.exe, javac.exe y jlink.exe.");
   process.exit(1);
 }
 
@@ -84,10 +89,55 @@ const gradleCommand = process.platform === "win32" ? "gradlew.bat" : "./gradlew"
 const env = {
   ...process.env,
   JAVA_HOME: javaHome,
-  ANDROID_HOME: androidSdkPath,
-  ANDROID_SDK_ROOT: androidSdkPath,
+  ANDROID_HOME: normalizedAndroidSdkPath,
+  ANDROID_SDK_ROOT: normalizedAndroidSdkPath,
+  EXPO_NO_METRO_WORKSPACE_ROOT: "1",
   PATH: `${path.join(javaHome, "bin")}${path.delimiter}${process.env.PATH ?? ""}`,
 };
+
+function rerunFromShortWorkspacePath() {
+  if (process.platform !== "win32" || env[shortPathEnvKey] === "1" || workspaceRoot.length <= 40) {
+    return false;
+  }
+
+  const shortPathAliasParent = path.dirname(shortPathAliasDir);
+
+  try {
+    mkdirSync(shortPathAliasParent, { recursive: true });
+
+    if (existsSync(shortPathAliasDir)) {
+      rmSync(shortPathAliasDir, { recursive: true, force: true });
+    }
+
+    symlinkSync(workspaceRoot, shortPathAliasDir, "junction");
+  } catch (error) {
+    console.warn(`No se pudo crear la ruta corta local ${shortPathAliasDir}; sigo con la ruta larga.`);
+    if (error instanceof Error) {
+      console.warn(error.message);
+    }
+    return false;
+  }
+
+  const relativeProjectPath = path.relative(workspaceRoot, projectRoot);
+  const shortProjectRoot = path.join(shortPathAliasDir, relativeProjectPath);
+  const shortScriptPath = path.join(shortProjectRoot, "scripts", "build-android-apk.mjs");
+
+  const rerunResult = spawnSync(process.execPath, [shortScriptPath], {
+    cwd: shortProjectRoot,
+    env: {
+      ...env,
+      [shortPathEnvKey]: "1",
+    },
+    stdio: "inherit",
+    shell: false,
+  });
+
+  rmSync(shortPathAliasDir, { recursive: true, force: true });
+
+  process.exit(typeof rerunResult.status === "number" ? rerunResult.status : 1);
+}
+
+rerunFromShortWorkspacePath();
 
 const projectLockFiles = [
   path.join(androidDir, ".gradle", "noVersion", "buildLogic.lock"),
@@ -119,15 +169,12 @@ function stopProjectGradleJavaProcesses() {
 
   const powershellScript = [
     "$projectPattern = [regex]::Escape($args[0])",
-    "$gradleJavaProcesses = Get-CimInstance Win32_Process -Filter \"Name = 'java.exe'\" | Where-Object {",
-    "  $_.CommandLine -match 'GradleDaemon|org\\.gradle' -and $_.CommandLine -match $projectPattern",
-    "}",
-    "$gradleJavaProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+    "Get-CimInstance Win32_Process -Filter \"Name = 'java.exe'\" | Where-Object { $_.CommandLine -match 'GradleDaemon|org\\.gradle' -and $_.CommandLine -match $projectPattern } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
   ].join("; ");
 
   spawnSync(
     "powershell.exe",
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", powershellScript, projectRoot],
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `${powershellScript};`, projectRoot],
     { stdio: "inherit", env, shell: false },
   );
 }
@@ -149,7 +196,7 @@ if (typeof prebuildResult.status === "number" && prebuildResult.status !== 0) {
   process.exit(prebuildResult.status);
 }
 
-writeFileSync(localPropertiesPath, `sdk.dir=${androidSdkPath.replace(/\//g, "\\\\")}\n`, "utf8");
+writeFileSync(localPropertiesPath, `sdk.dir=${normalizedAndroidSdkPath}\n`, "utf8");
 
 console.log("Deteniendo daemons previos de Gradle...");
 runGradle(["--stop"], { stdio: "inherit" });

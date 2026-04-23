@@ -3,6 +3,7 @@ import * as AuthSession from "expo-auth-session";
 import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
+import { GoogleSignin as NativeGoogleSignin } from "@react-native-google-signin/google-signin";
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams } from "expo-router";
@@ -14,7 +15,7 @@ import DrawerMenu, { type AppScreen } from "@mobile/components/DrawerMenu";
 import JumpGuideModal from "@mobile/components/JumpGuideModal";
 import { ProfileModal } from "@mobile/components/ProfileModal";
 import CoachDashboardScreen from "@mobile/components/screens/CoachDashboardScreen";
-import { apiBaseUrl, rewriteLocalAssetUrl } from "@mobile/components/runtimeConfig";
+import { apiBaseUrl, getRuntimeAppConfigExtra, rewriteLocalAssetUrl } from "@mobile/components/runtimeConfig";
 import EjerciciosScreen from "@mobile/components/screens/EjerciciosScreen";
 import EvolucionScreen from "@mobile/components/screens/EvolucionScreen";
 import HoyScreenV2 from "../components/screens/HoyScreenV2";
@@ -90,37 +91,25 @@ const sessionStatuses = ["PLANNED", "COMPLETED", "SKIPPED"] as const;
 const notificationChannelId = "training-reminders";
 const isWebPlatform = Platform.OS === "web";
 const isExpoGo = !isWebPlatform && (Constants.executionEnvironment === "storeClient" || Constants.appOwnership === "expo");
+const useNativeAndroidGoogleSignIn = Platform.OS === "android" && !isExpoGo;
 const sessionCacheVersion = 2;
 const offlinePreloadMessage = "cargando todo el contenido de la sesion en el telefono, luego podras entrenar estando offline";
 const sessionCacheRootDirectory = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}jump-session-cache/` : null;
 
-interface AppConfigExtra {
-  apiBaseUrl?: string;
-  googleClientIds?: {
-    web?: string;
-    ios?: string;
-    android?: string;
-  };
-}
-
-function getAppConfigExtra(): AppConfigExtra {
-  const extra = Constants.expoConfig?.extra;
-  return extra && typeof extra === "object" ? (extra as AppConfigExtra) : {};
-}
-
 type CalendarModule = typeof import("expo-calendar");
 type NotificationHandlerConfig = Parameters<typeof import("expo-notifications/build/NotificationsHandler").setNotificationHandler>[0];
 type NotificationPermissionResult = Awaited<ReturnType<typeof import("expo-notifications/build/NotificationPermissions").getPermissionsAsync>>;
-type NotificationRequestInput = Parameters<typeof import("expo-notifications/build/scheduleNotificationAsync").default>[0];
+type NotificationRequestInput = import("expo-notifications/build/Notifications.types").NotificationRequestInput;
+type NotificationChannelInput = import("expo-notifications/build/NotificationChannelManager.types").NotificationChannelInput;
 type NotificationTriggerTypes = typeof import("expo-notifications/build/Notifications.types").SchedulableTriggerInputTypes;
 
 interface NotificationsModule {
   setNotificationHandler: (handler: NotificationHandlerConfig) => void;
   getPermissionsAsync: () => Promise<NotificationPermissionResult>;
   requestPermissionsAsync: () => Promise<NotificationPermissionResult>;
-  setNotificationChannelAsync: (channelId: string, channel: { name: string; importance: number }) => Promise<unknown>;
-  cancelScheduledNotificationAsync: (identifier: string) => Promise<void>;
-  scheduleNotificationAsync: (request: NotificationRequestInput) => Promise<string>;
+  setNotificationChannelAsync: (channelId: string, channel: NotificationChannelInput) => Promise<import("expo-notifications/build/NotificationChannelManager.types").NotificationChannel | null>;
+  cancelScheduledNotificationAsync: typeof import("expo-notifications/build/cancelScheduledNotificationAsync").default;
+  scheduleNotificationAsync: typeof import("expo-notifications/build/scheduleNotificationAsync").default;
   AndroidImportance: { HIGH: number };
   SchedulableTriggerInputTypes: NotificationTriggerTypes;
 }
@@ -1176,7 +1165,7 @@ async function requestJson<T>(path: string, options: RequestInit = {}, accessTok
 export default function HomeScreen() {
   const { C } = useTheme();
   const { resetToken } = useLocalSearchParams<{ resetToken?: string }>();
-  const appConfigExtra = getAppConfigExtra();
+  const appConfigExtra = getRuntimeAppConfigExtra();
   const googleClientIds = appConfigExtra.googleClientIds ?? {};
   const authSt = useMemo(() => StyleSheet.create({
     safeArea:       { flex: 1, backgroundColor: C.bg },
@@ -1197,6 +1186,10 @@ export default function HomeScreen() {
     pwToggle:       { paddingHorizontal: 12, paddingVertical: 13 },
     primaryBtn:     { backgroundColor: C.amber, borderRadius: R.full, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
     primaryBtnText: { color: C.bg, fontWeight: '800', fontSize: 15, letterSpacing: 0.4 },
+    feedbackBox:    { borderRadius: R.md, paddingHorizontal: S.md, paddingVertical: 12, borderWidth: 1 },
+    feedbackError:  { backgroundColor: 'rgba(224, 90, 58, 0.16)', borderColor: C.dangerBorder },
+    feedbackSuccess:{ backgroundColor: 'rgba(44, 196, 176, 0.16)', borderColor: C.teal },
+    feedbackText:   { color: C.text, fontWeight: '700', fontSize: 13, textAlign: 'center' },
     errorText:      { color: C.danger, fontWeight: '600', fontSize: 13, textAlign: 'center' },
     successText:    { color: C.teal, fontWeight: '600', fontSize: 13, textAlign: 'center' },
     footer:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#000', paddingVertical: 14, paddingHorizontal: S.lg },
@@ -1302,18 +1295,34 @@ export default function HomeScreen() {
     ? `https://auth.expo.io/${expoProxyProjectFullName}`
     : undefined;
   const googleExpoGoReturnUrl = isExpoGo ? AuthSession.getDefaultReturnUrl() : undefined;
-  const googlePlatformClientConfigured = isExpoGo
+  const googlePlatformClientConfigured = useNativeAndroidGoogleSignIn
     ? Boolean(googleWebClientId)
-    : Platform.select({
-      android: Boolean(googleAndroidClientId),
-      ios: Boolean(googleIosClientId),
-      default: Boolean(googleWebClientId),
+    : isExpoGo
+      ? Boolean(googleWebClientId)
+      : Platform.select({
+        android: Boolean(googleAndroidClientId),
+        ios: Boolean(googleIosClientId),
+        default: Boolean(googleWebClientId),
+      });
+
+  useEffect(() => {
+    if (!useNativeAndroidGoogleSignIn || !googleWebClientId) {
+      return;
+    }
+
+    NativeGoogleSignin.configure({
+      webClientId: googleWebClientId,
     });
+  }, [googleWebClientId]);
 
   // Google OAuth hook
   const [googleRequest, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
     clientId: isExpoGo ? googleWebClientId : undefined,
-    androidClientId: !isExpoGo ? googleAndroidClientId ?? googleWebClientId ?? "missing-android-client-id" : undefined,
+    androidClientId: !isExpoGo
+      ? (useNativeAndroidGoogleSignIn
+        ? googleWebClientId ?? googleAndroidClientId ?? "missing-google-web-client-id"
+        : googleAndroidClientId ?? googleWebClientId ?? "missing-android-client-id")
+      : undefined,
     iosClientId: !isExpoGo ? googleIosClientId ?? googleWebClientId : undefined,
     webClientId: googleWebClientId,
     redirectUri: googleExpoGoRedirectUri,
@@ -1346,6 +1355,46 @@ export default function HomeScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [googleResponse]);
+
+  async function handleGoogleAccess() {
+    setError("");
+    setMessage("");
+
+    if (useNativeAndroidGoogleSignIn) {
+      if (!googleWebClientId) {
+        setError("Falta configurar el client ID web de Google para Android.");
+        return;
+      }
+
+      try {
+        setLoading(true);
+        await NativeGoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        NativeGoogleSignin.configure({ webClientId: googleWebClientId });
+
+        const nativeGoogleResponse = await NativeGoogleSignin.signIn();
+        if (nativeGoogleResponse.type !== "success") {
+          return;
+        }
+
+        const nativeGoogleTokens = await NativeGoogleSignin.getTokens();
+        if (!nativeGoogleTokens.idToken) {
+          throw new Error("Google no devolvio un token de identidad.");
+        }
+
+        await handleGoogleSignIn(nativeGoogleTokens.idToken);
+      } catch (requestError) {
+        setError(requestError instanceof Error ? requestError.message : "No se pudo iniciar sesion con Google");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    const googlePromptResult = await promptGoogleAsync(googleExpoGoPromptUrl ? { url: googleExpoGoPromptUrl } : undefined);
+    if (googlePromptResult.type === "error") {
+      setError("No se pudo completar el acceso con Google.");
+    }
+  }
   // ── New navigation state ──────────────────────────────────
   const [activeScreen, setActiveScreen] = useState<AppScreen>("hoy");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -2410,6 +2459,9 @@ export default function HomeScreen() {
   }
 
   async function handleLogout() {
+    if (useNativeAndroidGoogleSignIn) {
+      await NativeGoogleSignin.signOut().catch(() => null);
+    }
     await handleUnauthorizedSession("Sesion cerrada.");
   }
 
@@ -2538,6 +2590,16 @@ export default function HomeScreen() {
             {authMode === "login" ? (
               <>
                 <Text style={authSt.cardTitle}>Iniciar sesión</Text>
+                {error ? (
+                  <View style={[authSt.feedbackBox, authSt.feedbackError]}>
+                    <Text style={authSt.feedbackText}>{error}</Text>
+                  </View>
+                ) : null}
+                {message ? (
+                  <View style={[authSt.feedbackBox, authSt.feedbackSuccess]}>
+                    <Text style={authSt.feedbackText}>{message}</Text>
+                  </View>
+                ) : null}
                 <TextInput
                   autoCapitalize="none"
                   keyboardType="email-address"
@@ -2573,15 +2635,19 @@ export default function HomeScreen() {
                 </View>
                 <Pressable
                   style={[authSt.socialBtn, (!googleRequest || !googlePlatformClientConfigured) && authSt.socialBtnDisabled]}
-                  onPress={() => void promptGoogleAsync(googleExpoGoPromptUrl ? { url: googleExpoGoPromptUrl } : undefined)}
+                  onPress={() => void handleGoogleAccess()}
                   disabled={!googleRequest || !googlePlatformClientConfigured || loading}
                 >
                   <Ionicons name="logo-google" size={18} color={C.text} />
                   <Text style={authSt.socialBtnText}>Continuar con Google</Text>
                 </Pressable>
-                {Platform.OS === "android" && !googleAndroidClientId ? (
+                {useNativeAndroidGoogleSignIn && !googleWebClientId ? (
                   <Text style={authSt.helperText}>
-                    Falta configurar el client ID de Google para Android.
+                    Falta configurar el client ID web de Google para Android.
+                  </Text>
+                ) : useNativeAndroidGoogleSignIn ? (
+                  <Text style={authSt.helperText}>
+                    Android release usa Google nativo y requiere el client Android con su SHA-1 correcto en Google Cloud.
                   </Text>
                 ) : isExpoGo && googleExpoGoRedirectUri ? (
                   <Text style={authSt.helperText}>
@@ -2592,6 +2658,16 @@ export default function HomeScreen() {
             ) : (
               <>
                 <Text style={authSt.cardTitle}>Crear cuenta de atleta</Text>
+                {error ? (
+                  <View style={[authSt.feedbackBox, authSt.feedbackError]}>
+                    <Text style={authSt.feedbackText}>{error}</Text>
+                  </View>
+                ) : null}
+                {message ? (
+                  <View style={[authSt.feedbackBox, authSt.feedbackSuccess]}>
+                    <Text style={authSt.feedbackText}>{message}</Text>
+                  </View>
+                ) : null}
                 <TextInput
                   autoCapitalize="words"
                   placeholder="Nombre"
@@ -2642,8 +2718,6 @@ export default function HomeScreen() {
                 </Pressable>
               </>
             )}
-            {error ? <Text style={authSt.errorText}>{error}</Text> : null}
-            {message ? <Text style={authSt.successText}>{message}</Text> : null}
           </View>
 
         </ScrollView>
@@ -2776,6 +2850,7 @@ export default function HomeScreen() {
         <ProfileModal
           visible={profileModalVisible}
           onClose={() => setProfileModalVisible(false)}
+          onLogout={() => handleLogout()}
           accessToken={accessToken}
           avatarUrl={currentAvatarUrl}
           onAvatarChange={(url) => setCurrentAvatarUrl(url)}
@@ -2946,7 +3021,6 @@ export default function HomeScreen() {
         onNavigate={(screen) => { setActiveScreen(screen); setDrawerOpen(false); }}
         athleteName={profile?.displayName ?? profile?.user.email ?? "Atleta"}
         athleteEmail={profile?.user.email ?? ""}
-        onLogout={() => void handleLogout()}
       />
 
       {/* ── JUMP GUIDE ────────────────────────────────── */}
@@ -2956,6 +3030,7 @@ export default function HomeScreen() {
       <ProfileModal
         visible={profileModalVisible}
         onClose={() => setProfileModalVisible(false)}
+        onLogout={() => handleLogout()}
         accessToken={accessToken ?? ""}
         avatarUrl={currentAvatarUrl}
         onAvatarChange={(url) => setCurrentAvatarUrl(url)}

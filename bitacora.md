@@ -302,7 +302,8 @@ dejar capturado el patron real que ya funciona en `3m30cm` para reutilizarlo des
 **Decisión operativa:**
 - El backend ahora acepta múltiples client IDs de Google en `GOOGLE_CLIENT_ID_ANDROID` separados por coma.
 - Esto permite tener un client ID Android para debug/local y otro para release/producción dentro del mismo proyecto de Google sin volver a tocar código.
-- La app Expo en `apps/mobile2` sigue usando un único `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` por build, que debe corresponder al certificado con el que se firma ese build.
+- El browser OAuth de `expo-auth-session` quedo descartado para Android release porque Google devolvia `invalid_request` con el mensaje sobre `custom uri scheme`.
+- Android en `apps/mobile2` ahora usa `@react-native-google-signin/google-signin` y toma el `webClientId` para obtener el `idToken`; el client Android sigue siendo obligatorio en Google Cloud para validar package + SHA-1 del build firmado.
 
 **Obtención del SHA-1 de producción:**
 - Si el APK/AAB se firma con un keystore propio en servidor, usar `keytool -list -v -keystore /ruta/al/release.keystore -alias <alias> -storepass <storepass> -keypass <keypass>`.
@@ -367,4 +368,46 @@ dejar capturado el patron real que ya funciona en `3m30cm` para reutilizarlo des
 **Resultado:**
 - El APK release ya tiene camino operativo documentado para Windows cuando el SDK está presente.
 - El workspace queda limpio en VS Code sin parchear dependencias dentro de `node_modules`.
+
+---
+
+### 20. Google nativo + pulido auth en mobile2
+
+**Problemas detectados:**
+- El mensaje de credenciales incorrectas en `apps/mobile2` quedaba demasiado abajo en la tarjeta y se perdía visualmente.
+- Había dos salidas de sesión: el drawer lateral y el modal del avatar; solo debía quedar la del avatar y además el modal no limpiaba bien el estado real de la app.
+- El login de Google en Android release seguía fallando con `error 400: invalid_request` y el texto `custom uri scheme is not enabled for your android client`.
+
+**Cambios aplicados:**
+1. `apps/mobile2/app/index.tsx` ahora muestra error y mensaje de auth en un bloque visible arriba del formulario.
+2. `apps/mobile/components/DrawerMenu.tsx` dejó de renderizar la opción `Cerrar sesion`.
+3. `apps/mobile/components/ProfileModal.tsx` ya no borra el key incorrecto `jump-token`; delega el logout al callback real del contenedor.
+4. `apps/mobile2/app/index.tsx` conecta el logout del avatar con `handleLogout()` y limpia también la sesión nativa de Google cuando aplica.
+5. `apps/mobile2` agregó `@react-native-google-signin/google-signin` y Android pasó a login nativo; Expo Go/web conservan `expo-auth-session`.
+6. Se revalidó el flujo completo con `npm --prefix apps/mobile2 run build` y `echo y | npm --prefix apps/mobile2 run apk:prod`.
+
+**Resultado:**
+- Queda un único logout visible, el del avatar, y ahora sí derriba el estado autenticado de la app.
+- Los errores de login vuelven a quedar visibles en la tarjeta sin quedar ocultos por el resto del contenido.
+- El APK release volvió a generarse correctamente en Windows tras sumar la dependencia nativa de Google.
+- El punto operativo pendiente fuera del repo queda claro: si un build firmado falla en Google, hay que revisar el client OAuth Android de `com.supernovatel.jump30cm.game` y el SHA-1 real del certificado de firma, no el código JavaScript.
+
+---
+
+### 21. Crash de arranque por React duplicado en mobile2
+
+**Problema detectado:**
+- La app de `apps/mobile2` podia abrir y cerrarse inmediatamente con `Cannot read property 'useState' of null`.
+- La causa local fue una instalacion accidental dentro de `apps/mobile2/node_modules` despues de agregar una dependencia nativa, lo que reintrodujo dos copias de React/React Native en un monorepo que espera resolverlas desde la raiz.
+
+**Cambios aplicados:**
+1. `apps/mobile2/metro.config.js` ahora prioriza `node_modules` del workspace root y fuerza `react`, `react-dom` y `react-native` desde esa ubicacion.
+2. Se limpio la instalacion local equivocada (`apps/mobile2/node_modules` y `apps/mobile2/package-lock.json`).
+3. La dependencia nueva se reinstalo con el lockfile correcto del workspace raiz.
+4. Se revalido con `npm --prefix apps/mobile2 run build` y `npx expo export -p android --clear`.
+
+**Resultado:**
+- El crash de `useState` queda asociado al arbol de dependencias y no al `.env` ni al backend.
+- El comando operativo para regenerar la APK desde la raiz sigue siendo `echo y | npm --prefix apps/mobile2 run apk:prod`.
+- Si vuelve a aparecer el mismo error, revisar primero que no exista `apps/mobile2/node_modules` antes de tocar código de negocio.
 

@@ -39,7 +39,7 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - `forgot-password` ya soporta envio SMTP con override de TLS por `SMTP_TLS_SERVERNAME` y, en desarrollo, hace fallback a log con token, deep link y URL de reset si el SMTP falla, sin bloquear las pruebas locales.
 - `forgot-password` ahora tambien emite un codigo de 6 digitos persistido en Prisma para que `apps/mobile2` pueda restablecer la clave dentro de la app sin depender solo del deep link.
 - `apps/mobile2` ya queda build-clean con `npm --prefix apps/mobile2 run build` y tiene helper dedicado para ensamblar APK release desde Windows cuando hay JDK + Android SDK instalados.
-- `apps/mobile2` resuelve el Google client ID Android desde config embebida de Expo (`app.config.js`), de modo que puede reutilizar `GOOGLE_CLIENT_ID_ANDROID` del `.env` raiz en builds release.
+- `apps/mobile2` mantiene los client IDs de Google en la config embebida de Expo (`app.config.js`), pero Android ya usa login nativo con `@react-native-google-signin/google-signin`; Expo Go y web siguen usando `expo-auth-session`.
 
 ## Requisitos previos
 
@@ -177,6 +177,15 @@ Notas de runtime:
 - `npm --prefix apps/mobile2 run build` corre `tsc --noEmit` para validar el workspace compartido antes de probar Expo o Android.
 - `npm --prefix apps/mobile2 run apk:prod` usa `apps/mobile2/scripts/build-android-apk.mjs`, detecta `JAVA_HOME`/Android SDK, recrea `android/local.properties` y ejecuta `gradlew assembleRelease`; sin Android SDK instalado el build falla por prerequisito, no por la app.
 - Si VS Code sigue mostrando errores en `node_modules/*/tsconfig.json` de Expo despues de actualizar el repo, recarga la ventana o reinicia TypeScript para que tome `.vscode/settings.json`.
+
+Flujo validado para release Android en Windows:
+
+- Orden recomendado: `npm --prefix apps/mobile2 run build` y luego `echo y | npm --prefix apps/mobile2 run apk:prod`.
+- Si quieres regenerar la APK manualmente para probar el estado actual, usa exactamente `echo y | npm --prefix apps/mobile2 run apk:prod` desde la raiz del monorepo.
+- El helper de APK tarda porque rehace `expo prebuild --clean`, regenera recursos nativos, empaqueta JS/assets y vuelve a compilar Gradle/Kotlin/dependencias nativas antes de firmar el APK.
+- La ultima validacion completa cerro en `10m 16s` y genero `apps/mobile2/android/app/build/outputs/apk/release/app-release.apk` con `71.30 MB`.
+- Android release ya no usa el browser OAuth de `expo-auth-session`; usa Google Sign-In nativo. Si Google falla en un APK/AAB firmado, el primer punto a revisar ya no es el `.env`, sino el client OAuth Android en Google Cloud para `com.supernovatel.jump30cm.game` y el SHA-1 real del certificado con el que se firmo ese build.
+- Si la app abre y se cierra con `Cannot read property 'useState' of null`, el primer punto a revisar no es Google sino una instalacion local accidental en `apps/mobile2/node_modules`; el flujo correcto del monorepo deja una sola copia de React en el `node_modules` raiz.
 
 ## Proximos pasos recomendados
 

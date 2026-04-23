@@ -14,7 +14,6 @@ interface DrawerMenuProps {
   onNavigate: (screen: AppScreen) => void;
   athleteName: string;
   athleteEmail: string;
-  onLogout: () => void;
 }
 
 const DRAWER_WIDTH = 280;
@@ -33,7 +32,6 @@ export default function DrawerMenu({
   onNavigate,
   athleteName,
   athleteEmail,
-  onLogout,
 }: DrawerMenuProps) {
   const insets = useSafeAreaInsets();
   const { C } = useTheme();
@@ -110,14 +108,6 @@ export default function DrawerMenu({
             </Pressable>
           );
         })}
-
-        <View style={styles.divider} />
-
-        {/* Logout */}
-        <Pressable style={styles.menuItem} onPress={() => { onClose(); onLogout(); }}>
-          <Text style={styles.menuIcon}>⏻</Text>
-          <Text style={[styles.menuLabel, styles.menuLabelDanger]}>Cerrar sesión</Text>
-        </Pressable>
       </Animated.View>
     </Animated.View>
   );
@@ -211,9 +201,6 @@ function makeStyles(C: ColorPalette) {
     },
     menuLabelActive: {
       color: C.amber,
-    },
-    menuLabelDanger: {
-      color: C.danger,
     },
     activeBar: {
       position: "absolute",

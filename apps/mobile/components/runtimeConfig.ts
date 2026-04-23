@@ -1,5 +1,14 @@
 import Constants from "expo-constants";
 
+interface RuntimeAppConfigExtra {
+  apiBaseUrl?: string;
+  googleClientIds?: {
+    web?: string;
+    ios?: string;
+    android?: string;
+  };
+}
+
 function normalizeHostCandidate(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -43,6 +52,29 @@ function getExpoHostIp() {
   return null;
 }
 
+export function getRuntimeAppConfigExtra(): RuntimeAppConfigExtra {
+  const constantsAny = Constants as typeof Constants & {
+    manifest?: { extra?: unknown };
+    manifest2?: { extra?: unknown };
+    expoGoConfig?: { extra?: unknown };
+  };
+
+  const candidates = [
+    Constants.expoConfig?.extra,
+    constantsAny.expoGoConfig?.extra,
+    constantsAny.manifest2?.extra,
+    constantsAny.manifest?.extra,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === "object") {
+      return candidate as RuntimeAppConfigExtra;
+    }
+  }
+
+  return {};
+}
+
 function normalizeConfiguredApiUrl(url: URL) {
   const normalizedPath = url.pathname.replace(/\/+$/, "");
 
@@ -54,7 +86,8 @@ function normalizeConfiguredApiUrl(url: URL) {
 }
 
 function buildBaseUrl(port: number, fallback: string) {
-  const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  const hasEnvOverride = Object.prototype.hasOwnProperty.call(process.env, "EXPO_PUBLIC_API_BASE_URL");
+  const configured = (hasEnvOverride ? process.env.EXPO_PUBLIC_API_BASE_URL : getRuntimeAppConfigExtra().apiBaseUrl)?.trim();
 
   if (configured) {
     try {

@@ -4,6 +4,7 @@
     "slug": "3m30cm-game",
     "scheme": "jump30cm-game",
     "version": "0.1.0",
+    "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/img/Estrella_SNT.png",
     "userInterfaceStyle": "dark",
@@ -32,6 +33,12 @@
     },
     "extra": {
       "router": {},
+      "apiBaseUrl": "https://3m30cm.supernovatel.com",
+      "googleClientIds": {
+        "web": "346093521498-gsgla3j4akv01f0c2642ntih39bstckj.apps.googleusercontent.com",
+        "ios": "",
+        "android": "346093521498-pgavsthdan4bjfsjilgg6pbkq0436jhp.apps.googleusercontent.com"
+      },
       "eas": {
         "projectId": "d31c4c56-2d77-4007-8e5e-bb06b5111aa9"
       }

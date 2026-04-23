@@ -1,5 +1,4 @@
 import * as ImagePicker from "expo-image-picker";
-import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
@@ -18,6 +17,7 @@ import { R, S } from "./tokens";
 interface ProfileModalProps {
   visible: boolean;
   onClose: () => void;
+  onLogout?: () => void;
   /** JWT used to authenticate API requests */
   accessToken: string;
   /** Current avatar URL (from server) */
@@ -208,6 +208,7 @@ const makeStyles = (C: ColorPalette) =>
 export function ProfileModal({
   visible,
   onClose,
+  onLogout,
   accessToken,
   avatarUrl,
   onAvatarChange,
@@ -316,8 +317,9 @@ export function ProfileModal({
   }
 
   async function handleLogout() {
-    await SecureStore.deleteItemAsync("jump-token");
+    resetState();
     onClose();
+    await onLogout?.();
   }
 
   return (

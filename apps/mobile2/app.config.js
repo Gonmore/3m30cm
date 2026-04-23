@@ -24,6 +24,18 @@ function getEnvValue(publicKey, fallbackKey) {
   return process.env[publicKey] ?? process.env[fallbackKey] ?? "";
 }
 
+function getConfiguredValue(publicKey, fallbackKey, fallbackValue) {
+  if (Object.prototype.hasOwnProperty.call(process.env, publicKey)) {
+    return process.env[publicKey] ?? "";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(process.env, fallbackKey)) {
+    return process.env[fallbackKey] ?? "";
+  }
+
+  return fallbackValue ?? "";
+}
+
 const dotenv = optionalRequire("dotenv");
 const dotenvExpand = optionalRequire("dotenv-expand");
 const workspaceRoot = path.resolve(__dirname, "../..");
@@ -39,11 +51,11 @@ module.exports = {
   ...expoConfig,
   extra: {
     ...expoExtra,
-    apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? expoExtra.apiBaseUrl ?? "",
+    apiBaseUrl: getConfiguredValue("EXPO_PUBLIC_API_BASE_URL", "API_BASE_URL", expoExtra.apiBaseUrl),
     googleClientIds: {
-      web: getEnvValue("EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB", "GOOGLE_CLIENT_ID_WEB"),
-      ios: getEnvValue("EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS", "GOOGLE_CLIENT_ID_IOS"),
-      android: getEnvValue("EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID", "GOOGLE_CLIENT_ID_ANDROID"),
+      web: getConfiguredValue("EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB", "GOOGLE_CLIENT_ID_WEB", expoExtra.googleClientIds?.web),
+      ios: getConfiguredValue("EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS", "GOOGLE_CLIENT_ID_IOS", expoExtra.googleClientIds?.ios),
+      android: getConfiguredValue("EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID", "GOOGLE_CLIENT_ID_ANDROID", expoExtra.googleClientIds?.android),
     },
   },
 };

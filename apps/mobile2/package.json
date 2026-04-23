@@ -2,7 +2,7 @@
   "name": "@jump/mobile2",
   "private": true,
   "version": "0.1.0",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "scripts": {
     "dev": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --offline --port 8082 --clear",
     "prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com node ../../node_modules/expo/bin/cli start --offline --port 8082 --clear",
@@ -18,7 +18,9 @@
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
+    "@react-native-google-signin/google-signin": "^16.1.2",
     "@react-native-masked-view/masked-view": "0.3.2",
+    "3m30cm-platform": "file:../..",
     "expo": "~54.0.0",
     "expo-auth-session": "~7.0.10",
     "expo-av": "~16.0.8",
