@@ -9,7 +9,7 @@ import { prisma } from "../config/prisma.js";
 import { env } from "../config/env.js";
 import { buildTrainingDaysJson, buildWeekdaysJson } from "../lib/athlete-programs.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
-import { createAccessToken, verifyGoogleIdToken } from "../lib/auth.js";
+import { createAccessToken, getConfiguredGoogleClientIds, verifyGoogleIdToken } from "../lib/auth.js";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -299,7 +299,16 @@ authRouter.post("/google", async (req: Request, res: Response) => {
       return;
     }
     console.error("Google auth failed", error);
-    res.status(401).json({ message: "Google authentication failed" });
+    const diagnosticRequested = req.header("x-auth-debug") === "1";
+    const detail = error instanceof Error ? error.message : "Unknown Google auth error";
+
+    res.status(401).json({
+      message: "Google authentication failed",
+      ...(diagnosticRequested ? {
+        detail,
+        configuredClientIds: getConfiguredGoogleClientIds(),
+      } : {}),
+    });
   }
 });
 

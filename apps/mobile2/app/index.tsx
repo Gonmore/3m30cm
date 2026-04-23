@@ -79,6 +79,35 @@ function hasAthleteRole(token: string): boolean {
   const teamRoles = payload.teamRoles as string[] | null;
   return Array.isArray(teamRoles) && teamRoles.includes("ATHLETE");
 }
+
+function formatGoogleTokenDiagnostics(idToken: string): string {
+  const payload = decodeJwtPayload(idToken);
+  if (!payload) {
+    return "Token de Google no decodificable en cliente.";
+  }
+
+  const diagnosticFields = [
+    payload.aud ? `aud=${String(payload.aud)}` : null,
+    payload.azp ? `azp=${String(payload.azp)}` : null,
+    payload.iss ? `iss=${String(payload.iss)}` : null,
+    payload.email ? `email=${String(payload.email)}` : null,
+    payload.email_verified !== undefined ? `email_verified=${String(payload.email_verified)}` : null,
+  ].filter(Boolean);
+
+  return diagnosticFields.length > 0
+    ? `Token Google: ${diagnosticFields.join(" | ")}`
+    : "Token Google sin campos de diagnostico visibles.";
+}
+
+function formatGoogleAuthError(error: unknown, idToken?: string): string {
+  const baseMessage = error instanceof Error ? error.message : "No se pudo iniciar sesion con Google";
+  if (!idToken) {
+    return baseMessage;
+  }
+
+  return `${baseMessage}\n${formatGoogleTokenDiagnostics(idToken)}`;
+}
+
 const reminderSyncStorageKey = "jump-athlete-reminder-sync";
 const trendWindowStorageKey = "jump-athlete-trend-window";
 const favoriteSessionStorageKey = "jump-athlete-favorite-session";
@@ -1149,14 +1178,15 @@ async function requestJson<T>(path: string, options: RequestInit = {}, accessTok
     },
   });
 
-  const data = (await response.json().catch(() => ({}))) as T & { message?: string };
+  const data = (await response.json().catch(() => ({}))) as T & { message?: string; detail?: string };
+  const combinedMessage = [data.message, data.detail].filter(Boolean).join(": ");
 
   if (response.status === 401) {
-    throw new UnauthorizedRequestError(data.message ?? "Invalid or expired token");
+    throw new UnauthorizedRequestError(combinedMessage || "Invalid or expired token");
   }
 
   if (!response.ok) {
-    throw new Error(data.message ?? "Request failed");
+    throw new Error(combinedMessage || "Request failed");
   }
 
   return data;
@@ -2294,6 +2324,7 @@ export default function HomeScreen() {
       setError("");
       const response = await requestJson<LoginResponse>("/api/v1/auth/google", {
         method: "POST",
+        headers: { "X-Auth-Debug": "1" },
         body: JSON.stringify({ idToken }),
       });
       await writeStoredValue(accessTokenStorageKey, response.accessToken);
@@ -2304,7 +2335,7 @@ export default function HomeScreen() {
         setActiveRole("athlete");
       }
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "No se pudo iniciar sesion con Google");
+      setError(formatGoogleAuthError(requestError, idToken));
     } finally {
       setLoading(false);
     }

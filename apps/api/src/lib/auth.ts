@@ -18,6 +18,14 @@ function parseGoogleClientIds(value?: string) {
     .filter(Boolean);
 }
 
+export function getConfiguredGoogleClientIds() {
+  return [
+    ...parseGoogleClientIds(env.GOOGLE_CLIENT_ID_WEB),
+    ...parseGoogleClientIds(env.GOOGLE_CLIENT_ID_ANDROID),
+    ...parseGoogleClientIds(env.GOOGLE_CLIENT_ID_IOS),
+  ];
+}
+
 export interface AuthTokenPayload extends JwtPayload {
   sub: string;
   email: string;
@@ -46,11 +54,7 @@ export function verifyAccessToken(token: string) {
  * Returns the payload (sub, email, name, picture) or throws if invalid.
  */
 export async function verifyGoogleIdToken(idToken: string) {
-  const clientIds = [
-    ...parseGoogleClientIds(env.GOOGLE_CLIENT_ID_WEB),
-    ...parseGoogleClientIds(env.GOOGLE_CLIENT_ID_ANDROID),
-    ...parseGoogleClientIds(env.GOOGLE_CLIENT_ID_IOS),
-  ];
+  const clientIds = getConfiguredGoogleClientIds();
 
   if (clientIds.length === 0) {
     throw new Error("No Google client IDs configured");
