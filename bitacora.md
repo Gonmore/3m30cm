@@ -411,3 +411,29 @@ dejar capturado el patron real que ya funciona en `3m30cm` para reutilizarlo des
 - El comando operativo para regenerar la APK desde la raiz sigue siendo `echo y | npm --prefix apps/mobile2 run apk:prod`.
 - Si vuelve a aparecer el mismo error, revisar primero que no exista `apps/mobile2/node_modules` antes de tocar código de negocio.
 
+---
+
+### 22. Deploy desacoplado de mobile + automatizaciones locales en mobile2
+
+**Problema detectado:**
+- Ajustes recientes de `mobile2` no debian afectar el deploy productivo, pero el monorepo seguia dejando algunos acoples innecesarios entre `web`, `api` y los workspaces moviles.
+- Ademas, `mobile2` ya tenia piezas sueltas para calendario/notificaciones, pero faltaba cerrar el flujo de negocio completo para recordatorios motivacionales y sesiones vencidas.
+
+**Cambios aplicados:**
+1. `apps/web/package.json` dejo de depender del paquete raiz `3m30cm-platform` para que el build web no arrastre cambios del workspace movil.
+2. `apps/api/tsconfig.json` dejo de fijar `typeRoots` a una ruta que solo funcionaba fuera del contenedor; con eso el build aislado de `apps/api/Dockerfile.prod` volvio a compilar limpio.
+3. `apps/api` incorporo rollover automatico de sesiones vencidas: una sesion se puede correr hasta `2` dias; si vuelve a quedar vencida fuera de ese margen, pasa a `SKIPPED`.
+4. `apps/mobile2` ahora agenda recordatorios motivacionales a las `08:00` del mismo dia para la sesion destacada y sincroniza el calendario del telefono cuando el permiso ya esta concedido.
+5. La vista `Hoy` se volvio mas directa para el uso diario: mensaje motivacional por tipo de sesion, CTA de inicio inmediato, CTA de precarga offline y modal destacado para el caso sin programa generado.
+
+**Validacion ejecutada:**
+- `npm --prefix apps/mobile2 run build`
+- `npx expo export -p android --clear`
+- `npm --prefix apps/api run prisma:generate`
+- `docker build -f apps/api/Dockerfile.prod .`
+
+**Resultado:**
+- El deploy vuelve a depender solo de backend + frontend, sin quedar fragilizado por cambios de `mobile2`.
+- El flujo de APK no se rompio: `mobile2` siguio pasando chequeo TypeScript y export Android despues de declarar permisos nativos y automatizaciones locales.
+- El login con Google queda entendido como flujo mixto: la app obtiene el `idToken`, pero el backend lo valida contra Google antes de emitir el JWT interno de la plataforma.
+

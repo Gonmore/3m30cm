@@ -185,7 +185,16 @@ Flujo validado para release Android en Windows:
 - El helper de APK tarda porque rehace `expo prebuild --clean`, regenera recursos nativos, empaqueta JS/assets y vuelve a compilar Gradle/Kotlin/dependencias nativas antes de firmar el APK.
 - La ultima validacion completa cerro en `10m 16s` y genero `apps/mobile2/android/app/build/outputs/apk/release/app-release.apk` con `71.30 MB`.
 - Android release ya no usa el browser OAuth de `expo-auth-session`; usa Google Sign-In nativo. Si Google falla en un APK/AAB firmado, el primer punto a revisar ya no es el `.env`, sino el client OAuth Android en Google Cloud para `com.supernovatel.jump30cm.game` y el SHA-1 real del certificado con el que se firmo ese build.
+- El backend sigue necesitando `GOOGLE_CLIENT_ID_WEB` y `GOOGLE_CLIENT_ID_ANDROID` porque la app no abre sesion sola: entrega un `idToken` a `/api/v1/auth/google` y el servidor valida contra Google que ese token fue emitido para una audiencia permitida antes de crear el JWT propio de la plataforma.
 - Si la app abre y se cierra con `Cannot read property 'useState' of null`, el primer punto a revisar no es Google sino una instalacion local accidental en `apps/mobile2/node_modules`; el flujo correcto del monorepo deja una sola copia de React en el `node_modules` raiz.
+- `mobile2` ya deja declarados permisos nativos para notificaciones y calendario; la validacion posterior al cambio volvio a pasar con `npm --prefix apps/mobile2 run build` y `npx expo export -p android --clear`.
+
+Interaccion con calendario y recordatorios en `mobile2`:
+
+- La sesion destacada del dia mantiene un tono motivacional en la vista `Hoy` y prioriza dos acciones directas: iniciar ahora o precargar offline.
+- Si el permiso ya fue concedido, la app actualiza automaticamente el evento del calendario del dispositivo para la sesion destacada y programa un recordatorio local a las `08:00` del mismo dia.
+- Si una sesion vence sin completarse, el backend la recorre automaticamente al siguiente dia hasta un maximo de `2` reprogramaciones; si se vuelve a vencer fuera de ese limite, queda marcada como perdida (`SKIPPED`).
+- Ese rollover corre del lado API para que el estado siga consistente aunque el usuario cambie de dispositivo; la validacion productiva del backend se repitio con `docker build -f apps/api/Dockerfile.prod .` y siguio pasando.
 
 ## Proximos pasos recomendados
 
@@ -198,6 +207,11 @@ Flujo validado para release Android en Windows:
 ## Despliegue a produccion
 
 El despliegue cubre solo `apps/api` y `apps/web`. Las apps moviles se distribuyen por Expo/EAS.
+
+Estado validado del deploy tras la estabilizacion de mobile2:
+
+- Los cambios de `mobile` y `mobile2` ya no vuelven a contaminar el deploy web por dependencia innecesaria al paquete raiz del monorepo.
+- `apps/api/Dockerfile.prod` y `apps/web/Dockerfile.prod` se pueden validar por separado; el despliegue a produccion sigue dependiendo unicamente de backend y frontend.
 
 ### Prerrequisitos en el servidor
 

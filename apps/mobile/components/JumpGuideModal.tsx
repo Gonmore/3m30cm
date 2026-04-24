@@ -1,6 +1,7 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { C, R, S } from "./tokens";
+import { R, S } from "./tokens";
+import { useTheme } from "./ThemeContext";
 
 interface JumpGuideModalProps {
   visible: boolean;
@@ -40,17 +41,18 @@ const steps = [
   },
 ];
 
-const toneMap: Record<string, string> = {
-  "①": C.amber,
-  "②": C.amber,
-  "③": C.teal,
-  "④": C.teal,
-  "⑤": C.amber,
-  "⑥": C.teal,
-};
-
 export default function JumpGuideModal({ visible, onClose }: JumpGuideModalProps) {
   const insets = useSafeAreaInsets();
+  const { C } = useTheme();
+  const styles = makeStyles(C);
+  const toneMap: Record<string, string> = {
+    "①": C.amber,
+    "②": C.amber,
+    "③": C.teal,
+    "④": C.teal,
+    "⑤": C.amber,
+    "⑥": C.teal,
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -110,7 +112,8 @@ export default function JumpGuideModal({ visible, onClose }: JumpGuideModalProps
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
+return StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: C.overlay,
@@ -243,3 +246,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
 });
+}

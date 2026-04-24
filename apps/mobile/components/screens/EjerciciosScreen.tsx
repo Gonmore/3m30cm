@@ -5,7 +5,8 @@ import { Audio, ResizeMode, Video } from "expo-av";
 import { Image as ExpoImage } from "expo-image";
 import type { ViewStyle } from "react-native";
 import { rewriteLocalAssetUrl } from "../runtimeConfig";
-import { C, R, S } from "../tokens";
+import { R, S } from "../tokens";
+import { useTheme } from "../ThemeContext";
 import type { LogDraftState, SessionDetail, SessionGuidance } from "../types";
 
 const DAY_TYPE_EMOJI: Record<string, string> = {
@@ -67,6 +68,8 @@ function ExerciseMediaView({
   height: number;
   isActive?: boolean;
 }) {
+  const { C } = useTheme();
+  const styles = makeStyles(C);
   const remoteUri = rewriteAssetUrl(asset.url);
   const offlineUri = asset.offlineUrl ?? null;
   const [uri, setUri] = useState<string | null>(offlineUri ?? remoteUri);
@@ -136,6 +139,8 @@ type TimerPhase = "idle" | "countdown" | "work" | "leg2-countdown" | "leg2-work"
 function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
   workSeconds: number; restSeconds: number; totalSets: number; perLeg?: boolean;
 }) {
+  const { C } = useTheme();
+  const timerStyles = makeTimerStyles(C);
   const [phase, setPhase] = useState<TimerPhase>("idle");
   const [tick, setTick] = useState(3);                 // countdown 3,2,1
   const [remaining, setRemaining] = useState(workSeconds);
@@ -387,7 +392,8 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
   );
 }
 
-const timerStyles = StyleSheet.create({
+function makeTimerStyles(C: ReturnType<typeof useTheme>["C"]) {
+return StyleSheet.create({
   wrap: { backgroundColor: C.surfaceRaise, borderRadius: R.xl, padding: S.md, gap: S.md, borderWidth: 1, borderColor: C.border },
   infoRow: { flexDirection: "row", justifyContent: "space-around" },
   infoPill: { alignItems: "center", gap: 2 },
@@ -405,6 +411,7 @@ const timerStyles = StyleSheet.create({
   btnStop: { borderWidth: 1, borderColor: C.danger, borderRadius: R.full, paddingVertical: 13, paddingHorizontal: S.xl, alignItems: "center" },
   btnStopText: { color: C.danger, fontWeight: "700", fontSize: 15 },
 });
+}
 
 interface EjerciciosScreenProps {
   selectedSession: SessionDetail | null;
@@ -435,6 +442,8 @@ export default function EjerciciosScreen({
   onShowJumpGuide,
   onBack,
 }: EjerciciosScreenProps) {
+  const { C } = useTheme();
+  const styles = makeStyles(C);
   if (!selectedSession) {
     return (
       <View style={styles.emptyWrap}>
@@ -886,7 +895,8 @@ export default function EjerciciosScreen({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
+return StyleSheet.create({
   scroll: { flex: 1, backgroundColor: C.bg },
   container: { padding: S.md, gap: S.md, paddingBottom: S.xl },
 
@@ -997,3 +1007,4 @@ const styles = StyleSheet.create({
   btnSave: { backgroundColor: C.amber, borderRadius: R.full, paddingVertical: 15, alignItems: "center", marginTop: S.xs },
   btnSaveText: { color: C.bg, fontWeight: "800", fontSize: 16 },
 });
+}

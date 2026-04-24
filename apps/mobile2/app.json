@@ -15,17 +15,32 @@
     },
     "plugins": [
       "expo-router",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "training-reminders"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.supernovatel.jump30cm.game"
+      "bundleIdentifier": "com.supernovatel.jump30cm.game",
+      "infoPlist": {
+        "NSCalendarsUsageDescription": "3m30cm necesita acceso al calendario para agendar tus sesiones y sus recordatorios.",
+        "NSUserNotificationsUsageDescription": "3m30cm necesita enviarte recordatorios motivacionales el dia de tu sesion."
+      }
     },
     "android": {
       "package": "com.supernovatel.jump30cm.game",
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "READ_CALENDAR",
+        "WRITE_CALENDAR"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/img/Estrella_SNT.png",
         "backgroundColor": "#0A1628"

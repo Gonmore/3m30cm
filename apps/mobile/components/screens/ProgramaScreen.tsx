@@ -1,14 +1,8 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useState } from "react";
-import { C, R, S } from "../tokens";
+import { R, S } from "../tokens";
+import { useTheme } from "../ThemeContext";
 import type { ActiveProgram, AthleteProgress, ProgramSummary, SessionSummary } from "../types";
-
-const STATUS_COLOR: Record<string, string> = {
-  COMPLETED: C.teal,
-  PLANNED:   C.amber,
-  SKIPPED:   C.textMuted,
-  RESCHEDULED: C.textSub,
-};
 
 const STATUS_LABEL: Record<string, string> = {
   COMPLETED:   "✓  Completada",
@@ -52,6 +46,8 @@ export default function ProgramaScreen({
   onRegenerateProgram,
   onRefresh,
 }: ProgramaScreenProps) {
+  const { C } = useTheme();
+  const styles = makeStyles(C);
   const [pendingPreviewSession, setPendingPreviewSession] = useState<SessionSummary | null>(null);
   const cycleLabel = activeProgram
     ? `${activeProgram.name}  ·  ${activeProgram.phase}  ·  ${activeProgram.status}`
@@ -123,7 +119,12 @@ export default function ProgramaScreen({
         <View style={styles.sessionsList}>
           <Text style={styles.sectionTitle}>Sesiones</Text>
           {sessions.map((s) => {
-            const color = STATUS_COLOR[s.status ?? "available"] ?? C.textMuted;
+            const color = {
+              COMPLETED: C.teal,
+              PLANNED: C.amber,
+              SKIPPED: C.textMuted,
+              RESCHEDULED: C.textSub,
+            }[s.status ?? "available"] ?? C.textMuted;
             const isActive = s.id === selectedSessionId;
             const isCached = cachedSessionIds.includes(s.id);
             return (
@@ -229,7 +230,8 @@ export default function ProgramaScreen({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
+return StyleSheet.create({
   scroll: { flex: 1, backgroundColor: C.bg },
   container: { padding: S.md, gap: S.md, paddingBottom: S.xl },
 
@@ -291,3 +293,4 @@ const styles = StyleSheet.create({
   modalPrimaryBtn: { paddingVertical: 11, paddingHorizontal: S.md, borderRadius: R.full, backgroundColor: C.amber },
   modalPrimaryBtnText: { color: C.bg, fontWeight: "800", fontSize: 13 },
 });
+}

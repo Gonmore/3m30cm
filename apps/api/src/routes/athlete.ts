@@ -157,6 +157,8 @@ const athleteProgramSetupSchema = athletePlanningSchema.extend({
 
 type AthleteLogMetrics = z.infer<typeof logMetricsSchema>;
 
+const maxSessionRolloverDays = 2;
+
 function parseLogMetrics(metrics: Prisma.JsonValue | null): AthleteLogMetrics | null {
   if (!metrics || typeof metrics !== "object" || Array.isArray(metrics)) {
     return null;
@@ -177,6 +179,17 @@ function averageMetric(values: number[]) {
   }
 
   return roundMetric(values.reduce((total, entry) => total + entry, 0) / values.length);
+}
+
+function startOfLocalDay(value: Date) {
+  const next = new Date(value);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function differenceInLocalDays(later: Date, earlier: Date) {
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.floor((startOfLocalDay(later).getTime() - startOfLocalDay(earlier).getTime()) / millisecondsPerDay));
 }
 
 function getWeekBounds(date: Date) {
@@ -1377,6 +1390,112 @@ athleteRouter.get("/sessions/:sessionId", async (req: AuthenticatedRequest, res:
   } catch (error) {
     console.error("Failed to fetch session detail", error);
     res.status(500).json({ message: "Failed to fetch session detail" });
+  }
+});
+
+athleteRouter.post("/sessions/auto-rollover", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const athleteProfile = await getCurrentAthleteProfileId(userId);
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Current user is not an athlete" });
+      return;
+    }
+
+    const today = new Date();
+    const startOfToday = startOfLocalDay(today);
+    const overdueSessions = await prisma.scheduledSession.findMany({
+      where: {
+        personalProgram: {
+          athleteProfileId: athleteProfile.id,
+        },
+        status: {
+          in: [SessionStatus.PLANNED, SessionStatus.RESCHEDULED],
+        },
+        scheduledDate: {
+          lt: startOfToday,
+        },
+      },
+      orderBy: { scheduledDate: "asc" },
+      select: {
+        id: true,
+        title: true,
+        scheduledDate: true,
+        rescheduleCount: true,
+      },
+    });
+
+    const rolledOverSessions: Array<{ id: string; title: string; scheduledDate: string; rescheduleCount: number }> = [];
+    const skippedSessions: Array<{ id: string; title: string }> = [];
+
+    await prisma.$transaction(async (transaction) => {
+      for (const session of overdueSessions) {
+        const overdueDays = differenceInLocalDays(today, session.scheduledDate);
+        const remainingRollovers = Math.max(maxSessionRolloverDays - session.rescheduleCount, 0);
+
+        if (overdueDays <= 0) {
+          continue;
+        }
+
+        if (remainingRollovers > 0 && overdueDays <= remainingRollovers) {
+          const nextScheduledDate = new Date(session.scheduledDate);
+          nextScheduledDate.setDate(nextScheduledDate.getDate() + overdueDays);
+
+          const updated = await transaction.scheduledSession.update({
+            where: { id: session.id },
+            data: {
+              scheduledDate: nextScheduledDate,
+              status: SessionStatus.RESCHEDULED,
+              rescheduleCount: {
+                increment: overdueDays,
+              },
+            },
+            select: {
+              id: true,
+              title: true,
+              scheduledDate: true,
+              rescheduleCount: true,
+            },
+          });
+
+          rolledOverSessions.push({
+            id: updated.id,
+            title: updated.title,
+            scheduledDate: updated.scheduledDate.toISOString(),
+            rescheduleCount: updated.rescheduleCount,
+          });
+          continue;
+        }
+
+        const skipped = await transaction.scheduledSession.update({
+          where: { id: session.id },
+          data: {
+            status: SessionStatus.SKIPPED,
+          },
+          select: {
+            id: true,
+            title: true,
+          },
+        });
+
+        skippedSessions.push(skipped);
+      }
+    });
+
+    res.json({
+      rolledOverSessions,
+      skippedSessions,
+    });
+  } catch (error) {
+    console.error("Failed to auto-rollover overdue sessions", error);
+    res.status(500).json({ message: "Failed to auto-rollover overdue sessions" });
   }
 });
 

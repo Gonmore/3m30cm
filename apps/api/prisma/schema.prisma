@@ -299,6 +299,7 @@ model ScheduledSession {
   title           String
   dayType         DayType
   status          SessionStatus    @default(PLANNED)
+  rescheduleCount Int              @default(0)
   notes           String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt

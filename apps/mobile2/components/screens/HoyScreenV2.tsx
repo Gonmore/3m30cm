@@ -22,7 +22,8 @@ import {
   View,
 } from "react-native";
 import { useEffect, useRef, useState } from "react";
-import { C, R, S } from "@mobile/components/tokens";
+import { R, S } from "@mobile/components/tokens";
+import { useTheme } from "@mobile/components/ThemeContext";
 import type {
   ActiveProgram,
   AthleteProfile,
@@ -72,12 +73,6 @@ const DAY_TYPE_INTENSITY: Record<string, "push" | "steady" | "protect"> = {
   SPORT: "steady",
 };
 
-const INTENSITY_COLOR: Record<"push" | "steady" | "protect", string> = {
-  push:    C.teal,
-  steady:  C.amber,
-  protect: C.textMuted,
-};
-
 const INTENSITY_LABEL: Record<"push" | "steady" | "protect", string> = {
   push:    "Alta intensidad",
   steady:  "Intensidad media",
@@ -90,6 +85,20 @@ function translateDayType(v: string): string {
 
 function sessionIntensity(dayType: string): "push" | "steady" | "protect" {
   return DAY_TYPE_INTENSITY[dayType] ?? "steady";
+}
+
+function buildMotivationText(dayType: string, streak: number) {
+  const streakLine = streak > 0 ? `Vas con ${streak} dias de racha.` : "Hoy puede empezar tu primera racha fuerte.";
+
+  if (dayType === "STRENGTH") {
+    return `${streakLine} Los pesos para evolucionar ya estan programados.`;
+  }
+
+  if (dayType === "EXPLOSIVE" || dayType === "POWER" || dayType === "SPEED") {
+    return `${streakLine} Hoy manda la velocidad, las alturas y la calidad de cada salto.`;
+  }
+
+  return `${streakLine} Tu sesion de hoy ya esta lista para avanzar sin improvisar.`;
 }
 
 /** Week strip: Mon→Sun surrounding today. Each item has date + status. */
@@ -118,15 +127,6 @@ function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string }
     return { date, iso, label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, isPast, isFuture, status };
   });
 }
-
-const STATUS_DOT: Record<string, string> = {
-  COMPLETED:   C.teal,
-  PLANNED:     C.amberDim,
-  SKIPPED:     C.danger,
-  RESCHEDULED: C.amber,
-  IN_PROGRESS: C.teal,
-  CANCELLED:   C.textDisabled,
-};
 
 // ─────────────────────────────────────────────────────────────
 //  Props  (identical to original HoyScreen for drop-in swap)
@@ -168,6 +168,8 @@ const RING_SIZE = 140;
 const RING_STROKE = 10;
 
 function ProgressRing({ pct, streak, label }: { pct: number; streak: number; label: string }) {
+  const { C } = useTheme();
+  const styles = makeStyles(C);
   const animPct = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -253,7 +255,7 @@ function ProgressRing({ pct, streak, label }: { pct: number; streak: number; lab
 //  Weekly timeline strip
 // ─────────────────────────────────────────────────────────────
 
-function WeekTimeline({ sessions }: { sessions: Array<{ scheduledDate: string; status: string }> }) {
+function WeekTimeline({ sessions, colors, styles }: { sessions: Array<{ scheduledDate: string; status: string }>; colors: ReturnType<typeof useTheme>["C"]; styles: ReturnType<typeof makeStyles> }) {
   const days = buildWeekDays(sessions);
 
   return (
@@ -262,7 +264,14 @@ function WeekTimeline({ sessions }: { sessions: Array<{ scheduledDate: string; s
         const isTrainingDay = day.status !== null;
         const isCompleted = day.status === "COMPLETED";
         const isSkipped   = day.status === "SKIPPED";
-        const dotColor    = day.status ? (STATUS_DOT[day.status] ?? C.textMuted) : "transparent";
+        const dotColor = day.status ? ({
+          COMPLETED: colors.teal,
+          PLANNED: colors.amberDim,
+          SKIPPED: colors.danger,
+          RESCHEDULED: colors.amber,
+          IN_PROGRESS: colors.teal,
+          CANCELLED: colors.textDisabled,
+        }[day.status] ?? colors.textMuted) : "transparent";
 
         return (
           <View key={day.iso} style={[styles.weekDayCol, day.isFuture && styles.weekDayFuture]}>
@@ -307,6 +316,7 @@ function SkeletonBar({ width = "100%", height = 14, marginTop = 0 }: {
   height?: number;
   marginTop?: number;
 }) {
+  const { C } = useTheme();
   const shimmer = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -350,7 +360,14 @@ function GlowCard({
   intensity: "push" | "steady" | "protect";
   style?: object;
 }) {
+  const { C } = useTheme();
+  const styles = makeStyles(C);
   const glowAnim = useRef(new Animated.Value(0)).current;
+  const intensityColor: Record<"push" | "steady" | "protect", string> = {
+    push: C.teal,
+    steady: C.amber,
+    protect: C.textMuted,
+  };
 
   useEffect(() => {
     if (intensity !== "push") { glowAnim.setValue(0); return; }
@@ -380,7 +397,7 @@ function GlowCard({
         styles.glowCard,
         {
           borderColor,
-          shadowColor: INTENSITY_COLOR[intensity],
+          shadowColor: intensityColor[intensity],
           shadowOpacity,
           shadowOffset: { width: 0, height: 0 },
           shadowRadius: 16,
@@ -407,6 +424,8 @@ function NoProgram({
 }) {
   const bounceAnim = useRef(new Animated.Value(0)).current;
   const [confirmVisible, setConfirmVisible] = useState(false);
+  const { C } = useTheme();
+  const styles = makeStyles(C);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -440,11 +459,7 @@ function NoProgram({
           ))}
         </View>
 
-        <Pressable
-          style={({ pressed }) => [styles.noProgramCta, pressed && { opacity: 0.82 }]}
-          onPress={() => setConfirmVisible(true)}
-          disabled={loading}
-        >
+        <Pressable style={({ pressed }) => [styles.noProgramCta, pressed && { opacity: 0.82 }]} onPress={() => setConfirmVisible(true)} disabled={loading}>
           <Text style={styles.noProgramCtaText}>🚀 Quiero mis 30 cm →</Text>
         </Pressable>
       </View>
@@ -454,15 +469,16 @@ function NoProgram({
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalEmoji}>🔥</Text>
-            <Text style={styles.modalTitle}>¡No lo hagas!</Text>
+            <Text style={styles.modalTitle}>Tu aventura empieza aqui</Text>
             <Text style={styles.modalBody}>
-              Si das este paso, aceptás priorizarte a vos mismo y a tus metas.{"\n\n"}Solo el{" "}
+              Genera tu programa personalizado y unite al{" "}
               <Text style={{ color: C.amber, fontWeight: "800" }}>5%</Text>
-              {" "}está dispuesto a aceptar el desafío.
+              {" "}que realmente se entrena.{"\n\n"}
+              Seran 3 meses de constancia y sacrificio que cambiaran tu vida.
             </Text>
             <View style={styles.modalActions}>
               <Pressable style={styles.modalBtnNo} onPress={() => setConfirmVisible(false)}>
-                <Text style={styles.modalBtnNoText}>Todavía no</Text>
+                <Text style={styles.modalBtnNoText}>Mas tarde</Text>
               </Pressable>
               <Pressable
                 style={styles.modalBtnYes}
@@ -504,6 +520,8 @@ export default function HoyScreenV2({
   onUpdateCheckIn,
   onGenerateProgram,
 }: HoyScreenV2Props) {
+  const { C } = useTheme();
+  const styles = makeStyles(C);
   const hasProgram   = !!activeProgram;
   const streak       = progress?.summary.currentStreak ?? 0;
   const weeklyPct    = Math.min(progress?.weeklyGoal.completionRate ?? 0, 100);
@@ -511,6 +529,14 @@ export default function HoyScreenV2({
   const intensity    = todayPrimarySession
     ? sessionIntensity(todayPrimarySession.dayType)
     : "protect";
+  const intensityColor: Record<"push" | "steady" | "protect", string> = {
+    push: C.teal,
+    steady: C.amber,
+    protect: C.textMuted,
+  };
+  const motivationText = todayPrimarySession
+    ? buildMotivationText(todayPrimarySession.dayType, streak)
+    : "";
 
   // ── Stagger-in entrance animation ───────────────────────────
   const entranceAnim = useRef(new Animated.Value(0)).current;
@@ -596,7 +622,7 @@ export default function HoyScreenV2({
       <Animated.View style={[entranceStyle, { marginTop: -S.xs }]}>
         <View style={styles.timelineCard}>
           <Text style={styles.timelineEyebrow}>Esta semana</Text>
-          <WeekTimeline sessions={sessions} />
+          <WeekTimeline sessions={sessions} colors={C} styles={styles} />
         </View>
       </Animated.View>
 
@@ -614,8 +640,8 @@ export default function HoyScreenV2({
         <GlowCard intensity={intensity}>
           {/* Intensity badge */}
           <View style={styles.ctaIntensityRow}>
-            <View style={[styles.ctaIntensityBadge, { backgroundColor: INTENSITY_COLOR[intensity] + "22", borderColor: INTENSITY_COLOR[intensity] + "55" }]}>
-              <Text style={[styles.ctaIntensityText, { color: INTENSITY_COLOR[intensity] }]}>
+            <View style={[styles.ctaIntensityBadge, { backgroundColor: intensityColor[intensity] + "22", borderColor: intensityColor[intensity] + "55" }]}>
+              <Text style={[styles.ctaIntensityText, { color: intensityColor[intensity] }]}>
                 {INTENSITY_LABEL[intensity].toUpperCase()}
               </Text>
             </View>
@@ -634,6 +660,7 @@ export default function HoyScreenV2({
             {formatDate(todayPrimarySession.scheduledDate)}
             {"  ·  "}{translateDayType(todayPrimarySession.dayType)}
           </Text>
+          <Text style={styles.ctaMotivation}>{motivationText}</Text>
 
           {/* Completion mini-bar */}
           {todayCompletion > 0 ? (
@@ -646,19 +673,27 @@ export default function HoyScreenV2({
           ) : null}
 
           {/* Primary CTA */}
-          <Animated.View style={{ transform: [{ scale: ctaScale }], marginTop: S.md }}>
-            <Pressable
-              style={[styles.ctaStartBtn, { backgroundColor: INTENSITY_COLOR[intensity] }]}
-              onPressIn={animPressIn}
-              onPressOut={animPressOut}
-              onPress={onStartSession}
-              disabled={loading}
-            >
-              <Text style={styles.ctaStartBtnText}>
-                {loading ? "Cargando..." : "⚡ Iniciar sesión"}
+          <View style={styles.ctaActionStack}>
+            <Animated.View style={{ transform: [{ scale: ctaScale }], marginTop: S.md }}>
+              <Pressable
+                style={[styles.ctaStartBtn, { backgroundColor: intensityColor[intensity] }]}
+                onPressIn={animPressIn}
+                onPressOut={animPressOut}
+                onPress={onStartSession}
+                disabled={loading}
+              >
+                <Text style={styles.ctaStartBtnText}>
+                  {loading ? "Cargando..." : "⚡ Iniciar ahora"}
+                </Text>
+              </Pressable>
+            </Animated.View>
+
+            <Pressable style={styles.ctaPreloadBtn} onPress={onPreloadSession} disabled={preloadBusy}>
+              <Text style={styles.ctaPreloadBtnText}>
+                {preloadBusy ? "Preparando sesion..." : todaySessionCached ? "📥 Sesion offline lista" : "📥 Precargar para entrenar offline"}
               </Text>
             </Pressable>
-          </Animated.View>
+          </View>
 
           {/* Secondary actions row */}
           <View style={styles.ctaSecondaryRow}>
@@ -675,11 +710,9 @@ export default function HoyScreenV2({
                 {favoriteSessionId === todayPrimarySession.id ? "★" : "☆"}
               </Text>
             </Pressable>
-            <Pressable style={styles.ctaSecBtn} onPress={onPreloadSession} disabled={preloadBusy}>
-              <Text style={styles.ctaSecBtnText}>
-                {preloadBusy ? "..." : todaySessionCached ? "📥 OK" : "📥"}
-              </Text>
-            </Pressable>
+            <View style={styles.ctaSecBtnGhost}>
+              <Text style={styles.ctaSecBtnGhostText}>{todaySessionCached ? "Offline listo" : "Offline pendiente"}</Text>
+            </View>
           </View>
 
           {/* Inline check-in quick fields */}
@@ -749,7 +782,8 @@ export default function HoyScreenV2({
 //  Styles
 // ─────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
+function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
+return StyleSheet.create({
   screen:   { flex: 1, backgroundColor: C.bg },
   content:  { padding: S.md, gap: S.md, paddingBottom: S.xl + 16 },
 
@@ -889,14 +923,25 @@ const styles = StyleSheet.create({
 
   ctaTitle:  { color: C.text, fontSize: 24, fontWeight: "800", lineHeight: 30, marginTop: 4 },
   ctaMeta:   { color: C.textMuted, fontSize: 13, marginTop: 2 },
+  ctaMotivation: { color: C.textSub, fontSize: 14, lineHeight: 21, marginTop: 8 },
 
   ctaCompletionRow:   { flexDirection: "row", alignItems: "center", gap: S.sm, marginTop: 8 },
   ctaCompletionTrack: { flex: 1, height: 4, backgroundColor: C.surfaceActive, borderRadius: R.full, overflow: "hidden" },
   ctaCompletionFill:  { height: "100%", backgroundColor: C.teal, borderRadius: R.full },
   ctaCompletionLabel: { color: C.teal, fontSize: 12, fontWeight: "700" },
 
+  ctaActionStack: { gap: S.sm },
   ctaStartBtn:     { borderRadius: R.full, paddingVertical: 16, alignItems: "center" },
   ctaStartBtnText: { color: C.bg, fontWeight: "800", fontSize: 17, letterSpacing: 0.3 },
+  ctaPreloadBtn: {
+    borderRadius: R.full,
+    paddingVertical: 14,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: C.borderStrong,
+    backgroundColor: C.surfaceRaise,
+  },
+  ctaPreloadBtnText: { color: C.text, fontWeight: "800", fontSize: 14 },
 
   ctaSecondaryRow: { flexDirection: "row", gap: S.sm, marginTop: S.xs },
   ctaSecBtn: {
@@ -906,6 +951,15 @@ const styles = StyleSheet.create({
     backgroundColor: C.surfaceRaise,
   },
   ctaSecBtnText: { color: C.textSub, fontWeight: "700", fontSize: 13 },
+  ctaSecBtnGhost: {
+    paddingVertical: 10,
+    paddingHorizontal: S.sm,
+    borderRadius: R.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.surfaceRaise,
+  },
+  ctaSecBtnGhostText: { color: C.textMuted, fontWeight: "700", fontSize: 12 },
 
   // ── Check-in inline ──────────────────────────────────────────
   checkInInline: {
@@ -991,7 +1045,7 @@ const styles = StyleSheet.create({
 
   // ── Modal (motivational confirm) ─────────────────────────────
   modalOverlay: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.8)",
+    flex: 1, backgroundColor: C.overlay,
     justifyContent: "center", alignItems: "center", padding: S.lg,
   },
   modalCard: {
@@ -1008,3 +1062,4 @@ const styles = StyleSheet.create({
   modalBtnYes:    { flex: 1.6, backgroundColor: C.teal, borderRadius: R.full, paddingVertical: 14, alignItems: "center" },
   modalBtnYesText:{ color: C.bg, fontWeight: "800", fontSize: 15 },
 });
+}

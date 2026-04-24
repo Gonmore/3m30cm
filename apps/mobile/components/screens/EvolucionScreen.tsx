@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { C, R, S } from "../tokens";
+import { R, S } from "../tokens";
+import { useTheme } from "../ThemeContext";
 import type { AthleteProgress, TrendWindow } from "../types";
 
 function formatDate(v: string) { return new Date(v).toLocaleDateString(); }
@@ -29,6 +30,9 @@ export default function EvolucionScreen({
   onSetSelectedCycleId,
   onShowJumpGuide,
 }: EvolucionScreenProps) {
+  const { C } = useTheme();
+  const styles = makeStyles(C);
+
   if (!progress) {
     return (
       <View style={styles.emptyWrap}>
@@ -208,7 +212,8 @@ export default function EvolucionScreen({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
+return StyleSheet.create({
   scroll: { flex: 1, backgroundColor: C.bg },
   container: { padding: S.md, gap: S.md, paddingBottom: S.xl },
 
@@ -270,3 +275,4 @@ const styles = StyleSheet.create({
   cycleMeta: { color: C.textMuted, fontSize: 12 },
   cycleJump: { fontSize: 16, fontWeight: "800" },
 });
+}

@@ -7,7 +7,7 @@ import { GoogleSignin as NativeGoogleSignin } from "@react-native-google-signin/
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { C, R, S } from "@mobile/components/tokens";
 import { useTheme } from "@mobile/components/ThemeContext";
 import AppHeader from "@mobile/components/AppHeader";
@@ -292,6 +292,19 @@ interface SessionListResponse {
       createdAt: string;
       metrics: AthleteLogMetrics | null;
     }>;
+  }>;
+}
+
+interface AutoSessionAdjustmentResponse {
+  rolledOverSessions: Array<{
+    id: string;
+    title: string;
+    scheduledDate: string;
+    rescheduleCount: number;
+  }>;
+  skippedSessions: Array<{
+    id: string;
+    title: string;
   }>;
 }
 
@@ -805,18 +818,57 @@ function parseWeekdaysInput(value: string) {
 }
 
 function buildReminderDate(sessionDate: string) {
-  const scheduledAt = new Date(sessionDate);
-  const now = Date.now();
-  const offsets = [24 * 60 * 60 * 1000, 2 * 60 * 60 * 1000, 15 * 60 * 1000];
+  const reminderDate = new Date(sessionDate);
+  reminderDate.setHours(8, 0, 0, 0);
+  return reminderDate.getTime() > Date.now() + 60 * 1000 ? reminderDate : null;
+}
 
-  for (const offset of offsets) {
-    const candidate = new Date(scheduledAt.getTime() - offset);
-    if (candidate.getTime() > now + 60 * 1000) {
-      return candidate;
-    }
+function startOfLocalDay(value: Date) {
+  const next = new Date(value);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function isSameLocalDay(left: string | Date, right: string | Date) {
+  return startOfLocalDay(new Date(left)).getTime() === startOfLocalDay(new Date(right)).getTime();
+}
+
+function formatSessionDayType(dayType: string) {
+  const labels: Record<string, string> = {
+    EXPLOSIVE: "pliometria",
+    STRENGTH: "fuerza",
+    RECOVERY: "recuperacion",
+    REST: "descanso",
+    UPPER_CORE: "tren superior y core",
+    OTHER: "sesion personalizada",
+    POWER: "potencia",
+    SPEED: "velocidad",
+  };
+
+  return labels[dayType] ?? dayType.toLowerCase();
+}
+
+function buildMotivationalReminderCopy(session: { title: string; dayType: string }, streak: number) {
+  const streakText = streak > 0 ? `Llevas ${streak} dias de racha.` : "Hoy arranca una nueva racha.";
+
+  if (session.dayType === "STRENGTH") {
+    return {
+      title: "Hola campeon, hoy toca fuerza",
+      body: `${streakText} Los pesos para evolucionar ya estan programados en ${session.title}. Puedes precargar la sesion para hacerla offline o iniciar ahora mismo.`,
+    };
   }
 
-  return null;
+  if (session.dayType === "EXPLOSIVE" || session.dayType === "POWER" || session.dayType === "SPEED") {
+    return {
+      title: "Hola campeon, hoy toca velocidad y altura",
+      body: `${streakText} ${session.title} esta lista para que priorices rapidez, alturas y calidad de contacto. Puedes precargar la sesion o iniciarla ahora.`,
+    };
+  }
+
+  return {
+    title: `Hola campeon, hoy toca ${formatSessionDayType(session.dayType)}`,
+    body: `${streakText} ${session.title} ya esta preparada. Puedes precargar la sesion o iniciarla ahora desde la app.`,
+  };
 }
 
 function buildSessionNotes(session: SessionDetailResponse["session"]) {
@@ -833,6 +885,14 @@ function buildSessionNotes(session: SessionDetailResponse["session"]) {
       return parts.join(" · ");
     })
     .join("\n");
+}
+
+function buildCalendarSessionNotes(session: { title: string; dayType: string; scheduledDate: string; sessionExercises?: SessionDetailResponse["session"]["sessionExercises"] }) {
+  if (session.sessionExercises?.length) {
+    return buildSessionNotes(session as SessionDetailResponse["session"]);
+  }
+
+  return `${session.title} · ${formatSessionDayType(session.dayType)} · ${formatDateTime(session.scheduledDate)}`;
 }
 
 async function readStoredMap(storageKey: string) {
@@ -1313,6 +1373,7 @@ export default function HomeScreen() {
 
   const [notificationPermission, setNotificationPermission] = useState<PermissionState>("unknown");
   const [calendarPermission, setCalendarPermission] = useState<PermissionState>("unknown");
+  const autoSyncKeyRef = useRef<string>("");
 
   const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB ?? googleClientIds.web;
   const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS ?? googleClientIds.ios;
@@ -1769,6 +1830,12 @@ export default function HomeScreen() {
       setRefreshing(true);
       setError("");
 
+      const sessionAdjustment = await requestJson<AutoSessionAdjustmentResponse>(
+        "/api/v1/athlete/sessions/auto-rollover",
+        { method: "POST" },
+        token,
+      );
+
       const [profileResponse, programsResponse, sessionsResponse, progressResponse] = await Promise.all([
         requestJson<AthleteProfileResponse>("/api/v1/athlete/me", {}, token),
         requestJson<ProgramListResponse>("/api/v1/athlete/programs", {}, token),
@@ -1783,6 +1850,20 @@ export default function HomeScreen() {
       setPrograms(programsResponse.programs);
       setSessions(sessionsResponse.sessions);
       setProgress(progressResponse);
+
+      if (sessionAdjustment.rolledOverSessions.length || sessionAdjustment.skippedSessions.length) {
+        const messages: string[] = [];
+
+        if (sessionAdjustment.rolledOverSessions.length) {
+          messages.push(`${sessionAdjustment.rolledOverSessions.length} sesion(es) se recorrieron automaticamente al siguiente dia.`);
+        }
+
+        if (sessionAdjustment.skippedSessions.length) {
+          messages.push(`${sessionAdjustment.skippedSessions.length} sesion(es) quedaron como perdidas por superar el limite de 2 dias.`);
+        }
+
+        setMessage(messages.join(" "));
+      }
 
       if (progressResponse.cycleEvolution.length) {
         setSelectedCycleId((current) => {
@@ -2147,9 +2228,14 @@ export default function HomeScreen() {
         return;
       }
 
+      if (!isSameLocalDay(selectedSession.scheduledDate, new Date())) {
+        setError("El recordatorio motivacional solo se programa para sesiones del dia actual.");
+        return;
+      }
+
       const reminderDate = buildReminderDate(selectedSession.scheduledDate);
       if (!reminderDate) {
-        setError("La sesion esta demasiado cerca o ya paso; no se puede programar un recordatorio util.");
+        setError("La hora de las 8:00 ya paso o la sesion no corresponde a hoy; no se pudo agendar el recordatorio motivacional.");
         return;
       }
 
@@ -2166,10 +2252,12 @@ export default function HomeScreen() {
         await notifications.cancelScheduledNotificationAsync(existingReminderId).catch(() => undefined);
       }
 
+      const reminderCopy = buildMotivationalReminderCopy(selectedSession, progress?.summary.currentStreak ?? 0);
+
       const notificationId = await notifications.scheduleNotificationAsync({
         content: {
-          title: "Sesion Jump Manual",
-          body: `${selectedSession.title} · ${formatDateTime(selectedSession.scheduledDate)}`,
+          title: reminderCopy.title,
+          body: reminderCopy.body,
           data: { sessionId: selectedSession.id },
         },
         trigger: {
@@ -2184,7 +2272,7 @@ export default function HomeScreen() {
         [selectedSession.id]: notificationId,
       });
 
-      setMessage(`Recordatorio programado para ${reminderDate.toLocaleString()}.`);
+      setMessage(`Recordatorio motivacional programado para ${reminderDate.toLocaleString()}.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo programar el recordatorio");
     } finally {
@@ -2222,7 +2310,7 @@ export default function HomeScreen() {
         startDate: sessionStart,
         endDate: sessionEnd,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        notes: buildSessionNotes(selectedSession),
+        notes: buildCalendarSessionNotes(selectedSession),
         location: profile?.team?.name ?? undefined,
       };
 
@@ -2255,6 +2343,99 @@ export default function HomeScreen() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!accessToken || !todayPrimarySession || isWebPlatform) {
+      return;
+    }
+
+    const syncKey = [
+      todayPrimarySession.id,
+      todayPrimarySession.scheduledDate,
+      todayPrimarySession.status,
+      progress?.summary.currentStreak ?? 0,
+      notificationPermission,
+      calendarPermission,
+      profile?.team?.name ?? "",
+    ].join("|");
+
+    if (autoSyncKeyRef.current === syncKey) {
+      return;
+    }
+
+    autoSyncKeyRef.current = syncKey;
+
+    void (async () => {
+      if (notificationPermission === "granted" && isSameLocalDay(todayPrimarySession.scheduledDate, new Date()) && todayPrimarySession.status !== "COMPLETED" && todayPrimarySession.status !== "SKIPPED") {
+        const notifications = await getNotificationsModule();
+        if (notifications) {
+          const reminderMap = await readStoredMap(reminderSyncStorageKey);
+          const existingReminderId = reminderMap[todayPrimarySession.id];
+          const reminderDate = buildReminderDate(todayPrimarySession.scheduledDate);
+
+          if (existingReminderId) {
+            await notifications.cancelScheduledNotificationAsync(existingReminderId).catch(() => undefined);
+          }
+
+          if (reminderDate) {
+            const reminderCopy = buildMotivationalReminderCopy(todayPrimarySession, progress?.summary.currentStreak ?? 0);
+            const notificationId = await notifications.scheduleNotificationAsync({
+              content: {
+                title: reminderCopy.title,
+                body: reminderCopy.body,
+                data: { sessionId: todayPrimarySession.id },
+              },
+              trigger: {
+                type: notifications.SchedulableTriggerInputTypes.DATE,
+                date: reminderDate,
+                channelId: Platform.OS === "android" ? notificationChannelId : undefined,
+              },
+            });
+
+            await writeStoredMap(reminderSyncStorageKey, {
+              ...reminderMap,
+              [todayPrimarySession.id]: notificationId,
+            });
+          }
+        }
+      }
+
+      if (calendarPermission === "granted" && todayPrimarySession.status !== "SKIPPED") {
+        const calendar = await getCalendarModule();
+        const calendarId = calendar ? await resolveWritableCalendarId() : null;
+
+        if (calendar && calendarId) {
+          const calendarMap = await readStoredMap(calendarSyncStorageKey);
+          const existingEventId = calendarMap[todayPrimarySession.id];
+          const sessionStart = new Date(todayPrimarySession.scheduledDate);
+          const sessionEnd = new Date(sessionStart.getTime() + 60 * 60 * 1000);
+          const eventPayload = {
+            title: todayPrimarySession.title,
+            startDate: sessionStart,
+            endDate: sessionEnd,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            notes: buildCalendarSessionNotes(todayPrimarySession),
+            location: profile?.team?.name ?? undefined,
+          };
+
+          let eventId: string | undefined = existingEventId;
+          if (existingEventId) {
+            const updatedEventId = await calendar.updateEventAsync(existingEventId, eventPayload).catch(() => null);
+            eventId = updatedEventId ?? undefined;
+          }
+
+          if (!eventId) {
+            eventId = await calendar.createEventAsync(calendarId, eventPayload);
+          }
+
+          await writeStoredMap(calendarSyncStorageKey, {
+            ...calendarMap,
+            [todayPrimarySession.id]: eventId,
+          });
+        }
+      }
+    })();
+  }, [accessToken, calendarPermission, notificationPermission, profile?.team?.name, progress?.summary.currentStreak, todayPrimarySession]);
 
   async function handleLogin() {
     try {
@@ -3689,7 +3870,7 @@ export default function HomeScreen() {
                 </Pressable>
               </View>
               <Text style={styles.helperText}>
-                El recordatorio se agenda 24h, 2h o 15min antes segun disponibilidad y la sincronizacion actualiza el mismo evento si la sesion cambia.
+                El recordatorio motivacional se agenda a las 8:00 del mismo dia y la sincronizacion actualiza el mismo evento si la sesion cambia o se recorre automaticamente.
               </Text>
             </View>
 
