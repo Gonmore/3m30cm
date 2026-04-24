@@ -153,10 +153,16 @@ cd c:\Users\arman\Gon_local\Desarrollos\3m30cm
 npm run prisma:push --workspace @jump/api
 ```
 
-Para desarrollo local hay que distinguir host vs contenedor:
+docker compose -f docker-compose.local.yml exec api-3m30cm npm run prisma:push --workspace @jump/api
 
 - Dentro del contenedor local `api-3m30cm-dev`, la `.env` raiz ya funciona porque `DATABASE_URL` usa `postgres-local:5432` en la red Docker.
 - Desde el host Windows, ese hostname no resuelve; en ese caso se debe exportar `DATABASE_URL=postgresql://postgres:D3v3%2Fop3R@localhost:5433/jump30cm?schema=public` antes de correr Prisma.
+
+```bash
+cd c:\Users\arman\Gon_local\Desarrollos\3m30cm
+docker compose -f docker-compose.local.yml exec api-3m30cm npm run db:seed --workspace @jump/api
+```
+
 
 Ademas, `apps/api/prisma.config.ts` ahora carga el `.env` raiz para que Prisma CLI no falle por ausencia de variables cuando el comando se lanza desde la raiz del workspace.
 

@@ -155,6 +155,16 @@ const athleteProgramSetupSchema = athletePlanningSchema.extend({
   includePreparationPhase: z.boolean().default(true),
 });
 
+const techniqueMetricSchema = z.object({
+  programTemplateId: z.string().min(1),
+  label: z.string().trim().min(1),
+  value: z.number().finite(),
+  unit: z.string().trim().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+  recordedAt: z.string().datetime().optional(),
+  isBaseline: z.boolean().default(false),
+});
+
 type AthleteLogMetrics = z.infer<typeof logMetricsSchema>;
 
 const maxSessionRolloverDays = 2;
@@ -1684,5 +1694,170 @@ athleteRouter.patch("/me/avatar", avatarUpload.single("avatar"), async (req: Aut
   } catch (error) {
     console.error("Failed to upload avatar", error);
     res.status(500).json({ error: "Failed to upload avatar" });
+  }
+});
+
+athleteRouter.get("/technique", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const athleteProfile = await prisma.athleteProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Current user is not an athlete" });
+      return;
+    }
+
+    const activeProgram = await prisma.personalProgram.findFirst({
+      where: { athleteProfileId: athleteProfile.id },
+      orderBy: [{ status: "asc" }, { startDate: "desc" }],
+      select: {
+        id: true,
+        name: true,
+        template: {
+          include: {
+            techniqueMediaAssets: {
+              orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+            },
+          },
+        },
+      },
+    });
+
+    if (!activeProgram?.template) {
+      res.json({ technique: null });
+      return;
+    }
+
+    const metrics = await prisma.athleteTechniqueMetric.findMany({
+      where: {
+        athleteProfileId: athleteProfile.id,
+        programTemplateId: activeProgram.template.id,
+      },
+      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
+    });
+
+    res.json({
+      technique: {
+        programId: activeProgram.id,
+        programName: activeProgram.name,
+        template: {
+          id: activeProgram.template.id,
+          code: activeProgram.template.code,
+          name: activeProgram.template.name,
+          techniqueTitle: activeProgram.template.techniqueTitle,
+          techniqueDescription: activeProgram.template.techniqueDescription,
+          mediaAssets: activeProgram.template.techniqueMediaAssets,
+        },
+        metrics,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to fetch athlete technique", error);
+    res.status(500).json({ message: "Failed to fetch athlete technique" });
+  }
+});
+
+athleteRouter.post("/technique/metrics", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const athleteProfile = await prisma.athleteProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Current user is not an athlete" });
+      return;
+    }
+
+    const payload = techniqueMetricSchema.parse(req.body);
+
+    const program = await prisma.personalProgram.findFirst({
+      where: {
+        athleteProfileId: athleteProfile.id,
+        templateId: payload.programTemplateId,
+      },
+      select: {
+        id: true,
+        template: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            techniqueTitle: true,
+            techniqueDescription: true,
+            techniqueMediaAssets: {
+              orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+            },
+          },
+        },
+      },
+    });
+
+    if (!program?.template) {
+      res.status(404).json({ message: "Technique program template not available for this athlete" });
+      return;
+    }
+
+    const metric = await prisma.athleteTechniqueMetric.create({
+      data: {
+        athleteProfileId: athleteProfile.id,
+        programTemplateId: payload.programTemplateId,
+        label: payload.label,
+        value: payload.value,
+        unit: payload.unit ?? null,
+        notes: payload.notes ?? null,
+        recordedAt: payload.recordedAt ? new Date(payload.recordedAt) : new Date(),
+        isBaseline: payload.isBaseline,
+      },
+    });
+
+    const metrics = await prisma.athleteTechniqueMetric.findMany({
+      where: {
+        athleteProfileId: athleteProfile.id,
+        programTemplateId: payload.programTemplateId,
+      },
+      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
+    });
+
+    res.status(201).json({
+      metric,
+      technique: {
+        programId: program.id,
+        programName: program.template.name,
+        template: {
+          id: program.template.id,
+          code: program.template.code,
+          name: program.template.name,
+          techniqueTitle: program.template.techniqueTitle,
+          techniqueDescription: program.template.techniqueDescription,
+          mediaAssets: program.template.techniqueMediaAssets,
+        },
+        metrics,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: "Invalid technique metric payload", issues: error.issues });
+      return;
+    }
+
+    console.error("Failed to save athlete technique metric", error);
+    res.status(500).json({ message: "Failed to save athlete technique metric" });
   }
 });

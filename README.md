@@ -33,8 +33,9 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - La dosificacion exacta por ejercicio queda como dato editable en el portal admin.
 - El esquema Prisma contempla usuarios, equipos, atletas, catalogo de ejercicios, media, plantillas, sesiones y billing.
 - El portal web permite login, CRUD de ejercicios, carga de media a MinIO, edicion de prescripciones por dia, alta/edicion/baja de equipos, staff, atletas y asignaciones coach-atleta, mas generacion de programas personalizados.
-- La API expone gestion de equipos, membresias, perfiles de atleta, asignacion coach-atleta, generacion de `PersonalProgram` con `ScheduledSession` y endpoints operativos del atleta para agenda y logging.
-- Las app moviles consumen login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local y registro de cumplimiento con metricas.
+- El portal web permite ademas asociar tecnica especifica por programa: texto explicativo y uno o varios recursos de media para sprint, agilidad, remate, salto vertical o cualquier otro bloque futuro.
+- La API expone gestion de equipos, membresias, perfiles de atleta, asignacion coach-atleta, generacion de `PersonalProgram` con `ScheduledSession`, tecnica especifica por `ProgramTemplate` y endpoints operativos del atleta para agenda, logging y seguimiento tecnico.
+- Las app moviles consumen login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local, registro de cumplimiento con metricas y una vista `Técnica` para ver recursos del programa y cargar linea base/evolucion.
 - Se eliminan automaticamente los programas archivados de la vista de sesiones cuando se regenera un programa.
 - `forgot-password` ya soporta envio SMTP con override de TLS por `SMTP_TLS_SERVERNAME` y, en desarrollo, hace fallback a log con token, deep link y URL de reset si el SMTP falla, sin bloquear las pruebas locales.
 - `forgot-password` ahora tambien emite un codigo de 6 digitos persistido en Prisma para que `apps/mobile2` pueda restablecer la clave dentro de la app sin depender solo del deep link.
@@ -53,17 +54,17 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 Con `postgres-local` disponible en `localhost:5433`, aplica schema y seed inicial:
 
 ```bash
-$env:DATABASE_URL='postgresql://postgres:D3v3%2Fop3R@localhost:5433/jump30cm?schema=public'
-npm run prisma:push --workspace @jump/api
-npm run db:seed --workspace @jump/api
+docker compose -f docker-compose.local.yml exec api-3m30cm npm run prisma:push --workspace @jump/api
+docker compose -f docker-compose.local.yml exec api-3m30cm npm run db:seed --workspace @jump/api
 ```
 
-Ese `npm run prisma:push --workspace @jump/api` se ejecuta desde la raiz del monorepo (`c:\Users\arman\Gon_local\Desarrollos\3m30cm`), no dentro de `apps/api`.
+Esos comandos se lanzan desde la raiz del monorepo (`c:\Users\arman\Gon_local\Desarrollos\3m30cm`) pero ejecutan Prisma y seed dentro del contenedor `api-3m30cm-dev`, que ya resuelve `postgres-local:5432` y `minio-local:9000` por red Docker.
 
 En local hay dos escenarios validos:
 
-- Si lo corres dentro del contenedor `api-3m30cm-dev`, la `.env` raiz ya sirve tal cual porque `DATABASE_URL` apunta a `postgres-local:5432` dentro de la red Docker.
-- Si lo corres desde PowerShell en el host, debes sobreescribir `DATABASE_URL` a `localhost:5433` porque `postgres-local` no resuelve fuera de Docker.
+- Si levantas `docker compose -f docker-compose.local.yml up --build`, la API local ya ejecuta automaticamente `prisma:generate`, `db:ensure`, `prisma:push` y `db:seed` al arrancar.
+- Los comandos manuales anteriores solo hacen falta si ya tenias el stack levantado y quieres reaplicar cambios de schema o bootstrap sin recrear el compose.
+- Solo si eliges correr Prisma desde el host Windows, debes sobreescribir `DATABASE_URL` a `localhost:5433`, porque `postgres-local` no resuelve fuera de Docker.
 
 ### API y web con Docker
 
@@ -86,6 +87,9 @@ Servicios esperados:
 - CRUD admin de ejercicios: `GET/POST/PUT/DELETE http://localhost:4100/api/v1/admin/exercises`
 - Upload de media: `POST http://localhost:4100/api/v1/admin/exercises/:id/media`
 - Reemplazo de prescripciones por dia: `PUT http://localhost:4100/api/v1/admin/program-templates/JUMP-MANUAL-14D/days/:dayNumber/prescriptions`
+- Actualizacion del texto tecnico del programa: `PUT http://localhost:4100/api/v1/admin/program-templates/:code`
+- Upload de recurso tecnico del programa: `POST http://localhost:4100/api/v1/admin/program-templates/:code/technique/media`
+- Eliminacion de recurso tecnico del programa: `DELETE http://localhost:4100/api/v1/admin/program-templates/:code/technique/media/:mediaId`
 - Listado y alta de equipos: `GET/POST http://localhost:4100/api/v1/admin/teams`
 - Actualizacion de equipo: `PUT http://localhost:4100/api/v1/admin/teams/:teamId`
 - Alta de coach o team admin: `POST http://localhost:4100/api/v1/admin/teams/:teamId/members`
@@ -100,6 +104,8 @@ Servicios esperados:
 - Detalle admin de una sesion: `GET http://localhost:4100/api/v1/admin/sessions/:sessionId`
 - Reprogramacion y cambio de estado manual: `PUT http://localhost:4100/api/v1/admin/sessions/:sessionId`
 - Perfil del atleta autenticado: `GET http://localhost:4100/api/v1/athlete/me`
+- Técnica del programa activo para el atleta: `GET http://localhost:4100/api/v1/athlete/technique`
+- Alta de métrica técnica del atleta: `POST http://localhost:4100/api/v1/athlete/technique/metrics`
 - Programas del atleta: `GET http://localhost:4100/api/v1/athlete/programs`
 - Progreso consolidado del atleta: `GET http://localhost:4100/api/v1/athlete/progress`
 - Agenda del atleta: `GET http://localhost:4100/api/v1/athlete/sessions`
@@ -189,6 +195,14 @@ Flujo validado para release Android en Windows:
 - Si la app abre y se cierra con `Cannot read property 'useState' of null`, el primer punto a revisar no es Google sino una instalacion local accidental en `apps/mobile2/node_modules`; el flujo correcto del monorepo deja una sola copia de React en el `node_modules` raiz.
 - `mobile2` ya deja declarados permisos nativos para notificaciones y calendario; la validacion posterior al cambio volvio a pasar con `npm --prefix apps/mobile2 run build` y `npx expo export -p android --clear`.
 
+Tecnica multi-programa:
+
+- El punto de asociacion es `ProgramTemplate`, no `PersonalProgram`; asi una tecnica de sprint, agilidad, remate o salto vertical se define una sola vez y luego la consumen todos los atletas que usen ese template.
+- El seed actual deja una base textual para `JUMP-MANUAL-14D` bajo "Técnica base de salto vertical" para que `mobile2` no arranque vacio aunque todavia no se hayan cargado videos desde admin.
+- Ese seed no es una migracion: el schema nuevo se aplica con `prisma:push`; el seed solo inserta o refresca datos bootstrap/default, por ejemplo el texto inicial de técnica del template base.
+- En produccion no hace falta cambiar `RUN_SEED_ON_DEPLOY=0` para desplegar este feature. Solo ponlo en `1` si quieres que el deploy tambien ejecute el seed y repueble defaults automaticamente.
+- La vista `Técnica` de `mobile2` muestra los recursos del programa activo, separa linea base del historial y agrupa comparativas por etiqueta de métrica para ver rapido base vs ultima medicion.
+
 Interaccion con calendario y recordatorios en `mobile2`:
 
 - La sesion destacada del dia mantiene un tono motivacional en la vista `Hoy` y prioriza dos acciones directas: iniciar ahora o precargar offline.
@@ -244,10 +258,11 @@ RUN_SEED_ON_DEPLOY=1
 Si antes del deploy quieres aplicar manualmente el cambio de schema en tu entorno actual, hazlo tambien desde la raiz del monorepo:
 
 ```bash
-# opcion 1: desde el host
-$env:DATABASE_URL='postgresql://postgres:D3v3%2Fop3R@localhost:5433/jump30cm?schema=public'
-npm run prisma:push --workspace @jump/api
-
-# opcion 2: dentro del contenedor local
+# local docker
 docker compose -f docker-compose.local.yml exec api-3m30cm npm run prisma:push --workspace @jump/api
+
+# seed local opcional para refrescar defaults/bootstraps
+docker compose -f docker-compose.local.yml exec api-3m30cm npm run db:seed --workspace @jump/api
 ```
+
+En produccion, `deploy.sh` ya corre `api-migrate` con `prisma:push`; el seed sigue siendo opcional y queda gobernado por `RUN_SEED_ON_DEPLOY`.

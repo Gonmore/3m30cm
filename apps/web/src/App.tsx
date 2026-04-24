@@ -140,8 +140,11 @@ interface ProgramTemplateMeta {
   code: string;
   name: string;
   description: string | null;
+  techniqueTitle: string | null;
+  techniqueDescription: string | null;
   cycleLengthDays: number;
   isEditable: boolean;
+  techniqueMediaAssets: Array<{ id: string }>;
   _count: { days: number; personalPrograms: number };
 }
 
@@ -387,13 +390,31 @@ interface ProgramDay {
   }>;
 }
 
+interface ProgramTechniqueMediaAsset {
+  id: string;
+  kind: MediaKind;
+  url: string | null;
+  title: string | null;
+  isPrimary: boolean;
+}
+
 interface ProgramTemplateResponse {
   template: {
     id: string;
     code: string;
     name: string;
+    description?: string | null;
+    cycleLengthDays?: number;
+    techniqueTitle: string | null;
+    techniqueDescription: string | null;
+    techniqueMediaAssets: ProgramTechniqueMediaAsset[];
     days: ProgramDay[];
   };
+}
+
+interface TechniqueFormState {
+  title: string;
+  description: string;
 }
 
 const emptyExerciseForm = (): ExerciseFormState => ({
@@ -453,6 +474,11 @@ const emptyTemplateForm = (): TemplateFormState => ({
   name: "",
   description: "",
   cycleLengthDays: "14",
+});
+
+const emptyTechniqueForm = (): TechniqueFormState => ({
+  title: "",
+  description: "",
 });
 
 const emptySessionEditor = (): SessionEditorState => ({
@@ -691,6 +717,9 @@ export default function App() {
   const [selectedTemplateCode, setSelectedTemplateCode] = useState<string>(templateCode);
   const [templateForm, setTemplateForm] = useState<TemplateFormState>(emptyTemplateForm);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templateTechniqueForm, setTemplateTechniqueForm] = useState<TechniqueFormState>(emptyTechniqueForm);
+  const [selectedTemplateTechniqueMediaAssets, setSelectedTemplateTechniqueMediaAssets] = useState<ProgramTechniqueMediaAsset[]>([]);
+  const [techniqueUploadState, setTechniqueUploadState] = useState({ kind: "VIDEO" as MediaKind, title: "", isPrimary: false, file: null as File | null });
   const [exclusionsAthleteId, setExclusionsAthleteId] = useState<string>("");
   const [exclusionsDraft, setExclusionsDraft] = useState<string[]>([]);
 
@@ -702,6 +731,11 @@ export default function App() {
   const selectedDay = useMemo(
     () => templateDays.find((day) => day.dayNumber === selectedDayNumber) ?? null,
     [selectedDayNumber, templateDays],
+  );
+
+  const selectedTemplateMeta = useMemo(
+    () => allTemplates.find((template) => template.code === selectedTemplateCode) ?? null,
+    [allTemplates, selectedTemplateCode],
   );
 
   const selectedTeam = useMemo(
@@ -943,6 +977,11 @@ export default function App() {
       setAllAthletes(athletesResponse.athletes);
       setPrograms(programsResponse.programs);
       setTemplateDays(templateResponse.template.days);
+      setSelectedTemplateTechniqueMediaAssets(templateResponse.template.techniqueMediaAssets);
+      setTemplateTechniqueForm({
+        title: templateResponse.template.techniqueTitle ?? "",
+        description: templateResponse.template.techniqueDescription ?? "",
+      });
       setAllTemplates(allTemplatesResponse.templates);
 
       const firstExercise = exercisesResponse.exercises[0];
@@ -1322,9 +1361,94 @@ export default function App() {
     try {
       const response = await requestJson<ProgramTemplateResponse>(`/api/v1/templates/program-templates/${code}`, {}, token);
       setTemplateDays(response.template.days);
+      setSelectedTemplateTechniqueMediaAssets(response.template.techniqueMediaAssets);
+      setTemplateTechniqueForm({
+        title: response.template.techniqueTitle ?? "",
+        description: response.template.techniqueDescription ?? "",
+      });
       setSelectedDayNumber(response.template.days[0]?.dayNumber ?? 1);
     } catch {
       setTemplateDays([]);
+      setSelectedTemplateTechniqueMediaAssets([]);
+      setTemplateTechniqueForm(emptyTechniqueForm());
+    }
+  }
+
+  async function handleTechniqueSave() {
+    if (!accessToken || !selectedTemplateCode) return;
+    try {
+      setLoading(true);
+      setError("");
+      await requestJson(
+        `/api/v1/admin/program-templates/${selectedTemplateCode}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            techniqueTitle: templateTechniqueForm.title || null,
+            techniqueDescription: templateTechniqueForm.description || null,
+          }),
+        },
+        accessToken,
+      );
+      setMessage("Tecnica del programa actualizada.");
+      await refreshDashboard(accessToken);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo guardar la tecnica del programa");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleTechniqueMediaUpload(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!accessToken || !selectedTemplateCode || !techniqueUploadState.file) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", techniqueUploadState.file);
+    formData.append("kind", techniqueUploadState.kind);
+    formData.append("title", techniqueUploadState.title);
+    formData.append("isPrimary", String(techniqueUploadState.isPrimary));
+
+    try {
+      setLoading(true);
+      setError("");
+      await requestJson(
+        `/api/v1/admin/program-templates/${selectedTemplateCode}/technique/media`,
+        { method: "POST", body: formData },
+        accessToken,
+      );
+      setTechniqueUploadState({ kind: "VIDEO", title: "", isPrimary: false, file: null });
+      setMessage("Video de tecnica subido y asociado al programa.");
+      await refreshDashboard(accessToken);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo subir el video de tecnica");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleTechniqueMediaDelete(mediaId: string) {
+    if (!accessToken || !selectedTemplateCode) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+      await requestJson(
+        `/api/v1/admin/program-templates/${selectedTemplateCode}/technique/media/${mediaId}`,
+        { method: "DELETE" },
+        accessToken,
+      );
+      setMessage("Video de tecnica eliminado.");
+      await refreshDashboard(accessToken);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo eliminar el video de tecnica");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -3639,7 +3763,7 @@ export default function App() {
                   <strong>{tmpl.name}</strong>
                   <span>{tmpl.code}</span>
                   <p>{tmpl.description || "Sin descripcion"}</p>
-                  <small>{tmpl.cycleLengthDays} dias · {tmpl._count.days} días definidos · {tmpl._count.personalPrograms} programas activos</small>
+                  <small>{tmpl.cycleLengthDays} dias · {tmpl._count.days} días definidos · {tmpl._count.personalPrograms} programas activos · {tmpl.techniqueMediaAssets.length} recursos de técnica</small>
                   <div className="chip-row">
                     {tmpl.isEditable ? (
                       <>
@@ -3660,6 +3784,16 @@ export default function App() {
                           disabled={loading}
                         >
                           Eliminar
+                        </button>
+                        <button
+                          type="button"
+                          className={`ghost-button${selectedTemplateCode === tmpl.code ? " active" : ""}`}
+                          onClick={() => {
+                            setSelectedTemplateCode(tmpl.code);
+                            void handleTemplateDaysLoad(tmpl.code);
+                          }}
+                        >
+                          Editar técnica
                         </button>
                       </>
                     ) : (
@@ -3683,6 +3817,125 @@ export default function App() {
               <p className="helper-text">No hay programas definidos todavia.</p>
             )}
           </div>
+
+          {selectedTemplateMeta ? (
+            <div className="detail-stack section-spacer">
+              <div className="section-header compact-header">
+                <div>
+                  <p className="eyebrow">Técnica del programa</p>
+                  <h3>{selectedTemplateMeta.name}</h3>
+                </div>
+              </div>
+
+              <form
+                className="stack-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleTechniqueSave();
+                }}
+              >
+                <div className="form-grid">
+                  <label>
+                    Título de técnica
+                    <input
+                      value={templateTechniqueForm.title}
+                      onChange={(event) => setTemplateTechniqueForm((current) => ({ ...current, title: event.target.value }))}
+                      placeholder="ej. Técnica de sprint: postura y primer paso"
+                    />
+                  </label>
+                  <label>
+                    Texto explicativo
+                    <textarea
+                      value={templateTechniqueForm.description}
+                      onChange={(event) => setTemplateTechniqueForm((current) => ({ ...current, description: event.target.value }))}
+                      rows={5}
+                      placeholder="Explica la técnica ideal, errores frecuentes y qué debe sentir el atleta."
+                    />
+                  </label>
+                </div>
+                <button className="primary-button" type="submit" disabled={loading}>
+                  Guardar técnica
+                </button>
+              </form>
+
+              <form className="stack-form" onSubmit={(event) => void handleTechniqueMediaUpload(event)}>
+                <div className="form-grid">
+                  <label>
+                    Tipo de recurso
+                    <select
+                      value={techniqueUploadState.kind}
+                      onChange={(event) =>
+                        setTechniqueUploadState((current) => ({ ...current, kind: event.target.value as MediaKind }))
+                      }
+                    >
+                      <option value="VIDEO">Video</option>
+                      <option value="GIF">GIF</option>
+                      <option value="IMAGE">Imagen</option>
+                    </select>
+                  </label>
+                  <label>
+                    Título del recurso
+                    <input
+                      value={techniqueUploadState.title}
+                      onChange={(event) => setTechniqueUploadState((current) => ({ ...current, title: event.target.value }))}
+                      placeholder="ej. Técnica frontal"
+                    />
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={techniqueUploadState.isPrimary}
+                      onChange={(event) => setTechniqueUploadState((current) => ({ ...current, isPrimary: event.target.checked }))}
+                    />
+                    Marcar como principal
+                  </label>
+                  <label>
+                    Archivo
+                    <input
+                      type="file"
+                      accept="video/*,image/*"
+                      onChange={(event) =>
+                        setTechniqueUploadState((current) => ({ ...current, file: event.target.files?.[0] ?? null }))
+                      }
+                    />
+                  </label>
+                </div>
+                <button className="primary-button" type="submit" disabled={loading || !techniqueUploadState.file}>
+                  Subir recurso de técnica
+                </button>
+              </form>
+
+              <div className="program-list">
+                {selectedTemplateTechniqueMediaAssets.length ? (
+                  selectedTemplateTechniqueMediaAssets.map((asset) => (
+                    <article key={asset.id} className="detail-card program-card">
+                      <strong>{asset.title || "Recurso de técnica"}</strong>
+                      <span>{asset.kind}{asset.isPrimary ? " · principal" : ""}</span>
+                      {asset.url ? (
+                        asset.kind === "VIDEO" ? (
+                          <video controls preload="metadata" style={{ width: "100%", borderRadius: 16, marginTop: 12 }} src={asset.url} />
+                        ) : (
+                          <img src={asset.url} alt={asset.title || "Recurso de tecnica"} style={{ width: "100%", borderRadius: 16, marginTop: 12 }} />
+                        )
+                      ) : null}
+                      <div className="chip-row">
+                        <button
+                          type="button"
+                          className="danger-button"
+                          onClick={() => void handleTechniqueMediaDelete(asset.id)}
+                          disabled={loading}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <p className="helper-text">Todavia no hay recursos de técnica cargados para este programa.</p>
+                )}
+              </div>
+            </div>
+          ) : null}
 
           {templateModalOpen ? (
             <div className="modal-overlay" onClick={() => setTemplateModalOpen(false)}>

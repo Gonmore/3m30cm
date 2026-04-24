@@ -154,6 +154,30 @@ Lista los programas personales del atleta.
 ### GET `/athlete/programs/:programId`
 Detalle de un programa personal con sesiones.
 
+### GET `/athlete/technique`
+Devuelve la técnica asociada al template del programa activo del atleta.
+
+Incluye:
+- texto técnico del programa
+- recursos asociados (video, imagen o GIF)
+- métricas técnicas ya registradas por el atleta para ese template
+
+### POST `/athlete/technique/metrics`
+Registra una métrica técnica para el atleta autenticado en el template de su programa.
+
+**Body:**
+```json
+{
+  "programTemplateId": "string (required)",
+  "label": "string (required)",
+  "value": "number (required)",
+  "unit": "string (optional)",
+  "notes": "string (optional)",
+  "recordedAt": "ISO datetime (optional)",
+  "isBaseline": "boolean (default: false)"
+}
+```
+
 ---
 
 ## Coach
@@ -182,6 +206,35 @@ Sesiones de un atleta específico.
 
 ### GET `/admin/summary`
 Métricas generales: conteo de users, teams, athletes, exercises, templates, programs, sessions.
+
+### GET `/admin/program-templates`
+Lista templates de programa con conteos y metadata técnica.
+
+### PUT `/admin/program-templates/:code`
+Actualiza metadata del template, incluyendo texto técnico.
+
+**Body parcial soportado:**
+```json
+{
+  "name": "string (optional)",
+  "description": "string | null (optional)",
+  "techniqueTitle": "string | null (optional)",
+  "techniqueDescription": "string | null (optional)",
+  "cycleLengthDays": "number (optional)"
+}
+```
+
+### POST `/admin/program-templates/:code/technique/media`
+Sube un recurso técnico asociado a un template. Usa `multipart/form-data`.
+
+**Campos esperados:**
+- `file`: archivo binario requerido
+- `kind`: `VIDEO | IMAGE | GIF`
+- `title`: string opcional
+- `isPrimary`: boolean opcional
+
+### DELETE `/admin/program-templates/:code/technique/media/:mediaId`
+Elimina un recurso técnico asociado a un template.
 
 ---
 

@@ -141,6 +141,7 @@ model AthleteProfile {
   coachAssignments  CoachAssignment[] @relation("AthleteAssignments")
   personalPrograms  PersonalProgram[]
   sessionLogs       SessionLog[]
+  techniqueMetrics  AthleteTechniqueMetric[]
 }
 
 model CoachAssignment {
@@ -230,6 +231,8 @@ model ProgramTemplate {
   name            String
   code            String               @unique
   description     String?
+  techniqueTitle  String?
+  techniqueDescription String?
   cycleLengthDays Int                  @default(14)
   isEditable      Boolean              @default(true)
   createdAt       DateTime             @default(now())
@@ -237,6 +240,43 @@ model ProgramTemplate {
   team            Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
   days            ProgramDayTemplate[]
   personalPrograms PersonalProgram[]
+  techniqueMediaAssets ProgramTemplateTechniqueAsset[]
+  techniqueMetrics AthleteTechniqueMetric[]
+}
+
+model ProgramTemplateTechniqueAsset {
+  id                String          @id @default(cuid())
+  programTemplateId String
+  kind              MediaKind
+  bucket            String
+  objectKey         String
+  url               String?
+  title             String?
+  isPrimary         Boolean         @default(false)
+  orderIndex        Int             @default(0)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  programTemplate   ProgramTemplate @relation(fields: [programTemplateId], references: [id], onDelete: Cascade)
+
+  @@index([programTemplateId, orderIndex])
+}
+
+model AthleteTechniqueMetric {
+  id                String          @id @default(cuid())
+  athleteProfileId  String
+  programTemplateId String
+  label             String
+  value             Float
+  unit              String?
+  notes             String?
+  recordedAt        DateTime        @default(now())
+  isBaseline        Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  athleteProfile    AthleteProfile  @relation(fields: [athleteProfileId], references: [id], onDelete: Cascade)
+  programTemplate   ProgramTemplate @relation(fields: [programTemplateId], references: [id], onDelete: Cascade)
+
+  @@index([athleteProfileId, programTemplateId, recordedAt])
 }
 
 model ProgramDayTemplate {

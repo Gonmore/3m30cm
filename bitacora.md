@@ -415,6 +415,44 @@ dejar capturado el patron real que ya funciona en `3m30cm` para reutilizarlo des
 
 ### 22. Deploy desacoplado de mobile + automatizaciones locales en mobile2
 
+### 23. Técnica multi-programa en backend, admin web y mobile2
+
+**Objetivo:** preparar la plataforma para varios programas futuros (`sprint`, `agilidad`, `remate`, `salto vertical`, etc.) sin duplicar contenido técnico por atleta.
+
+**Decisión de modelado:**
+- la técnica específica vive en `ProgramTemplate`, no en `PersonalProgram`
+- las métricas de seguimiento técnico viven por atleta + template, para conservar línea base y evolución sin mezclarlo con los logs operativos de sesión
+
+**Cambios aplicados:**
+1. Prisma:
+	- `ProgramTemplate` ahora soporta `techniqueTitle` y `techniqueDescription`
+	- nuevo modelo `ProgramTemplateTechniqueAsset` para videos/imágenes/GIFs asociados al template
+	- nuevo modelo `AthleteTechniqueMetric` para registrar métricas técnicas por atleta y programa
+2. API admin:
+	- `PUT /api/v1/admin/program-templates/:code` ya admite actualizar texto técnico
+	- `POST /api/v1/admin/program-templates/:code/technique/media` sube recursos técnicos a MinIO
+	- `DELETE /api/v1/admin/program-templates/:code/technique/media/:mediaId` elimina recursos técnicos
+3. API atleta:
+	- `GET /api/v1/athlete/technique` devuelve la técnica del programa activo
+	- `POST /api/v1/athlete/technique/metrics` guarda métricas de línea base o evolución
+4. Portal web:
+	- la vista de `templates` ahora permite editar texto técnico, subir recursos y eliminarlos
+5. `apps/mobile2`:
+	- nuevo item de menú `Técnica`
+	- nueva pantalla con texto, reproducción de recursos, carga de métricas y comparativas por etiqueta (base vs última medición)
+
+**Semilla inicial:**
+- el seed del template `JUMP-MANUAL-14D` ahora deja cargada una guía mínima llamada `Técnica base de salto vertical`
+- no se siembran videos fake; los recursos reales se cargan desde admin cuando estén disponibles
+- el seed sigue siendo opcional para operación: localmente se puede correr dentro del contenedor `api-3m30cm-dev` si se quieren refrescar defaults, y en producción no requiere cambiar `RUN_SEED_ON_DEPLOY=0` salvo que se quiera repoblar bootstrap automáticamente
+
+**Validación ejecutada:**
+- `npm --prefix apps/api run lint`
+- `npm --prefix apps/web run build`
+- `npm --prefix apps/mobile2 run build`
+
+Todos los comandos pasaron después del cambio.
+
 **Problema detectado:**
 - Ajustes recientes de `mobile2` no debian afectar el deploy productivo, pero el monorepo seguia dejando algunos acoples innecesarios entre `web`, `api` y los workspaces moviles.
 - Ademas, `mobile2` ya tenia piezas sueltas para calendario/notificaciones, pero faltaba cerrar el flujo de negocio completo para recordatorios motivacionales y sesiones vencidas.

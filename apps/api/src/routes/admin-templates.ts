@@ -1,8 +1,11 @@
-import { DayType, Role, SeriesProtocol } from "@prisma/client";
+import { DayType, MediaKind, Role, SeriesProtocol } from "@prisma/client";
 import { type Request, type Response, Router } from "express";
+import multer from "multer";
 import { z } from "zod";
 
+import { env } from "../config/env.js";
 import { prisma } from "../config/prisma.js";
+import { deleteProgramTechniqueMedia, uploadProgramTechniqueMedia } from "../lib/minio.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const prescriptionSchema = z.object({
@@ -34,6 +37,8 @@ const createTemplateSchema = z.object({
 const updateTemplateSchema = z.object({
   name: z.string().trim().min(2).optional(),
   description: z.string().trim().nullable().optional(),
+  techniqueTitle: z.string().trim().nullable().optional(),
+  techniqueDescription: z.string().trim().nullable().optional(),
   cycleLengthDays: z.number().int().min(1).max(365).optional(),
 });
 
@@ -42,6 +47,14 @@ const upsertDaySchema = z.object({
   dayType: z.nativeEnum(DayType),
   notes: z.string().trim().nullable().optional(),
 });
+
+const techniqueMediaSchema = z.object({
+  kind: z.nativeEnum(MediaKind).default(MediaKind.VIDEO),
+  title: z.string().trim().nullable().optional(),
+  isPrimary: z.coerce.boolean().default(false),
+});
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } });
 
 function getStringParam(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
@@ -167,6 +180,10 @@ adminTemplatesRouter.get("/program-templates", async (_req: Request, res: Respon
       orderBy: { createdAt: "asc" },
       include: {
         _count: { select: { days: true, personalPrograms: true } },
+        techniqueMediaAssets: {
+          orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+          select: { id: true },
+        },
       },
     });
     res.json({ templates });
@@ -189,10 +206,15 @@ adminTemplatesRouter.post("/program-templates", async (req: Request, res: Respon
         name: payload.name,
         code: payload.code,
         description: payload.description ?? null,
+        techniqueTitle: null,
+        techniqueDescription: null,
         cycleLengthDays: payload.cycleLengthDays,
         isEditable: true,
       },
-      include: { _count: { select: { days: true, personalPrograms: true } } },
+      include: {
+        _count: { select: { days: true, personalPrograms: true } },
+        techniqueMediaAssets: { select: { id: true } },
+      },
     });
     res.status(201).json({ template });
   } catch (error) {
@@ -215,9 +237,14 @@ adminTemplatesRouter.put("/program-templates/:code", async (req: Request, res: R
       data: {
         ...(payload.name !== undefined && { name: payload.name }),
         ...(payload.description !== undefined && { description: payload.description }),
+        ...(payload.techniqueTitle !== undefined && { techniqueTitle: payload.techniqueTitle }),
+        ...(payload.techniqueDescription !== undefined && { techniqueDescription: payload.techniqueDescription }),
         ...(payload.cycleLengthDays !== undefined && { cycleLengthDays: payload.cycleLengthDays }),
       },
-      include: { _count: { select: { days: true, personalPrograms: true } } },
+      include: {
+        _count: { select: { days: true, personalPrograms: true } },
+        techniqueMediaAssets: { select: { id: true } },
+      },
     });
     res.json({ template });
   } catch (error) {
@@ -227,6 +254,112 @@ adminTemplatesRouter.put("/program-templates/:code", async (req: Request, res: R
     }
     console.error("Failed to update template", error);
     res.status(500).json({ message: "Failed to update template" });
+  }
+});
+
+adminTemplatesRouter.post(
+  "/program-templates/:code/technique/media",
+  upload.single("file"),
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      const file = req.file;
+
+      if (!code) {
+        res.status(400).json({ message: "Program template code is required" });
+        return;
+      }
+
+      if (!file) {
+        res.status(400).json({ message: "File is required" });
+        return;
+      }
+
+      const metadata = techniqueMediaSchema.parse(req.body);
+      const template = await prisma.programTemplate.findUnique({
+        where: { code },
+        select: { id: true },
+      });
+
+      if (!template) {
+        res.status(404).json({ message: "Program template not found" });
+        return;
+      }
+
+      const uploadResult = await uploadProgramTechniqueMedia({
+        programTemplateId: template.id,
+        fileName: file.originalname,
+        contentType: file.mimetype || "application/octet-stream",
+        data: file.buffer,
+      });
+
+      const orderIndex = await prisma.programTemplateTechniqueAsset.count({
+        where: { programTemplateId: template.id },
+      });
+
+      if (metadata.isPrimary) {
+        await prisma.programTemplateTechniqueAsset.updateMany({
+          where: { programTemplateId: template.id },
+          data: { isPrimary: false },
+        });
+      }
+
+      const mediaAsset = await prisma.programTemplateTechniqueAsset.create({
+        data: {
+          programTemplateId: template.id,
+          kind: metadata.kind,
+          bucket: env.MINIO_BUCKET,
+          objectKey: uploadResult.objectKey,
+          url: uploadResult.url,
+          title: metadata.title ?? null,
+          isPrimary: metadata.isPrimary,
+          orderIndex,
+        },
+      });
+
+      res.status(201).json({ mediaAsset });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid technique media payload", issues: error.issues });
+        return;
+      }
+
+      console.error("Failed to upload technique media", error);
+      res.status(500).json({ message: "Failed to upload technique media" });
+    }
+  },
+);
+
+adminTemplatesRouter.delete("/program-templates/:code/technique/media/:mediaId", async (req: Request, res: Response) => {
+  try {
+    const code = getStringParam(req.params.code);
+    const mediaId = getStringParam(req.params.mediaId);
+
+    if (!code || !mediaId) {
+      res.status(400).json({ message: "Program template code and media id are required" });
+      return;
+    }
+
+    const template = await prisma.programTemplate.findUnique({ where: { code }, select: { id: true } });
+    if (!template) {
+      res.status(404).json({ message: "Program template not found" });
+      return;
+    }
+
+    const media = await prisma.programTemplateTechniqueAsset.findUnique({ where: { id: mediaId } });
+
+    if (!media || media.programTemplateId !== template.id) {
+      res.status(404).json({ message: "Technique media asset not found" });
+      return;
+    }
+
+    await prisma.programTemplateTechniqueAsset.delete({ where: { id: mediaId } });
+    await deleteProgramTechniqueMedia(media.objectKey).catch(() => undefined);
+
+    res.status(204).send();
+  } catch (error) {
+    console.error("Failed to delete technique media", error);
+    res.status(500).json({ message: "Failed to delete technique media" });
   }
 });
 

@@ -20,6 +20,7 @@ import EjerciciosScreen from "@mobile/components/screens/EjerciciosScreen";
 import EvolucionScreen from "@mobile/components/screens/EvolucionScreen";
 import HoyScreenV2 from "../components/screens/HoyScreenV2";
 import ProgramaScreen from "@mobile/components/screens/ProgramaScreen";
+import TecnicaScreen from "../components/screens/TecnicaScreen";
 import type { SessionDetail as SharedSessionDetail, SessionGuidance as SharedSessionGuidance } from "@mobile/components/types";
 import {
   ActivityIndicator,
@@ -471,6 +472,36 @@ interface AthleteProgressResponse {
 interface SessionDetailResponse {
   session: SharedSessionDetail;
   guidance?: SharedSessionGuidance;
+}
+
+interface AthleteTechniqueResponse {
+  technique: {
+    programId: string;
+    programName: string;
+    template: {
+      id: string;
+      code: string;
+      name: string;
+      techniqueTitle: string | null;
+      techniqueDescription: string | null;
+      mediaAssets: Array<{
+        id: string;
+        kind: "IMAGE" | "GIF" | "VIDEO";
+        url: string | null;
+        title: string | null;
+        isPrimary: boolean;
+      }>;
+    };
+    metrics: Array<{
+      id: string;
+      label: string;
+      value: number;
+      unit: string | null;
+      notes: string | null;
+      recordedAt: string;
+      isBaseline: boolean;
+    }>;
+  } | null;
 }
 
 interface CachedSessionRecord {
@@ -1306,6 +1337,7 @@ export default function HomeScreen() {
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [profile, setProfile] = useState<AthleteProfileResponse["athleteProfile"] | null>(null);
   const [activeProgram, setActiveProgram] = useState<AthleteProfileResponse["activeProgram"] | null>(null);
+  const [technique, setTechnique] = useState<AthleteTechniqueResponse["technique"] | null>(null);
   const [planningRecommendation, setPlanningRecommendation] = useState<PlanningRecommendation | null>(null);
   const [programs, setPrograms] = useState<ProgramListResponse["programs"]>([]);
   const [sessions, setSessions] = useState<SessionListResponse["sessions"]>([]);
@@ -1337,6 +1369,7 @@ export default function HomeScreen() {
   const [availableTemplates, setAvailableTemplates] = useState<PublicTemplateMeta[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [techniqueSaving, setTechniqueSaving] = useState(false);
 
   // Auto-dismiss success toast after 10 s (errors stay until dismissed)
   useEffect(() => {
@@ -1836,11 +1869,12 @@ export default function HomeScreen() {
         token,
       );
 
-      const [profileResponse, programsResponse, sessionsResponse, progressResponse] = await Promise.all([
+      const [profileResponse, programsResponse, sessionsResponse, progressResponse, techniqueResponse] = await Promise.all([
         requestJson<AthleteProfileResponse>("/api/v1/athlete/me", {}, token),
         requestJson<ProgramListResponse>("/api/v1/athlete/programs", {}, token),
         requestJson<SessionListResponse>("/api/v1/athlete/sessions", {}, token),
         requestJson<AthleteProgressResponse>("/api/v1/athlete/progress", {}, token),
+        requestJson<AthleteTechniqueResponse>("/api/v1/athlete/technique", {}, token),
       ]);
 
       setProfile(profileResponse.athleteProfile);
@@ -1850,6 +1884,7 @@ export default function HomeScreen() {
       setPrograms(programsResponse.programs);
       setSessions(sessionsResponse.sessions);
       setProgress(progressResponse);
+      setTechnique(techniqueResponse.technique);
 
       if (sessionAdjustment.rolledOverSessions.length || sessionAdjustment.skippedSessions.length) {
         const messages: string[] = [];
@@ -1895,6 +1930,47 @@ export default function HomeScreen() {
       setError(requestError instanceof Error ? requestError.message : "No se pudo cargar la cuenta del atleta");
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function handleSaveTechniqueMetric(payload: {
+    programTemplateId: string;
+    label: string;
+    value: number;
+    unit?: string;
+    notes?: string;
+    isBaseline: boolean;
+  }) {
+    const token = accessToken ?? undefined;
+
+    if (!token) {
+      return;
+    }
+
+    try {
+      setTechniqueSaving(true);
+      setError("");
+
+      const response = await requestJson<AthleteTechniqueResponse>(
+        "/api/v1/athlete/technique/metrics",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        },
+        token,
+      );
+
+      setTechnique(response.technique);
+      setMessage("Métrica técnica guardada.");
+    } catch (requestError) {
+      if (requestError instanceof UnauthorizedRequestError) {
+        await handleUnauthorizedSession("Tu sesion expiro. Entra otra vez.");
+        return;
+      }
+
+      setError(requestError instanceof Error ? requestError.message : "No se pudo guardar la métrica técnica");
+    } finally {
+      setTechniqueSaving(false);
     }
   }
 
@@ -3081,6 +3157,7 @@ export default function HomeScreen() {
           activeScreen === "hoy" ? "◉  HOY" :
           activeScreen === "ejercicios" ? "⚡  SESIÓN" :
           activeScreen === "programa" ? "▤  PROGRAMA" :
+          activeScreen === "tecnica" ? "🎯  TÉCNICA" :
           "↑  EVOLUCIÓN"
         }
         subtitle={
@@ -3090,6 +3167,8 @@ export default function HomeScreen() {
               ? (selectedSession?.title ?? "Sin sesión activa")
               : activeScreen === "programa"
                 ? (activeProgram?.name ?? "Sin programa activo")
+                : activeScreen === "tecnica"
+                  ? (technique?.template.techniqueTitle ?? technique?.template.name ?? "Sin técnica cargada")
                 : `Racha: ${progress?.summary.currentStreak ?? 0}`
         }
         onMenuPress={() => setDrawerOpen(true)}
@@ -3195,6 +3274,16 @@ export default function HomeScreen() {
           preloadSessionId={preloadState.visible ? preloadState.sessionId : null}
           onRegenerateProgram={() => void handleGenerateProgramFromApp()}
           onRefresh={() => void refreshAthleteArea()}
+        />
+      ) : null}
+
+      {activeScreen === "tecnica" ? (
+        <TecnicaScreen
+          technique={technique}
+          loading={loading || refreshing}
+          submitting={techniqueSaving}
+          onRefresh={() => void refreshAthleteArea()}
+          onSubmitMetric={(payload) => void handleSaveTechniqueMetric(payload)}
         />
       ) : null}
 

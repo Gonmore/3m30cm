@@ -13,7 +13,19 @@ templatesRouter.get("/program-templates", async (_req: Request, res: Response) =
         code: true,
         name: true,
         description: true,
+        techniqueTitle: true,
+        techniqueDescription: true,
         cycleLengthDays: true,
+        techniqueMediaAssets: {
+          orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+          select: {
+            id: true,
+            kind: true,
+            url: true,
+            title: true,
+            isPrimary: true,
+          },
+        },
       },
     });
     res.json({ templates });
@@ -35,6 +47,9 @@ templatesRouter.get("/program-templates/:code", async (req: Request, res: Respon
     const template = await prisma.programTemplate.findUnique({
       where: { code },
       include: {
+        techniqueMediaAssets: {
+          orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+        },
         days: {
           orderBy: { dayNumber: "asc" },
           include: {
