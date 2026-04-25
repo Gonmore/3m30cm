@@ -2,9 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
 const apiBaseUrl = configuredApiBaseUrl.replace(/\/$/, "");
-const configuredMinioPublicBaseUrl = import.meta.env.VITE_MINIO_PUBLIC_BASE_URL?.trim() ?? "";
-const minioPublicBaseUrl = configuredMinioPublicBaseUrl.replace(/\/$/, "");
-const knownProductionMediaBaseUrl = "http://s3.supernovatel.com";
 const tokenStorageKey = "jump-admin-access-token";
 const templateCode = "JUMP-MANUAL-14D";
 const weekdayLabels = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
@@ -16,23 +13,14 @@ const strengthSeriesLoadHint = "85% del 1RM aprox.; corta cuando baje la velocid
 const strengthSeriesReminder = "RECUERDA: la subida siempre debe ser lo mas rapida posible; si la velocidad cae, la serie termina.";
 const plyometricSeriesReminder = "RECUERDA: cada repeticion va a maxima intensidad y maxima velocidad; si cae la intensidad, para.";
 
-function getResolvedMediaBaseUrl() {
-  if (minioPublicBaseUrl) {
-    return minioPublicBaseUrl;
-  }
+function buildApiAssetUrl(bucket: string, objectKey: string) {
+  const normalizedKey = objectKey
+    .replace(/^\/+/, "")
+    .split("/")
+    .map((segment) => encodeURIComponent(decodeURIComponent(segment)))
+    .join("/");
 
-  if (apiBaseUrl) {
-    try {
-      const url = new URL(apiBaseUrl);
-      if (url.hostname === "3m30cm.supernovatel.com") {
-        return knownProductionMediaBaseUrl;
-      }
-    } catch {
-      // Ignore malformed local overrides and keep the raw URL below.
-    }
-  }
-
-  return "";
+  return `${apiBaseUrl}/api/v1/assets/${encodeURIComponent(decodeURIComponent(bucket))}/${normalizedKey}`;
 }
 
 function normalizeMediaUrl(url: string | null | undefined) {
@@ -40,20 +28,21 @@ function normalizeMediaUrl(url: string | null | undefined) {
     return null;
   }
 
-  const resolvedMediaBaseUrl = getResolvedMediaBaseUrl();
   const assetRouteMatch = url.match(/^(?:https?:\/\/[^/]+)?\/api\/v1\/assets\/([^/]+)\/(.+)$/i);
 
   if (assetRouteMatch) {
     const [, bucket, objectKey] = assetRouteMatch;
-    if (resolvedMediaBaseUrl) {
-      return `${resolvedMediaBaseUrl}/${bucket}/${objectKey}`;
+    if (bucket && objectKey) {
+      return buildApiAssetUrl(bucket, objectKey);
     }
-
-    return url.startsWith("/") ? `${apiBaseUrl}${url}` : url;
   }
 
-  if (resolvedMediaBaseUrl) {
-    return url.replace(/^https?:\/\/localhost:(?:9000|9001)/i, resolvedMediaBaseUrl);
+  const bucketUrlMatch = url.match(/^https?:\/\/(?:localhost(?::(?:9000|9001))?|s3\.supernovatel\.com)\/([^/]+)\/(.+)$/i);
+  if (bucketUrlMatch) {
+    const [, bucket, objectKey] = bucketUrlMatch;
+    if (bucket && objectKey) {
+      return buildApiAssetUrl(bucket, objectKey);
+    }
   }
 
   return url;

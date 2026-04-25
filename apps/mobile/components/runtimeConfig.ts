@@ -10,8 +10,6 @@ interface RuntimeAppConfigExtra {
   };
 }
 
-const knownProductionMediaBaseUrl = "http://s3.supernovatel.com";
-
 function normalizeHostCandidate(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -120,48 +118,17 @@ function buildBaseUrl(port: number, fallback: string) {
   return fallback;
 }
 
-function buildPublicMediaBaseUrl(fallback: string) {
-  const hasExplicitOverride = Object.prototype.hasOwnProperty.call(process.env, "EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL");
-  const configured = (hasExplicitOverride ? process.env.EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL : getRuntimeAppConfigExtra().minioPublicBaseUrl)?.trim();
-
-  if (configured) {
-    return configured.replace(/\/$/, "");
-  }
-
-  const hasApiOverride = Object.prototype.hasOwnProperty.call(process.env, "EXPO_PUBLIC_API_BASE_URL");
-  const configuredApiBaseUrl = (hasApiOverride ? process.env.EXPO_PUBLIC_API_BASE_URL : getRuntimeAppConfigExtra().apiBaseUrl)?.trim();
-
-  if (configuredApiBaseUrl) {
-    try {
-      const url = new URL(configuredApiBaseUrl);
-      if (url.hostname === "3m30cm.supernovatel.com") {
-        return knownProductionMediaBaseUrl;
-      }
-    } catch {
-      // Ignore malformed overrides and fall through to local defaults.
-    }
-  }
-
-  const expoHost = getExpoHostIp();
-  if (expoHost) {
-    return `http://${expoHost}:9000`;
-  }
-
-  return fallback;
-}
-
-function buildPublicBucketUrl(bucket: string, objectKey: string) {
+function buildApiAssetUrl(bucket: string, objectKey: string) {
   const normalizedKey = objectKey
     .replace(/^\/+/, "")
     .split("/")
     .map((segment) => encodeURIComponent(decodeURIComponent(segment)))
     .join("/");
 
-  return `${minioBaseUrl}/${encodeURIComponent(decodeURIComponent(bucket))}/${normalizedKey}`;
+  return `${apiBaseUrl}/api/v1/assets/${encodeURIComponent(decodeURIComponent(bucket))}/${normalizedKey}`;
 }
 
 export const apiBaseUrl = buildBaseUrl(4100, "http://localhost:4100");
-export const minioBaseUrl = buildPublicMediaBaseUrl("http://localhost:9000");
 
 export function rewriteLocalAssetUrl(url: string | null | undefined): string | null {
   if (!url) {
@@ -171,8 +138,14 @@ export function rewriteLocalAssetUrl(url: string | null | undefined): string | n
   const assetRouteMatch = url.match(/^(?:https?:\/\/[^/]+)?\/api\/v1\/assets\/([^/]+)\/(.+)$/i);
   if (assetRouteMatch) {
     const [, bucket, objectKey] = assetRouteMatch;
-    return buildPublicBucketUrl(bucket, objectKey);
+    return buildApiAssetUrl(bucket, objectKey);
   }
 
-  return url.replace(/^https?:\/\/localhost:(?:9000|9001)/i, minioBaseUrl);
+  const bucketUrlMatch = url.match(/^https?:\/\/(?:localhost(?::(?:9000|9001))?|s3\.supernovatel\.com)\/([^/]+)\/(.+)$/i);
+  if (bucketUrlMatch) {
+    const [, bucket, objectKey] = bucketUrlMatch;
+    return buildApiAssetUrl(bucket, objectKey);
+  }
+
+  return url;
 }

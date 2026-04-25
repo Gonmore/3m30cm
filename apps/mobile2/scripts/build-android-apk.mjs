@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -162,6 +162,44 @@ function runNodeProcess(args, options = {}) {
   });
 }
 
+function enforceGradleProperties() {
+  const gradlePropertiesPath = path.join(androidDir, "gradle.properties");
+
+  if (!existsSync(gradlePropertiesPath)) {
+    return;
+  }
+
+  const requiredProperties = new Map([
+    ["org.gradle.parallel", "false"],
+    ["org.gradle.workers.max", "1"],
+    ["kotlin.compiler.execution.strategy", "in-process"],
+  ]);
+
+  const original = readFileSync(gradlePropertiesPath, "utf8");
+  const lines = original.split(/\r?\n/);
+  const updatedLines = lines.map((line) => {
+    const match = line.match(/^\s*([^#=\s]+)\s*=.*$/);
+    if (!match) {
+      return line;
+    }
+
+    const key = match[1];
+    if (!requiredProperties.has(key)) {
+      return line;
+    }
+
+    const value = requiredProperties.get(key);
+    requiredProperties.delete(key);
+    return `${key}=${value}`;
+  });
+
+  for (const [key, value] of requiredProperties) {
+    updatedLines.push(`${key}=${value}`);
+  }
+
+  writeFileSync(gradlePropertiesPath, `${updatedLines.join("\n").replace(/\n+$/u, "")}\n`, "utf8");
+}
+
 function stopProjectGradleJavaProcesses() {
   if (process.platform !== "win32") {
     return;
@@ -197,6 +235,7 @@ if (typeof prebuildResult.status === "number" && prebuildResult.status !== 0) {
 }
 
 writeFileSync(localPropertiesPath, `sdk.dir=${normalizedAndroidSdkPath}\n`, "utf8");
+enforceGradleProperties();
 
 console.log("Deteniendo daemons previos de Gradle...");
 runGradle(["--stop"], { stdio: "inherit" });
@@ -212,7 +251,7 @@ for (const lockFile of projectLockFiles) {
   }
 }
 
-const result = runGradle(["assembleRelease", "--no-daemon"]);
+const result = runGradle(["assembleRelease", "--no-daemon", "--max-workers=1", "--no-parallel"]);
 
 if (typeof result.status === "number") {
   process.exit(result.status);

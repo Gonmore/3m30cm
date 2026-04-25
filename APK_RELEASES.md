@@ -4,8 +4,8 @@ Guia operativa para generar el APK Android de `apps/mobile2` con una version esp
 
 ## Version actual
 
-- `mobile2` queda en `version = 1.1.0`
-- `android.versionCode = 110`
+- `mobile2` queda en `version = 1.1.3`
+- `android.versionCode = 113`
 
 ## Regla de versionado
 
@@ -18,6 +18,7 @@ Convencion recomendada para este proyecto:
 
 - `1.1.0` -> `110`
 - `1.1.1` -> `111`
+- `1.1.3` -> `113`
 - `1.2.0` -> `120`
 - `2.0.0` -> `200`
 
@@ -35,9 +36,9 @@ En `apps/mobile2/app.json`:
 ```json
 {
   "expo": {
-    "version": "1.1.0",
+    "version": "1.1.3",
     "android": {
-      "versionCode": 110
+      "versionCode": 113
     }
   }
 }
@@ -47,7 +48,7 @@ En `apps/mobile2/package.json`:
 
 ```json
 {
-  "version": "1.1.0"
+  "version": "1.1.3"
 }
 ```
 
