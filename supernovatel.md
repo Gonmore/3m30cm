@@ -257,6 +257,7 @@ npm --prefix apps/mobile2 run web:prod
 - `mobile2` usa puerto `8082` y `--clear`.
 - `mobile2` expone `build` (`tsc --noEmit`) para validar primero el workspace compartido antes de abrir Expo.
 - `mobile2` expone `apk:prod`, que llama a `scripts/build-android-apk.mjs` para detectar JDK/Android SDK, regenerar `android/local.properties` y ejecutar `assembleRelease` desde Windows.
+- El helper de APK de `mobile2` ahora fuerza un release Gradle mas estable en Windows: `--max-workers=1`, `--no-parallel` y override de propiedades para Kotlin/Gradle tras `prebuild`.
 - `mobile2` tambien embebe `googleClientIds` desde `app.config.js`, leyendo `GOOGLE_CLIENT_ID_ANDROID` del `.env` raiz cuando no exista `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` en runtime.
 - El flujo de reset de contraseña para mobile2 ya no depende solo del deep link: la API emite un codigo de 6 digitos y la app permite confirmar nueva contraseña con `email + code`.
 
@@ -265,6 +266,7 @@ npm --prefix apps/mobile2 run web:prod
 - Si `android/` entra en el paquete del build remoto, EAS trata el proyecto como non-CNG y no resincroniza iconos/splash/config desde `app.json`.
 - Para evitar volver a empaquetar recursos nativos viejos en `apps/mobile2`, `.easignore` excluye `android/` completo.
 - Para el build local de APK en Windows, `apps/mobile2/scripts/build-android-apk.mjs` fuerza `expo prebuild --platform android --clean --no-install` antes de Gradle.
+- La version release local documentada mas reciente queda en `1.1.4` con `versionCode 114`.
 
 ### VS Code y tsconfig de dependencias Expo
 

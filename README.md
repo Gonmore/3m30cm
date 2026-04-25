@@ -196,7 +196,8 @@ Flujo validado para release Android en Windows:
 - Orden recomendado: `npm --prefix apps/mobile2 run build` y luego `echo y | npm --prefix apps/mobile2 run apk:prod`.
 - Si quieres regenerar la APK manualmente para probar el estado actual, usa exactamente `echo y | npm --prefix apps/mobile2 run apk:prod` desde la raiz del monorepo.
 - El helper de APK tarda porque rehace `expo prebuild --clean`, regenera recursos nativos, empaqueta JS/assets y vuelve a compilar Gradle/Kotlin/dependencias nativas antes de firmar el APK.
-- La ultima validacion completa cerro en `10m 16s` y genero `apps/mobile2/android/app/build/outputs/apk/release/app-release.apk` con `71.30 MB`.
+- El helper local de `mobile2` ahora fuerza un release Gradle mas conservador en Windows (`workers=1`, `no-parallel`, Kotlin in-process) para evitar crashes intermitentes de Worker Daemon durante `assembleRelease`.
+- La ultima version release generada localmente queda en `1.1.4` (`versionCode 114`) y el artefacto esperado sigue siendo `apps/mobile2/android/app/build/outputs/apk/release/app-release.apk`.
 - Android release ya no usa el browser OAuth de `expo-auth-session`; usa Google Sign-In nativo. Si Google falla en un APK/AAB firmado, el primer punto a revisar ya no es el `.env`, sino el client OAuth Android en Google Cloud para `com.supernovatel.jump30cm.game` y el SHA-1 real del certificado con el que se firmo ese build.
 - El backend sigue necesitando `GOOGLE_CLIENT_ID_WEB` y `GOOGLE_CLIENT_ID_ANDROID` porque la app no abre sesion sola: entrega un `idToken` a `/api/v1/auth/google` y el servidor valida contra Google que ese token fue emitido para una audiencia permitida antes de crear el JWT propio de la plataforma.
 - Si la app abre y se cierra con `Cannot read property 'useState' of null`, el primer punto a revisar no es Google sino una instalacion local accidental en `apps/mobile2/node_modules`; el flujo correcto del monorepo deja una sola copia de React en el `node_modules` raiz.
@@ -210,6 +211,7 @@ Tecnica multi-programa:
 - Ese seed no es una migracion: el schema nuevo se aplica con `prisma:push`; el seed solo inserta o refresca datos bootstrap/default, por ejemplo el texto inicial de técnica del template base.
 - En produccion no hace falta cambiar `RUN_SEED_ON_DEPLOY=0` para desplegar este feature. Solo ponlo en `1` si quieres que el deploy tambien ejecute el seed y repueble defaults automaticamente.
 - Los uploads nuevos ya no persisten `MINIO_PUBLIC_BASE_URL` como URL final: la API devuelve rutas canonicas bajo `/api/v1/assets/...` para que web y APK consuman media sin depender de `localhost:9000`.
+- Si una APK vieja sigue intentando abrir `https://s3.supernovatel.com/jump-assets/...` y el bucket es privado, esa build no vera la media. La app correcta debe pedirla via backend usando `/api/v1/assets/...`, por eso cualquier cambio en esa logica cliente requiere regenerar e instalar una APK nueva.
 - La vista `Técnica` de `mobile2` muestra una lista de tecnicas del programa activo, permite elegir la tecnica concreta, registrar mediciones por definicion configurada y guardar el snapshot de sesiones completadas al momento de medir.
 - La vista `Evolución` de `mobile2` ahora agrega historico por tecnica y comparacion entre dos tecnicas marcadas como comparables por admin.
 

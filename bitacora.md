@@ -504,3 +504,23 @@ La validacion paso despues del refactor del cliente.
 - El flujo de APK no se rompio: `mobile2` siguio pasando chequeo TypeScript y export Android despues de declarar permisos nativos y automatizaciones locales.
 - El login con Google queda entendido como flujo mixto: la app obtiene el `idToken`, pero el backend lo valida contra Google antes de emitir el JWT interno de la plataforma.
 
+### 25. APK 1.1.4 + media privada via proxy API
+
+**Objetivo:** regenerar `mobile2` como `1.1.4` y dejar documentado que la media productiva debe entrar por la API cuando `jump-assets` es privado en MinIO.
+
+**Cambios aplicados:**
+1. `apps/mobile2/app.json` se movio a `version = 1.1.4` y `android.versionCode = 114`.
+2. `apps/mobile2/package.json` se alineo a `1.1.4`.
+3. `APK_RELEASES.md` paso a documentar la version `1.1.4`, el criterio para la siguiente version y el checklist operativo de release.
+4. `apps/mobile2/scripts/build-android-apk.mjs` quedo endurecido para Windows: release con `--max-workers=1`, `--no-parallel` y normalizacion de `gradle.properties` despues de `prebuild`.
+5. La estrategia de media quedo fijada en cliente+backend via `/api/v1/assets/...`; no se requiere volver publico el bucket `jump-assets`.
+
+**Validacion ejecutada:**
+- `npm --prefix apps/mobile2 run build`
+- `echo y | npm --prefix apps/mobile2 run apk:prod`
+
+**Resultado:**
+- se genero `apps/mobile2/android/app/build/outputs/apk/release/app-release.apk` para la release `1.1.4/114`
+- queda explicitado que un cambio en la logica runtime del cliente requiere instalar una APK nueva para ser probado en dispositivo
+- el helper de build Android se ajusto para reducir bloqueos de Windows, limpiar builds intermedios de Expo Android y subir memoria de Gradle/Kotlin durante `assembleRelease`
+

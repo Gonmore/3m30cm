@@ -86,12 +86,30 @@ if (!androidSdkPath) {
 }
 
 const gradleCommand = process.platform === "win32" ? "gradlew.bat" : "./gradlew";
+const requiredJvmFlags = "-Xmx3072m -XX:MaxMetaspaceSize=1024m";
+
+function appendJvmFlags(existingValue) {
+  const trimmed = existingValue?.trim();
+
+  if (!trimmed) {
+    return requiredJvmFlags;
+  }
+
+  if (trimmed.includes("-Xmx3072m") && trimmed.includes("-XX:MaxMetaspaceSize=1024m")) {
+    return trimmed;
+  }
+
+  return `${trimmed} ${requiredJvmFlags}`;
+}
+
 const env = {
   ...process.env,
   JAVA_HOME: javaHome,
   ANDROID_HOME: normalizedAndroidSdkPath,
   ANDROID_SDK_ROOT: normalizedAndroidSdkPath,
   EXPO_NO_METRO_WORKSPACE_ROOT: "1",
+  GRADLE_OPTS: appendJvmFlags(process.env.GRADLE_OPTS),
+  JAVA_TOOL_OPTIONS: appendJvmFlags(process.env.JAVA_TOOL_OPTIONS),
   PATH: `${path.join(javaHome, "bin")}${path.delimiter}${process.env.PATH ?? ""}`,
 };
 
@@ -170,9 +188,11 @@ function enforceGradleProperties() {
   }
 
   const requiredProperties = new Map([
+    ["org.gradle.jvmargs", requiredJvmFlags],
     ["org.gradle.parallel", "false"],
     ["org.gradle.workers.max", "1"],
     ["kotlin.compiler.execution.strategy", "in-process"],
+    ["org.gradle.daemon.performance.disable-logging", "true"],
   ]);
 
   const original = readFileSync(gradlePropertiesPath, "utf8");
@@ -206,40 +226,88 @@ function stopProjectGradleJavaProcesses() {
   }
 
   const powershellScript = [
-    "$projectPattern = [regex]::Escape($args[0])",
-    "Get-CimInstance Win32_Process -Filter \"Name = 'java.exe'\" | Where-Object { $_.CommandLine -match 'GradleDaemon|org\\.gradle' -and $_.CommandLine -match $projectPattern } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+    `$projectPattern = [regex]::Escape(${JSON.stringify(projectRoot)})`,
+    "Get-CimInstance Win32_Process -Filter \"Name = 'java.exe'\" | Where-Object { $_.CommandLine -match 'GradleDaemon|org\\.gradle|kotlin\\.daemon|KotlinCompileDaemon' -and $_.CommandLine -match $projectPattern } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
   ].join("; ");
 
   spawnSync(
     "powershell.exe",
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `${powershellScript};`, projectRoot],
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `${powershellScript};`],
     { stdio: "inherit", env, shell: false },
   );
+}
+
+function stopProjectBackgroundProcesses() {
+  console.log("Deteniendo procesos Java/Gradle previos del proyecto...");
+  stopProjectGradleJavaProcesses();
+}
+
+function removeDirectoryIfPresent(targetDir) {
+  if (!existsSync(targetDir)) {
+    return;
+  }
+
+  rmSync(targetDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 500,
+  });
+}
+
+function cleanAndroidLibraryBuildDirs() {
+  const candidateDirs = [
+    path.join(workspaceRoot, "node_modules", "expo-modules-core", "android", "build"),
+    path.join(workspaceRoot, "node_modules", "expo", "android", "build"),
+    path.join(workspaceRoot, "node_modules", "expo-constants", "android", "build"),
+  ];
+
+  for (const targetDir of candidateDirs) {
+    try {
+      removeDirectoryIfPresent(targetDir);
+    } catch (error) {
+      console.warn(`No se pudo limpiar ${targetDir} antes de Gradle.`);
+      if (error instanceof Error) {
+        console.warn(error.message);
+      }
+    }
+  }
+}
+
+function runExpoPrebuildWithRetry() {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    stopProjectBackgroundProcesses();
+
+    console.log(`Ejecutando Expo prebuild para Android... (intento ${attempt}/2)`);
+    const prebuildResult = runNodeProcess([
+      expoCliPath,
+      "prebuild",
+      "--platform",
+      "android",
+      "--clean",
+      "--no-install",
+    ]);
+
+    if (typeof prebuildResult.status === "number" && prebuildResult.status === 0) {
+      return;
+    }
+
+    if (attempt === 2) {
+      process.exit(typeof prebuildResult.status === "number" ? prebuildResult.status : 1);
+    }
+
+    console.warn("Expo prebuild fallo; reintentando tras limpiar procesos del proyecto...");
+  }
 }
 
 console.log(`Usando JAVA_HOME=${javaHome}`);
 console.log(`Usando ANDROID SDK=${androidSdkPath}`);
 
-console.log("Ejecutando Expo prebuild para Android...");
-const prebuildResult = runNodeProcess([
-  expoCliPath,
-  "prebuild",
-  "--platform",
-  "android",
-  "--clean",
-  "--no-install",
-]);
-
-if (typeof prebuildResult.status === "number" && prebuildResult.status !== 0) {
-  process.exit(prebuildResult.status);
-}
+runExpoPrebuildWithRetry();
 
 writeFileSync(localPropertiesPath, `sdk.dir=${normalizedAndroidSdkPath}\n`, "utf8");
 enforceGradleProperties();
-
-console.log("Deteniendo daemons previos de Gradle...");
-runGradle(["--stop"], { stdio: "inherit" });
-stopProjectGradleJavaProcesses();
+cleanAndroidLibraryBuildDirs();
 
 for (const lockFile of projectLockFiles) {
   if (existsSync(lockFile)) {
