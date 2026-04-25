@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
 const apiBaseUrl = configuredApiBaseUrl.replace(/\/$/, "");
+const configuredMinioPublicBaseUrl = import.meta.env.VITE_MINIO_PUBLIC_BASE_URL?.trim() ?? "";
+const minioPublicBaseUrl = configuredMinioPublicBaseUrl.replace(/\/$/, "");
+const knownProductionMediaBaseUrl = "http://s3.supernovatel.com";
 const tokenStorageKey = "jump-admin-access-token";
 const templateCode = "JUMP-MANUAL-14D";
 const weekdayLabels = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
@@ -12,6 +15,49 @@ const strengthSeriesSummary = "Series 1-3 explosivas · serie 4 lenta y tecnica 
 const strengthSeriesLoadHint = "85% del 1RM aprox.; corta cuando baje la velocidad maxima.";
 const strengthSeriesReminder = "RECUERDA: la subida siempre debe ser lo mas rapida posible; si la velocidad cae, la serie termina.";
 const plyometricSeriesReminder = "RECUERDA: cada repeticion va a maxima intensidad y maxima velocidad; si cae la intensidad, para.";
+
+function getResolvedMediaBaseUrl() {
+  if (minioPublicBaseUrl) {
+    return minioPublicBaseUrl;
+  }
+
+  if (apiBaseUrl) {
+    try {
+      const url = new URL(apiBaseUrl);
+      if (url.hostname === "3m30cm.supernovatel.com") {
+        return knownProductionMediaBaseUrl;
+      }
+    } catch {
+      // Ignore malformed local overrides and keep the raw URL below.
+    }
+  }
+
+  return "";
+}
+
+function normalizeMediaUrl(url: string | null | undefined) {
+  if (!url) {
+    return null;
+  }
+
+  const resolvedMediaBaseUrl = getResolvedMediaBaseUrl();
+  const assetRouteMatch = url.match(/^(?:https?:\/\/[^/]+)?\/api\/v1\/assets\/([^/]+)\/(.+)$/i);
+
+  if (assetRouteMatch) {
+    const [, bucket, objectKey] = assetRouteMatch;
+    if (resolvedMediaBaseUrl) {
+      return `${resolvedMediaBaseUrl}/${bucket}/${objectKey}`;
+    }
+
+    return url.startsWith("/") ? `${apiBaseUrl}${url}` : url;
+  }
+
+  if (resolvedMediaBaseUrl) {
+    return url.replace(/^https?:\/\/localhost:(?:9000|9001)/i, resolvedMediaBaseUrl);
+  }
+
+  return url;
+}
 
 type MediaKind = "IMAGE" | "GIF" | "VIDEO";
 type TeamRole = "TEAM_ADMIN" | "COACH" | "ATHLETE";
@@ -2880,22 +2926,26 @@ export default function App() {
 
                   <div className="media-grid">
                     {selectedExercise?.mediaAssets.length ? (
-                      selectedExercise.mediaAssets.map((asset) => (
-                        <article key={asset.id} className="media-card">
-                          <div>
-                            <strong>{asset.title || asset.kind}</strong>
-                            <p>{asset.isPrimary ? "Principal" : asset.kind}</p>
-                          </div>
-                          {asset.url ? (
-                            <a href={asset.url} target="_blank" rel="noreferrer">
-                              Abrir asset
-                            </a>
-                          ) : null}
-                          <button className="ghost-button danger-text" type="button" onClick={() => handleMediaDelete(asset.id)}>
-                            Eliminar
-                          </button>
-                        </article>
-                      ))
+                      selectedExercise.mediaAssets.map((asset) => {
+                        const assetUrl = normalizeMediaUrl(asset.url);
+
+                        return (
+                          <article key={asset.id} className="media-card">
+                            <div>
+                              <strong>{asset.title || asset.kind}</strong>
+                              <p>{asset.isPrimary ? "Principal" : asset.kind}</p>
+                            </div>
+                            {assetUrl ? (
+                              <a href={assetUrl} target="_blank" rel="noreferrer">
+                                Abrir asset
+                              </a>
+                            ) : null}
+                            <button className="ghost-button danger-text" type="button" onClick={() => handleMediaDelete(asset.id)}>
+                              Eliminar
+                            </button>
+                          </article>
+                        );
+                      })
                     ) : (
                       <p className="helper-text">Todavia no hay media asociada a este ejercicio.</p>
                     )}
@@ -4117,29 +4167,33 @@ export default function App() {
 
               <div className="program-list">
                 {selectedTemplateTechniqueMediaAssets.length ? (
-                  selectedTemplateTechniqueMediaAssets.map((asset) => (
-                    <article key={asset.id} className="detail-card program-card">
-                      <strong>{asset.title || "Recurso de técnica"}</strong>
-                      <span>{asset.kind}{asset.isPrimary ? " · principal" : ""}</span>
-                      {asset.url ? (
-                        asset.kind === "VIDEO" ? (
-                          <video controls preload="metadata" style={{ width: "100%", borderRadius: 16, marginTop: 12 }} src={asset.url} />
-                        ) : (
-                          <img src={asset.url} alt={asset.title || "Recurso de tecnica"} style={{ width: "100%", borderRadius: 16, marginTop: 12 }} />
-                        )
-                      ) : null}
-                      <div className="chip-row">
-                        <button
-                          type="button"
-                          className="danger-button"
-                          onClick={() => void handleTechniqueMediaDelete(asset.id)}
-                          disabled={loading}
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </article>
-                  ))
+                  selectedTemplateTechniqueMediaAssets.map((asset) => {
+                    const assetUrl = normalizeMediaUrl(asset.url);
+
+                    return (
+                      <article key={asset.id} className="detail-card program-card">
+                        <strong>{asset.title || "Recurso de técnica"}</strong>
+                        <span>{asset.kind}{asset.isPrimary ? " · principal" : ""}</span>
+                        {assetUrl ? (
+                          asset.kind === "VIDEO" ? (
+                            <video controls preload="metadata" style={{ width: "100%", borderRadius: 16, marginTop: 12 }} src={assetUrl} />
+                          ) : (
+                            <img src={assetUrl} alt={asset.title || "Recurso de tecnica"} style={{ width: "100%", borderRadius: 16, marginTop: 12 }} />
+                          )
+                        ) : null}
+                        <div className="chip-row">
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() => void handleTechniqueMediaDelete(asset.id)}
+                            disabled={loading}
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })
                 ) : (
                   <p className="helper-text">Todavia no hay recursos de técnica cargados para este programa.</p>
                 )}
@@ -4594,29 +4648,33 @@ export default function App() {
 
               <div className="program-list">
                 {selectedTemplateTechniqueMediaAssets.length ? (
-                  selectedTemplateTechniqueMediaAssets.map((asset) => (
-                    <article key={asset.id} className="detail-card program-card">
-                      <strong>{asset.title || "Recurso de técnica"}</strong>
-                      <span>{asset.kind}{asset.isPrimary ? " · principal" : ""}</span>
-                      {asset.url ? (
-                        asset.kind === "VIDEO" ? (
-                          <video controls preload="metadata" style={{ width: "100%", borderRadius: 16, marginTop: 12 }} src={asset.url} />
-                        ) : (
-                          <img src={asset.url} alt={asset.title || "Recurso de tecnica"} style={{ width: "100%", borderRadius: 16, marginTop: 12 }} />
-                        )
-                      ) : null}
-                      <div className="chip-row">
-                        <button
-                          type="button"
-                          className="danger-button"
-                          onClick={() => void handleTechniqueMediaDelete(asset.id)}
-                          disabled={loading}
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </article>
-                  ))
+                  selectedTemplateTechniqueMediaAssets.map((asset) => {
+                    const assetUrl = normalizeMediaUrl(asset.url);
+
+                    return (
+                      <article key={asset.id} className="detail-card program-card">
+                        <strong>{asset.title || "Recurso de técnica"}</strong>
+                        <span>{asset.kind}{asset.isPrimary ? " · principal" : ""}</span>
+                        {assetUrl ? (
+                          asset.kind === "VIDEO" ? (
+                            <video controls preload="metadata" style={{ width: "100%", borderRadius: 16, marginTop: 12 }} src={assetUrl} />
+                          ) : (
+                            <img src={assetUrl} alt={asset.title || "Recurso de tecnica"} style={{ width: "100%", borderRadius: 16, marginTop: 12 }} />
+                          )
+                        ) : null}
+                        <div className="chip-row">
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() => void handleTechniqueMediaDelete(asset.id)}
+                            disabled={loading}
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })
                 ) : (
                   <p className="helper-text">Todavia no hay recursos de técnica cargados para este programa.</p>
                 )}

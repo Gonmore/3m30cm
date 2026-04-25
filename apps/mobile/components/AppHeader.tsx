@@ -1,5 +1,6 @@
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { rewriteLocalAssetUrl } from "./runtimeConfig";
 import { R, S } from "./tokens";
 import { useTheme } from "./ThemeContext";
 
@@ -16,6 +17,7 @@ export default function AppHeader({ title, subtitle, onMenuPress, athleteInitial
   const insets = useSafeAreaInsets();
   const { C } = useTheme();
   const styles = makeStyles(C);
+  const resolvedAvatarUrl = rewriteLocalAssetUrl(avatarUrl);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + S.xs }]}>
@@ -44,8 +46,8 @@ export default function AppHeader({ title, subtitle, onMenuPress, athleteInitial
 
       {/* Avatar */}
       <Pressable style={styles.avatar} hitSlop={8} onPress={onAvatarPress}>
-        {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+        {resolvedAvatarUrl ? (
+          <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatarImage} />
         ) : (
           <Text style={styles.avatarText}>{athleteInitials}</Text>
         )}

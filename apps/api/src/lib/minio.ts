@@ -18,8 +18,14 @@ const s3Client = new S3Client({
 let bucketReady = false;
 
 export function buildMediaAssetUrl(objectKey: string, bucket = env.MINIO_BUCKET) {
-  const normalizedKey = objectKey.replace(/^\/+/, "");
-  return `/api/v1/assets/${encodeURIComponent(bucket)}/${normalizedKey}`;
+  const baseUrl = env.MINIO_PUBLIC_BASE_URL.replace(/\/+$/, "");
+  const normalizedKey = objectKey
+    .replace(/^\/+/, "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `${baseUrl}/${encodeURIComponent(bucket)}/${normalizedKey}`;
 }
 
 export async function ensureBucket() {

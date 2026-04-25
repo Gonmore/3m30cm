@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useMemo, useState } from "react";
 import { useTheme, type ColorPalette } from "./ThemeContext";
+import { rewriteLocalAssetUrl } from "./runtimeConfig";
 import { R, S } from "./tokens";
 
 interface ProfileModalProps {
@@ -217,6 +218,7 @@ export function ProfileModal({
 }: ProfileModalProps) {
   const { mode, toggleTheme, C } = useTheme();
   const styles = useMemo(() => makeStyles(C), [C]);
+  const resolvedAvatarUrl = rewriteLocalAssetUrl(avatarUrl);
 
   const [view, setView] = useState<"main" | "changePassword">("main");
   const [loading, setLoading] = useState(false);
@@ -337,8 +339,8 @@ export function ProfileModal({
             <>
               {/* Avatar row */}
               <View style={styles.avatarRow}>
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+                {resolvedAvatarUrl ? (
+                  <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatar} />
                 ) : (
                   <View style={styles.avatarPlaceholder}>
                     <Ionicons name="person" size={28} color={C.textMuted} />
