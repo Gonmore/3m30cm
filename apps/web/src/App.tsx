@@ -18,7 +18,7 @@ type TeamRole = "TEAM_ADMIN" | "COACH" | "ATHLETE";
 type SeasonPhase = (typeof seasonPhaseOptions)[number];
 type SessionStatus = (typeof sessionStatusOptions)[number];
 type SeriesProtocol = (typeof seriesProtocolOptions)[number];
-type AdminView = "home" | "users" | "training" | "templates";
+type AdminView = "home" | "users" | "training" | "templates" | "technique";
 
 interface AuthUser {
   id: string;
@@ -1937,6 +1937,15 @@ export default function App() {
             <span className="nav-icon">🗂️</span>
             <span>Programas</span>
           </button>
+          <button
+            type="button"
+            className={`nav-item${adminView === "technique" ? " active" : ""}`}
+            onClick={() => setAdminView("technique")}
+            title="Técnica"
+          >
+            <span className="nav-icon">🎯</span>
+            <span>Técnica</span>
+          </button>
         </nav>
         <div className="sidebar-footer">
           <span className="sidebar-user">{currentUser?.email}</span>
@@ -1963,7 +1972,15 @@ export default function App() {
             {sidebarCollapsed ? "☰" : "✕"}
           </button>
           <h1 className="topbar-title">
-            {adminView === "home" ? "Panel de control" : adminView === "users" ? "Usuarios" : adminView === "templates" ? "Programas" : "Entrenamiento"}
+            {adminView === "home"
+              ? "Panel de control"
+              : adminView === "users"
+                ? "Usuarios"
+                : adminView === "templates"
+                  ? "Programas"
+                  : adminView === "technique"
+                    ? "Técnica"
+                    : "Entrenamiento"}
           </h1>
         </header>
 
@@ -3791,9 +3808,10 @@ export default function App() {
                           onClick={() => {
                             setSelectedTemplateCode(tmpl.code);
                             void handleTemplateDaysLoad(tmpl.code);
+                            setAdminView("technique");
                           }}
                         >
-                          Editar técnica
+                          Técnica
                         </button>
                       </>
                     ) : (
@@ -4064,6 +4082,186 @@ export default function App() {
               </div>
             </div>
           ) : null}
+        </article>
+      </section>
+      ) : null}
+
+      {adminView === "technique" ? (
+      <section className="management-grid">
+        <article className="panel-card">
+          <div className="section-header">
+            <div>
+              <p className="eyebrow">Carga técnica por programa</p>
+              <h2>Texto y videos</h2>
+            </div>
+          </div>
+
+          <p className="helper-text section-spacer">
+            Selecciona un programa para cargar el texto descriptivo y los recursos de técnica que luego verá el atleta en la vista `Técnica` de `mobile2`.
+          </p>
+
+          <div className="detail-list">
+            {allTemplates.length ? (
+              allTemplates.map((tmpl) => (
+                <article key={tmpl.id} className={`detail-card${selectedTemplateCode === tmpl.code ? " active" : ""}`}>
+                  <strong>{tmpl.name}</strong>
+                  <span>{tmpl.code}</span>
+                  <p>{tmpl.description || "Sin descripcion"}</p>
+                  <small>
+                    {tmpl.techniqueMediaAssets.length} recurso(s) de técnica · {tmpl._count.personalPrograms} programa(s) activo(s)
+                  </small>
+                  <div className="chip-row">
+                    <button
+                      type="button"
+                      className={`ghost-button${selectedTemplateCode === tmpl.code ? " active" : ""}`}
+                      onClick={() => {
+                        setSelectedTemplateCode(tmpl.code);
+                        void handleTemplateDaysLoad(tmpl.code);
+                      }}
+                    >
+                      Abrir técnica
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => {
+                        setSelectedTemplateCode(tmpl.code);
+                        void handleTemplateDaysLoad(tmpl.code);
+                        setAdminView("training");
+                      }}
+                    >
+                      Ver entrenamiento
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <p className="helper-text">No hay programas definidos todavia.</p>
+            )}
+          </div>
+        </article>
+
+        <article className="panel-card">
+          <div className="section-header">
+            <div>
+              <p className="eyebrow">Editor de técnica</p>
+              <h2>{selectedTemplateMeta?.name ?? "Selecciona un programa"}</h2>
+            </div>
+          </div>
+
+          {selectedTemplateMeta ? (
+            <div className="detail-stack section-spacer">
+              <form
+                className="stack-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleTechniqueSave();
+                }}
+              >
+                <div className="form-grid">
+                  <label>
+                    Título de técnica
+                    <input
+                      value={templateTechniqueForm.title}
+                      onChange={(event) => setTemplateTechniqueForm((current) => ({ ...current, title: event.target.value }))}
+                      placeholder="ej. Técnica de sprint: postura y primer paso"
+                    />
+                  </label>
+                  <label>
+                    Texto explicativo
+                    <textarea
+                      value={templateTechniqueForm.description}
+                      onChange={(event) => setTemplateTechniqueForm((current) => ({ ...current, description: event.target.value }))}
+                      rows={5}
+                      placeholder="Explica la técnica ideal, errores frecuentes y qué debe sentir el atleta."
+                    />
+                  </label>
+                </div>
+                <button className="primary-button" type="submit" disabled={loading}>
+                  Guardar técnica
+                </button>
+              </form>
+
+              <form className="stack-form" onSubmit={(event) => void handleTechniqueMediaUpload(event)}>
+                <div className="form-grid">
+                  <label>
+                    Tipo de recurso
+                    <select
+                      value={techniqueUploadState.kind}
+                      onChange={(event) =>
+                        setTechniqueUploadState((current) => ({ ...current, kind: event.target.value as MediaKind }))
+                      }
+                    >
+                      <option value="VIDEO">Video</option>
+                      <option value="GIF">GIF</option>
+                      <option value="IMAGE">Imagen</option>
+                    </select>
+                  </label>
+                  <label>
+                    Título del recurso
+                    <input
+                      value={techniqueUploadState.title}
+                      onChange={(event) => setTechniqueUploadState((current) => ({ ...current, title: event.target.value }))}
+                      placeholder="ej. Técnica frontal"
+                    />
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={techniqueUploadState.isPrimary}
+                      onChange={(event) => setTechniqueUploadState((current) => ({ ...current, isPrimary: event.target.checked }))}
+                    />
+                    Marcar como principal
+                  </label>
+                  <label>
+                    Archivo
+                    <input
+                      type="file"
+                      accept="video/*,image/*"
+                      onChange={(event) =>
+                        setTechniqueUploadState((current) => ({ ...current, file: event.target.files?.[0] ?? null }))
+                      }
+                    />
+                  </label>
+                </div>
+                <button className="primary-button" type="submit" disabled={loading || !techniqueUploadState.file}>
+                  Subir recurso de técnica
+                </button>
+              </form>
+
+              <div className="program-list">
+                {selectedTemplateTechniqueMediaAssets.length ? (
+                  selectedTemplateTechniqueMediaAssets.map((asset) => (
+                    <article key={asset.id} className="detail-card program-card">
+                      <strong>{asset.title || "Recurso de técnica"}</strong>
+                      <span>{asset.kind}{asset.isPrimary ? " · principal" : ""}</span>
+                      {asset.url ? (
+                        asset.kind === "VIDEO" ? (
+                          <video controls preload="metadata" style={{ width: "100%", borderRadius: 16, marginTop: 12 }} src={asset.url} />
+                        ) : (
+                          <img src={asset.url} alt={asset.title || "Recurso de tecnica"} style={{ width: "100%", borderRadius: 16, marginTop: 12 }} />
+                        )
+                      ) : null}
+                      <div className="chip-row">
+                        <button
+                          type="button"
+                          className="danger-button"
+                          onClick={() => void handleTechniqueMediaDelete(asset.id)}
+                          disabled={loading}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <p className="helper-text">Todavia no hay recursos de técnica cargados para este programa.</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="helper-text section-spacer">Selecciona un programa para empezar a cargar texto y archivos técnicos.</p>
+          )}
         </article>
       </section>
       ) : null}
