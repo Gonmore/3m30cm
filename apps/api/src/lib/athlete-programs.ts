@@ -1,4 +1,4 @@
-import { DayType, Prisma, ProgramStatus, SeriesProtocol, SeasonPhase } from "@prisma/client";
+import { DayType, Prisma, ProgramStatus, SeasonPhase, SeriesProtocol, SessionStatus } from "@prisma/client";
 
 import { resolveSeriesProtocol } from "./exercise-series.js";
 
@@ -286,6 +286,21 @@ export async function generatePersonalProgram(input: GeneratePersonalProgramInpu
     },
     data: {
       status: ProgramStatus.ARCHIVED,
+    },
+  });
+
+  await transaction.scheduledSession.updateMany({
+    where: {
+      personalProgram: {
+        athleteProfileId: athleteProfile.id,
+        status: ProgramStatus.ARCHIVED,
+      },
+      status: {
+        in: [SessionStatus.PLANNED, SessionStatus.RESCHEDULED],
+      },
+    },
+    data: {
+      status: SessionStatus.SKIPPED,
     },
   });
 

@@ -683,8 +683,8 @@ athleteRouter.get("/me", async (req: AuthenticatedRequest, res: Response) => {
     }
 
     const activeProgram = await prisma.personalProgram.findFirst({
-      where: { athleteProfileId: athleteProfile.id },
-      orderBy: [{ status: "asc" }, { startDate: "desc" }],
+      where: { athleteProfileId: athleteProfile.id, status: ProgramStatus.ACTIVE },
+      orderBy: { startDate: "desc" },
       include: {
         template: {
           select: {
@@ -969,8 +969,8 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
     const { start: weekStart, end: weekEnd } = getWeekBounds(now);
     const [activeProgram, sessions, insightLogs] = await Promise.all([
       prisma.personalProgram.findFirst({
-        where: { athleteProfileId: athleteProfile.id },
-        orderBy: [{ status: "asc" }, { startDate: "desc" }],
+        where: { athleteProfileId: athleteProfile.id, status: ProgramStatus.ACTIVE },
+        orderBy: { startDate: "desc" },
         select: {
           id: true,
           name: true,
@@ -1295,7 +1295,7 @@ athleteRouter.get("/sessions", async (req: AuthenticatedRequest, res: Response) 
       where: {
         personalProgram: {
           athleteProfileId: athleteProfile.id,
-          status: { not: ProgramStatus.ARCHIVED },
+          status: ProgramStatus.ACTIVE,
         },
       },
       orderBy: { scheduledDate: "asc" },
@@ -1428,6 +1428,7 @@ athleteRouter.post("/sessions/auto-rollover", async (req: AuthenticatedRequest, 
       where: {
         personalProgram: {
           athleteProfileId: athleteProfile.id,
+          status: ProgramStatus.ACTIVE,
         },
         status: {
           in: [SessionStatus.PLANNED, SessionStatus.RESCHEDULED],
