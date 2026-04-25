@@ -7,6 +7,7 @@ import { prisma } from "../config/prisma.js";
 import { atLocalMidday, buildTrainingDaysJson, buildWeekdaysJson, generatePersonalProgram, parseWeekdaysJson } from "../lib/athlete-programs.js";
 import { buildSeriesProtocolGuidance } from "../lib/exercise-series.js";
 import { uploadAvatarMedia } from "../lib/minio.js";
+import { ensureTemplateTechniqueStructure } from "../lib/program-template-techniques.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const athleteProfileInclude = {
@@ -156,8 +157,10 @@ const athleteProgramSetupSchema = athletePlanningSchema.extend({
 });
 
 const techniqueMetricSchema = z.object({
-  programTemplateId: z.string().min(1),
-  label: z.string().trim().min(1),
+  programTemplateId: z.string().min(1).optional(),
+  techniqueId: z.string().min(1).optional(),
+  measurementDefinitionId: z.string().min(1).optional(),
+  label: z.string().trim().min(1).optional(),
   value: z.number().finite(),
   unit: z.string().trim().nullable().optional(),
   notes: z.string().trim().nullable().optional(),
@@ -1722,17 +1725,18 @@ athleteRouter.get("/technique", async (req: AuthenticatedRequest, res: Response)
       select: {
         id: true,
         name: true,
-        template: {
-          include: {
-            techniqueMediaAssets: {
-              orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
-            },
-          },
-        },
+        templateId: true,
       },
     });
 
-    if (!activeProgram?.template) {
+    if (!activeProgram?.templateId) {
+      res.json({ technique: null });
+      return;
+    }
+
+    const template = await ensureTemplateTechniqueStructure(prisma, activeProgram.templateId);
+
+    if (!template) {
       res.json({ technique: null });
       return;
     }
@@ -1740,25 +1744,43 @@ athleteRouter.get("/technique", async (req: AuthenticatedRequest, res: Response)
     const metrics = await prisma.athleteTechniqueMetric.findMany({
       where: {
         athleteProfileId: athleteProfile.id,
-        programTemplateId: activeProgram.template.id,
+        programTemplateId: template.id,
+      },
+      include: {
+        measurementDefinition: true,
       },
       orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
     });
+
+    const techniques = template.techniques.map((technique) => ({
+      id: technique.id,
+      title: technique.title,
+      description: technique.description,
+      measurementInstructions: technique.measurementInstructions,
+      comparisonEnabled: technique.comparisonEnabled,
+      mediaAssets: technique.mediaAssets,
+      measurementDefinitions: technique.measurementDefinitions,
+      metrics: metrics.filter((metric) => metric.techniqueId === technique.id),
+    }));
+
+    const primaryTechnique = template.techniques[0] ?? null;
 
     res.json({
       technique: {
         programId: activeProgram.id,
         programName: activeProgram.name,
         template: {
-          id: activeProgram.template.id,
-          code: activeProgram.template.code,
-          name: activeProgram.template.name,
-          techniqueTitle: activeProgram.template.techniqueTitle,
-          techniqueDescription: activeProgram.template.techniqueDescription,
-          mediaAssets: activeProgram.template.techniqueMediaAssets,
+          id: template.id,
+          code: template.code,
+          name: template.name,
+          techniqueTitle: primaryTechnique?.title ?? template.techniqueTitle,
+          techniqueDescription: primaryTechnique?.description ?? template.techniqueDescription,
+          mediaAssets: primaryTechnique?.mediaAssets ?? [],
+          techniques,
         },
-        metrics,
+        metrics: primaryTechnique ? metrics.filter((metric) => metric.techniqueId === primaryTechnique.id) : [],
       },
+      techniques,
     });
   } catch (error) {
     console.error("Failed to fetch athlete technique", error);
@@ -1787,69 +1809,152 @@ athleteRouter.post("/technique/metrics", async (req: AuthenticatedRequest, res: 
 
     const payload = techniqueMetricSchema.parse(req.body);
 
+    let technique = payload.techniqueId
+      ? await prisma.programTemplateTechnique.findUnique({
+          where: { id: payload.techniqueId },
+          include: {
+            programTemplate: true,
+            mediaAssets: {
+              orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+            },
+            measurementDefinitions: {
+              orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+            },
+          },
+        })
+      : null;
+
+    if (!technique && payload.programTemplateId) {
+      const hydratedTemplate = await ensureTemplateTechniqueStructure(prisma, payload.programTemplateId);
+      const primaryTechniqueId = hydratedTemplate?.techniques[0]?.id;
+      if (primaryTechniqueId) {
+        technique = await prisma.programTemplateTechnique.findUnique({
+          where: { id: primaryTechniqueId },
+          include: {
+            programTemplate: true,
+            mediaAssets: {
+              orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+            },
+            measurementDefinitions: {
+              orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+            },
+          },
+        });
+      }
+    }
+
+    if (!technique) {
+      res.status(404).json({ message: "Technique not available for this athlete" });
+      return;
+    }
+
     const program = await prisma.personalProgram.findFirst({
       where: {
         athleteProfileId: athleteProfile.id,
-        templateId: payload.programTemplateId,
+        templateId: technique.programTemplateId,
       },
       select: {
         id: true,
-        template: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            techniqueTitle: true,
-            techniqueDescription: true,
-            techniqueMediaAssets: {
-              orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
-            },
-          },
-        },
+        name: true,
       },
     });
 
-    if (!program?.template) {
+    if (!program) {
       res.status(404).json({ message: "Technique program template not available for this athlete" });
+      return;
+    }
+
+    const measurementDefinition = payload.measurementDefinitionId
+      ? await prisma.programTemplateTechniqueMeasurementDefinition.findUnique({ where: { id: payload.measurementDefinitionId } })
+      : null;
+
+    if (measurementDefinition && measurementDefinition.techniqueId !== technique.id) {
+      res.status(400).json({ message: "Measurement definition does not belong to the selected technique" });
+      return;
+    }
+
+    const recordedAt = payload.recordedAt ? new Date(payload.recordedAt) : new Date();
+    const completedSessionsAtMeasurement = await prisma.scheduledSession.count({
+      where: {
+        personalProgramId: program.id,
+        scheduledDate: { lte: recordedAt },
+        OR: [
+          { status: "COMPLETED" },
+          {
+            logs: {
+              some: {
+                athleteProfileId: athleteProfile.id,
+                createdAt: { lte: recordedAt },
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const label = payload.label?.trim() || measurementDefinition?.label;
+    if (!label) {
+      res.status(400).json({ message: "A metric label or measurement definition is required" });
       return;
     }
 
     const metric = await prisma.athleteTechniqueMetric.create({
       data: {
         athleteProfileId: athleteProfile.id,
-        programTemplateId: payload.programTemplateId,
-        label: payload.label,
+        programTemplateId: technique.programTemplateId,
+        techniqueId: technique.id,
+        measurementDefinitionId: measurementDefinition?.id ?? null,
+        label,
         value: payload.value,
         unit: payload.unit ?? null,
         notes: payload.notes ?? null,
-        recordedAt: payload.recordedAt ? new Date(payload.recordedAt) : new Date(),
+        recordedAt,
         isBaseline: payload.isBaseline,
+        completedSessionsAtMeasurement,
       },
     });
 
     const metrics = await prisma.athleteTechniqueMetric.findMany({
       where: {
         athleteProfileId: athleteProfile.id,
-        programTemplateId: payload.programTemplateId,
+        programTemplateId: technique.programTemplateId,
+      },
+      include: {
+        measurementDefinition: true,
       },
       orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
     });
+
+    const hydratedTemplate = await ensureTemplateTechniqueStructure(prisma, technique.programTemplateId);
+    const techniques = hydratedTemplate?.techniques.map((entry) => ({
+      id: entry.id,
+      title: entry.title,
+      description: entry.description,
+      measurementInstructions: entry.measurementInstructions,
+      comparisonEnabled: entry.comparisonEnabled,
+      mediaAssets: entry.mediaAssets,
+      measurementDefinitions: entry.measurementDefinitions,
+      metrics: metrics.filter((existingMetric) => existingMetric.techniqueId === entry.id),
+    })) ?? [];
+    const primaryTechnique = techniques[0] ?? null;
 
     res.status(201).json({
       metric,
       technique: {
         programId: program.id,
-        programName: program.template.name,
+        programName: program.name,
         template: {
-          id: program.template.id,
-          code: program.template.code,
-          name: program.template.name,
-          techniqueTitle: program.template.techniqueTitle,
-          techniqueDescription: program.template.techniqueDescription,
-          mediaAssets: program.template.techniqueMediaAssets,
+          id: hydratedTemplate?.id ?? technique.programTemplateId,
+          code: hydratedTemplate?.code ?? technique.programTemplate.code,
+          name: hydratedTemplate?.name ?? technique.programTemplate.name,
+          techniqueTitle: primaryTechnique?.title ?? technique.title,
+          techniqueDescription: primaryTechnique?.description ?? technique.description,
+          mediaAssets: primaryTechnique?.mediaAssets ?? technique.mediaAssets,
+          techniques,
         },
-        metrics,
+        metrics: primaryTechnique ? metrics.filter((existingMetric) => existingMetric.techniqueId === primaryTechnique.id) : [],
       },
+      techniques,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

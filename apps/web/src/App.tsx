@@ -398,6 +398,25 @@ interface ProgramTechniqueMediaAsset {
   isPrimary: boolean;
 }
 
+interface ProgramTechniqueMeasurementDefinition {
+  id: string;
+  label: string;
+  instructions: string | null;
+  allowedUnits: unknown;
+  orderIndex: number;
+}
+
+interface ProgramTechniqueRecord {
+  id: string;
+  title: string;
+  description: string | null;
+  measurementInstructions: string | null;
+  comparisonEnabled: boolean;
+  orderIndex: number;
+  mediaAssets: ProgramTechniqueMediaAsset[];
+  measurementDefinitions: ProgramTechniqueMeasurementDefinition[];
+}
+
 interface ProgramTemplateResponse {
   template: {
     id: string;
@@ -408,13 +427,25 @@ interface ProgramTemplateResponse {
     techniqueTitle: string | null;
     techniqueDescription: string | null;
     techniqueMediaAssets: ProgramTechniqueMediaAsset[];
+    techniques: ProgramTechniqueRecord[];
     days: ProgramDay[];
   };
 }
 
+interface TechniqueMeasurementDraft {
+  id?: string;
+  label: string;
+  instructions: string;
+  allowedUnitsText: string;
+}
+
 interface TechniqueFormState {
+  id?: string;
   title: string;
   description: string;
+  measurementInstructions: string;
+  comparisonEnabled: boolean;
+  measurements: TechniqueMeasurementDraft[];
 }
 
 const emptyExerciseForm = (): ExerciseFormState => ({
@@ -479,6 +510,15 @@ const emptyTemplateForm = (): TemplateFormState => ({
 const emptyTechniqueForm = (): TechniqueFormState => ({
   title: "",
   description: "",
+  measurementInstructions: "",
+  comparisonEnabled: false,
+  measurements: [],
+});
+
+const emptyTechniqueMeasurementDraft = (): TechniqueMeasurementDraft => ({
+  label: "",
+  instructions: "",
+  allowedUnitsText: "cm",
 });
 
 const emptySessionEditor = (): SessionEditorState => ({
@@ -717,6 +757,8 @@ export default function App() {
   const [selectedTemplateCode, setSelectedTemplateCode] = useState<string>(templateCode);
   const [templateForm, setTemplateForm] = useState<TemplateFormState>(emptyTemplateForm);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templateTechniques, setTemplateTechniques] = useState<ProgramTechniqueRecord[]>([]);
+  const [selectedTechniqueId, setSelectedTechniqueId] = useState<string>("");
   const [templateTechniqueForm, setTemplateTechniqueForm] = useState<TechniqueFormState>(emptyTechniqueForm);
   const [selectedTemplateTechniqueMediaAssets, setSelectedTemplateTechniqueMediaAssets] = useState<ProgramTechniqueMediaAsset[]>([]);
   const [techniqueUploadState, setTechniqueUploadState] = useState({ kind: "VIDEO" as MediaKind, title: "", isPrimary: false, file: null as File | null });
@@ -736,6 +778,11 @@ export default function App() {
   const selectedTemplateMeta = useMemo(
     () => allTemplates.find((template) => template.code === selectedTemplateCode) ?? null,
     [allTemplates, selectedTemplateCode],
+  );
+
+  const selectedTechnique = useMemo(
+    () => templateTechniques.find((technique) => technique.id === selectedTechniqueId) ?? null,
+    [templateTechniques, selectedTechniqueId],
   );
 
   const selectedTeam = useMemo(
@@ -977,11 +1024,29 @@ export default function App() {
       setAllAthletes(athletesResponse.athletes);
       setPrograms(programsResponse.programs);
       setTemplateDays(templateResponse.template.days);
-      setSelectedTemplateTechniqueMediaAssets(templateResponse.template.techniqueMediaAssets);
-      setTemplateTechniqueForm({
-        title: templateResponse.template.techniqueTitle ?? "",
-        description: templateResponse.template.techniqueDescription ?? "",
-      });
+      const initialTechnique = templateResponse.template.techniques[0] ?? null;
+      setTemplateTechniques(templateResponse.template.techniques ?? []);
+      setSelectedTechniqueId(initialTechnique?.id ?? "");
+      setSelectedTemplateTechniqueMediaAssets(initialTechnique?.mediaAssets ?? []);
+      setTemplateTechniqueForm(
+        initialTechnique
+          ? {
+              id: initialTechnique.id,
+              title: initialTechnique.title,
+              description: initialTechnique.description ?? "",
+              measurementInstructions: initialTechnique.measurementInstructions ?? "",
+              comparisonEnabled: initialTechnique.comparisonEnabled,
+              measurements: initialTechnique.measurementDefinitions.map((definition) => ({
+                id: definition.id,
+                label: definition.label,
+                instructions: definition.instructions ?? "",
+                allowedUnitsText: Array.isArray(definition.allowedUnits)
+                  ? definition.allowedUnits.filter((unit): unit is string => typeof unit === "string").join(", ")
+                  : "",
+              })),
+            }
+          : emptyTechniqueForm(),
+      );
       setAllTemplates(allTemplatesResponse.templates);
 
       const firstExercise = exercisesResponse.exercises[0];
@@ -1361,14 +1426,35 @@ export default function App() {
     try {
       const response = await requestJson<ProgramTemplateResponse>(`/api/v1/templates/program-templates/${code}`, {}, token);
       setTemplateDays(response.template.days);
-      setSelectedTemplateTechniqueMediaAssets(response.template.techniqueMediaAssets);
-      setTemplateTechniqueForm({
-        title: response.template.techniqueTitle ?? "",
-        description: response.template.techniqueDescription ?? "",
-      });
+      const techniques = response.template.techniques ?? [];
+      const nextTechnique = techniques[0] ?? null;
+      setTemplateTechniques(techniques);
+      setSelectedTechniqueId(nextTechnique?.id ?? "");
+      setSelectedTemplateTechniqueMediaAssets(nextTechnique?.mediaAssets ?? []);
+      setTemplateTechniqueForm(
+        nextTechnique
+          ? {
+              id: nextTechnique.id,
+              title: nextTechnique.title,
+              description: nextTechnique.description ?? "",
+              measurementInstructions: nextTechnique.measurementInstructions ?? "",
+              comparisonEnabled: nextTechnique.comparisonEnabled,
+              measurements: nextTechnique.measurementDefinitions.map((definition) => ({
+                id: definition.id,
+                label: definition.label,
+                instructions: definition.instructions ?? "",
+                allowedUnitsText: Array.isArray(definition.allowedUnits)
+                  ? definition.allowedUnits.filter((unit): unit is string => typeof unit === "string").join(", ")
+                  : "",
+              })),
+            }
+          : emptyTechniqueForm(),
+      );
       setSelectedDayNumber(response.template.days[0]?.dayNumber ?? 1);
     } catch {
       setTemplateDays([]);
+      setTemplateTechniques([]);
+      setSelectedTechniqueId("");
       setSelectedTemplateTechniqueMediaAssets([]);
       setTemplateTechniqueForm(emptyTechniqueForm());
     }
@@ -1379,21 +1465,127 @@ export default function App() {
     try {
       setLoading(true);
       setError("");
-      await requestJson(
-        `/api/v1/admin/program-templates/${selectedTemplateCode}`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            techniqueTitle: templateTechniqueForm.title || null,
-            techniqueDescription: templateTechniqueForm.description || null,
-          }),
-        },
-        accessToken,
+      const techniquePayload = {
+        title: templateTechniqueForm.title,
+        description: templateTechniqueForm.description || null,
+        measurementInstructions: templateTechniqueForm.measurementInstructions || null,
+        comparisonEnabled: templateTechniqueForm.comparisonEnabled,
+      };
+
+      let techniqueId = templateTechniqueForm.id;
+      if (techniqueId) {
+        await requestJson(
+          `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${techniqueId}`,
+          {
+            method: "PUT",
+            body: JSON.stringify(techniquePayload),
+          },
+          accessToken,
+        );
+      } else {
+        const response = await requestJson<{ technique: ProgramTechniqueRecord }>(
+          `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques`,
+          {
+            method: "POST",
+            body: JSON.stringify(techniquePayload),
+          },
+          accessToken,
+        );
+        techniqueId = response.technique.id;
+      }
+
+      if (!techniqueId) {
+        throw new Error("No se pudo determinar la técnica guardada");
+      }
+
+      const existingMeasurementIds = new Set(selectedTechnique?.measurementDefinitions.map((definition) => definition.id) ?? []);
+      const currentMeasurementIds = new Set(
+        templateTechniqueForm.measurements
+          .map((measurement) => measurement.id)
+          .filter((measurementId): measurementId is string => Boolean(measurementId)),
       );
-      setMessage("Tecnica del programa actualizada.");
+
+      for (const measurementId of existingMeasurementIds) {
+        if (currentMeasurementIds.has(measurementId)) {
+          continue;
+        }
+
+        await requestJson(
+          `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${techniqueId}/measurements/${measurementId}`,
+          { method: "DELETE" },
+          accessToken,
+        );
+      }
+
+      for (let index = 0; index < templateTechniqueForm.measurements.length; index += 1) {
+        const measurement = templateTechniqueForm.measurements[index];
+        if (!measurement) {
+          continue;
+        }
+
+        if (!measurement.label.trim()) {
+          continue;
+        }
+
+        const measurementPayload = {
+          label: measurement.label.trim(),
+          instructions: measurement.instructions.trim() || null,
+          allowedUnits: measurement.allowedUnitsText
+            .split(",")
+            .map((unit) => unit.trim())
+            .filter(Boolean),
+          orderIndex: index + 1,
+        };
+
+        if (measurement.id) {
+          await requestJson(
+            `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${techniqueId}/measurements/${measurement.id}`,
+            {
+              method: "PUT",
+              body: JSON.stringify(measurementPayload),
+            },
+            accessToken,
+          );
+        } else {
+          await requestJson(
+            `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${techniqueId}/measurements`,
+            {
+              method: "POST",
+              body: JSON.stringify(measurementPayload),
+            },
+            accessToken,
+          );
+        }
+      }
+
+      setMessage("Técnica y mediciones guardadas.");
       await refreshDashboard(accessToken);
+      await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo guardar la tecnica del programa");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleTechniqueDelete() {
+    if (!accessToken || !selectedTemplateCode || !selectedTechniqueId) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+      await requestJson(
+        `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${selectedTechniqueId}`,
+        { method: "DELETE" },
+        accessToken,
+      );
+      setMessage("Técnica eliminada.");
+      await refreshDashboard(accessToken);
+      await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo eliminar la técnica");
     } finally {
       setLoading(false);
     }
@@ -1402,7 +1594,7 @@ export default function App() {
   async function handleTechniqueMediaUpload(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!accessToken || !selectedTemplateCode || !techniqueUploadState.file) {
+    if (!accessToken || !selectedTemplateCode || !selectedTechniqueId || !techniqueUploadState.file) {
       return;
     }
 
@@ -1416,13 +1608,13 @@ export default function App() {
       setLoading(true);
       setError("");
       await requestJson(
-        `/api/v1/admin/program-templates/${selectedTemplateCode}/technique/media`,
+        `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${selectedTechniqueId}/media`,
         { method: "POST", body: formData },
         accessToken,
       );
       setTechniqueUploadState({ kind: "VIDEO", title: "", isPrimary: false, file: null });
-      setMessage("Video de tecnica subido y asociado al programa.");
-      await refreshDashboard(accessToken);
+      setMessage("Recurso de técnica subido.");
+      await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo subir el video de tecnica");
     } finally {
@@ -1431,7 +1623,7 @@ export default function App() {
   }
 
   async function handleTechniqueMediaDelete(mediaId: string) {
-    if (!accessToken || !selectedTemplateCode) {
+    if (!accessToken || !selectedTemplateCode || !selectedTechniqueId) {
       return;
     }
 
@@ -1439,12 +1631,12 @@ export default function App() {
       setLoading(true);
       setError("");
       await requestJson(
-        `/api/v1/admin/program-templates/${selectedTemplateCode}/technique/media/${mediaId}`,
+        `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${selectedTechniqueId}/media/${mediaId}`,
         { method: "DELETE" },
         accessToken,
       );
-      setMessage("Video de tecnica eliminado.");
-      await refreshDashboard(accessToken);
+      setMessage("Recurso de técnica eliminado.");
+      await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo eliminar el video de tecnica");
     } finally {
@@ -4147,10 +4339,64 @@ export default function App() {
               <p className="eyebrow">Editor de técnica</p>
               <h2>{selectedTemplateMeta?.name ?? "Selecciona un programa"}</h2>
             </div>
+            {selectedTemplateMeta ? (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  setSelectedTechniqueId("");
+                  setSelectedTemplateTechniqueMediaAssets([]);
+                  setTemplateTechniqueForm(emptyTechniqueForm());
+                }}
+              >
+                + Nueva técnica
+              </button>
+            ) : null}
           </div>
 
           {selectedTemplateMeta ? (
             <div className="detail-stack section-spacer">
+              <div className="program-list">
+                {templateTechniques.length ? (
+                  templateTechniques.map((technique) => (
+                    <article key={technique.id} className={`detail-card program-card${selectedTechniqueId === technique.id ? " active" : ""}`}>
+                      <strong>{technique.title}</strong>
+                      <span>{technique.measurementDefinitions.length} medición(es) · {technique.mediaAssets.length} recurso(s)</span>
+                      <p>{technique.description || "Sin descripción"}</p>
+                      <div className="chip-row">
+                        <button
+                          type="button"
+                          className={`ghost-button${selectedTechniqueId === technique.id ? " active" : ""}`}
+                          onClick={() => {
+                            setSelectedTechniqueId(technique.id);
+                            setSelectedTemplateTechniqueMediaAssets(technique.mediaAssets);
+                            setTemplateTechniqueForm({
+                              id: technique.id,
+                              title: technique.title,
+                              description: technique.description ?? "",
+                              measurementInstructions: technique.measurementInstructions ?? "",
+                              comparisonEnabled: technique.comparisonEnabled,
+                              measurements: technique.measurementDefinitions.map((definition) => ({
+                                id: definition.id,
+                                label: definition.label,
+                                instructions: definition.instructions ?? "",
+                                allowedUnitsText: Array.isArray(definition.allowedUnits)
+                                  ? definition.allowedUnits.filter((unit): unit is string => typeof unit === "string").join(", ")
+                                  : "",
+                              })),
+                            });
+                          }}
+                        >
+                          Editar
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <p className="helper-text">Este programa todavía no tiene técnicas creadas.</p>
+                )}
+              </div>
+
               <form
                 className="stack-form"
                 onSubmit={(event) => {
@@ -4176,10 +4422,127 @@ export default function App() {
                       placeholder="Explica la técnica ideal, errores frecuentes y qué debe sentir el atleta."
                     />
                   </label>
+                  <label>
+                    Cómo medir esta técnica
+                    <textarea
+                      value={templateTechniqueForm.measurementInstructions}
+                      onChange={(event) => setTemplateTechniqueForm((current) => ({ ...current, measurementInstructions: event.target.value }))}
+                      rows={4}
+                      placeholder="Describe cómo se toma la medición, qué referencia usar y qué errores evitar."
+                    />
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={templateTechniqueForm.comparisonEnabled}
+                      onChange={(event) => setTemplateTechniqueForm((current) => ({ ...current, comparisonEnabled: event.target.checked }))}
+                    />
+                    Habilitar comparación en Evolución
+                  </label>
                 </div>
-                <button className="primary-button" type="submit" disabled={loading}>
-                  Guardar técnica
-                </button>
+
+                <div className="detail-stack">
+                  <div className="section-header compact-header">
+                    <div>
+                      <p className="eyebrow">Mediciones</p>
+                      <h3>Configuración de captura</h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() =>
+                        setTemplateTechniqueForm((current) => ({
+                          ...current,
+                          measurements: [...current.measurements, emptyTechniqueMeasurementDraft()],
+                        }))
+                      }
+                    >
+                      + Medición
+                    </button>
+                  </div>
+
+                  {templateTechniqueForm.measurements.length ? (
+                    templateTechniqueForm.measurements.map((measurement, index) => (
+                      <article key={measurement.id ?? `new-${index}`} className="detail-card program-card">
+                        <div className="form-grid">
+                          <label>
+                            Nombre de la medición
+                            <input
+                              value={measurement.label}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  measurements: current.measurements.map((entry, entryIndex) =>
+                                    entryIndex === index ? { ...entry, label: event.target.value } : entry,
+                                  ),
+                                }))
+                              }
+                              placeholder="ej. Altura de salto"
+                            />
+                          </label>
+                          <label>
+                            Unidades permitidas
+                            <input
+                              value={measurement.allowedUnitsText}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  measurements: current.measurements.map((entry, entryIndex) =>
+                                    entryIndex === index ? { ...entry, allowedUnitsText: event.target.value } : entry,
+                                  ),
+                                }))
+                              }
+                              placeholder="cm, pies"
+                            />
+                          </label>
+                          <label>
+                            Instrucciones de esta medición
+                            <textarea
+                              value={measurement.instructions}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  measurements: current.measurements.map((entry, entryIndex) =>
+                                    entryIndex === index ? { ...entry, instructions: event.target.value } : entry,
+                                  ),
+                                }))
+                              }
+                              rows={3}
+                              placeholder="Ej. medir desde la punta del dedo medio hasta la marca más alta."
+                            />
+                          </label>
+                        </div>
+                        <div className="chip-row">
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() =>
+                              setTemplateTechniqueForm((current) => ({
+                                ...current,
+                                measurements: current.measurements.filter((_, entryIndex) => entryIndex !== index),
+                              }))
+                            }
+                          >
+                            Eliminar medición
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="helper-text">Agrega al menos una medición si quieres que la app capture datos específicos para esta técnica.</p>
+                  )}
+                </div>
+
+                <div className="chip-row">
+                  <button className="primary-button" type="submit" disabled={loading || !templateTechniqueForm.title.trim()}>
+                    Guardar técnica
+                  </button>
+                  {selectedTechniqueId ? (
+                    <button className="danger-button" type="button" disabled={loading} onClick={() => void handleTechniqueDelete()}>
+                      Eliminar técnica
+                    </button>
+                  ) : null}
+                </div>
               </form>
 
               <form className="stack-form" onSubmit={(event) => void handleTechniqueMediaUpload(event)}>
@@ -4224,7 +4587,7 @@ export default function App() {
                     />
                   </label>
                 </div>
-                <button className="primary-button" type="submit" disabled={loading || !techniqueUploadState.file}>
+                <button className="primary-button" type="submit" disabled={loading || !selectedTechniqueId || !techniqueUploadState.file}>
                   Subir recurso de técnica
                 </button>
               </form>

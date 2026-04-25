@@ -33,9 +33,9 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - La dosificacion exacta por ejercicio queda como dato editable en el portal admin.
 - El esquema Prisma contempla usuarios, equipos, atletas, catalogo de ejercicios, media, plantillas, sesiones y billing.
 - El portal web permite login, CRUD de ejercicios, carga de media a MinIO, edicion de prescripciones por dia, alta/edicion/baja de equipos, staff, atletas y asignaciones coach-atleta, mas generacion de programas personalizados.
-- El portal web permite ademas asociar tecnica especifica por programa: texto explicativo y uno o varios recursos de media para sprint, agilidad, remate, salto vertical o cualquier otro bloque futuro.
-- La API expone gestion de equipos, membresias, perfiles de atleta, asignacion coach-atleta, generacion de `PersonalProgram` con `ScheduledSession`, tecnica especifica por `ProgramTemplate` y endpoints operativos del atleta para agenda, logging y seguimiento tecnico.
-- Las app moviles consumen login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local, registro de cumplimiento con metricas y una vista `Técnica` para ver recursos del programa y cargar linea base/evolucion.
+- El portal web permite ademas gestionar varias tecnicas por programa: cada tecnica tiene texto explicativo, instrucciones de medicion, flag de comparacion, mediciones configurables y uno o varios recursos de media para sprint, agilidad, remate, salto vertical o cualquier otro bloque futuro.
+- La API expone gestion de equipos, membresias, perfiles de atleta, asignacion coach-atleta, generacion de `PersonalProgram` con `ScheduledSession`, multiples tecnicas por `ProgramTemplate`, streaming de assets via `/api/v1/assets/:bucket/*` y endpoints operativos del atleta para agenda, logging y seguimiento tecnico.
+- Las app moviles consumen login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local, registro de cumplimiento con metricas, una vista `Técnica` para elegir la tecnica activa y una vista `Evolución` que ya muestra historico/comparacion por tecnica.
 - Se eliminan automaticamente los programas archivados de la vista de sesiones cuando se regenera un programa.
 - `forgot-password` ya soporta envio SMTP con override de TLS por `SMTP_TLS_SERVERNAME` y, en desarrollo, hace fallback a log con token, deep link y URL de reset si el SMTP falla, sin bloquear las pruebas locales.
 - `forgot-password` ahora tambien emite un codigo de 6 digitos persistido en Prisma para que `apps/mobile2` pueda restablecer la clave dentro de la app sin depender solo del deep link.
@@ -87,9 +87,16 @@ Servicios esperados:
 - CRUD admin de ejercicios: `GET/POST/PUT/DELETE http://localhost:4100/api/v1/admin/exercises`
 - Upload de media: `POST http://localhost:4100/api/v1/admin/exercises/:id/media`
 - Reemplazo de prescripciones por dia: `PUT http://localhost:4100/api/v1/admin/program-templates/JUMP-MANUAL-14D/days/:dayNumber/prescriptions`
-- Actualizacion del texto tecnico del programa: `PUT http://localhost:4100/api/v1/admin/program-templates/:code`
-- Upload de recurso tecnico del programa: `POST http://localhost:4100/api/v1/admin/program-templates/:code/technique/media`
-- Eliminacion de recurso tecnico del programa: `DELETE http://localhost:4100/api/v1/admin/program-templates/:code/technique/media/:mediaId`
+- Listado de tecnicas del template: `GET http://localhost:4100/api/v1/admin/program-templates/:code/techniques`
+- Alta de tecnica del template: `POST http://localhost:4100/api/v1/admin/program-templates/:code/techniques`
+- Edicion de tecnica del template: `PUT http://localhost:4100/api/v1/admin/program-templates/:code/techniques/:techniqueId`
+- Baja de tecnica del template: `DELETE http://localhost:4100/api/v1/admin/program-templates/:code/techniques/:techniqueId`
+- Alta de definicion de medicion: `POST http://localhost:4100/api/v1/admin/program-templates/:code/techniques/:techniqueId/measurements`
+- Edicion de definicion de medicion: `PUT http://localhost:4100/api/v1/admin/program-templates/:code/techniques/:techniqueId/measurements/:measurementId`
+- Baja de definicion de medicion: `DELETE http://localhost:4100/api/v1/admin/program-templates/:code/techniques/:techniqueId/measurements/:measurementId`
+- Upload de recurso tecnico del programa: `POST http://localhost:4100/api/v1/admin/program-templates/:code/techniques/:techniqueId/media`
+- Eliminacion de recurso tecnico del programa: `DELETE http://localhost:4100/api/v1/admin/program-templates/:code/techniques/:techniqueId/media/:mediaId`
+- Streaming de asset tecnico o de ejercicio: `GET http://localhost:4100/api/v1/assets/:bucket/*`
 - Listado y alta de equipos: `GET/POST http://localhost:4100/api/v1/admin/teams`
 - Actualizacion de equipo: `PUT http://localhost:4100/api/v1/admin/teams/:teamId`
 - Alta de coach o team admin: `POST http://localhost:4100/api/v1/admin/teams/:teamId/members`
@@ -104,8 +111,8 @@ Servicios esperados:
 - Detalle admin de una sesion: `GET http://localhost:4100/api/v1/admin/sessions/:sessionId`
 - Reprogramacion y cambio de estado manual: `PUT http://localhost:4100/api/v1/admin/sessions/:sessionId`
 - Perfil del atleta autenticado: `GET http://localhost:4100/api/v1/athlete/me`
-- Técnica del programa activo para el atleta: `GET http://localhost:4100/api/v1/athlete/technique`
-- Alta de métrica técnica del atleta: `POST http://localhost:4100/api/v1/athlete/technique/metrics`
+- Tecnicas del programa activo para el atleta: `GET http://localhost:4100/api/v1/athlete/technique`
+- Alta de metrica tecnica del atleta: `POST http://localhost:4100/api/v1/athlete/technique/metrics`
 - Programas del atleta: `GET http://localhost:4100/api/v1/athlete/programs`
 - Progreso consolidado del atleta: `GET http://localhost:4100/api/v1/athlete/progress`
 - Agenda del atleta: `GET http://localhost:4100/api/v1/athlete/sessions`
@@ -198,10 +205,13 @@ Flujo validado para release Android en Windows:
 Tecnica multi-programa:
 
 - El punto de asociacion es `ProgramTemplate`, no `PersonalProgram`; asi una tecnica de sprint, agilidad, remate o salto vertical se define una sola vez y luego la consumen todos los atletas que usen ese template.
+- Cada `ProgramTemplate` ahora puede tener varias tecnicas (`ProgramTemplateTechnique`) y cada tecnica define su propio texto, media, instrucciones de medicion, flag `comparisonEnabled` y varias definiciones de medicion (`ProgramTemplateTechniqueMeasurementDefinition`).
 - El seed actual deja una base textual para `JUMP-MANUAL-14D` bajo "Técnica base de salto vertical" para que `mobile2` no arranque vacio aunque todavia no se hayan cargado videos desde admin.
 - Ese seed no es una migracion: el schema nuevo se aplica con `prisma:push`; el seed solo inserta o refresca datos bootstrap/default, por ejemplo el texto inicial de técnica del template base.
 - En produccion no hace falta cambiar `RUN_SEED_ON_DEPLOY=0` para desplegar este feature. Solo ponlo en `1` si quieres que el deploy tambien ejecute el seed y repueble defaults automaticamente.
-- La vista `Técnica` de `mobile2` muestra los recursos del programa activo, separa linea base del historial y agrupa comparativas por etiqueta de métrica para ver rapido base vs ultima medicion.
+- Los uploads nuevos ya no persisten `MINIO_PUBLIC_BASE_URL` como URL final: la API devuelve rutas canonicas bajo `/api/v1/assets/...` para que web y APK consuman media sin depender de `localhost:9000`.
+- La vista `Técnica` de `mobile2` muestra una lista de tecnicas del programa activo, permite elegir la tecnica concreta, registrar mediciones por definicion configurada y guardar el snapshot de sesiones completadas al momento de medir.
+- La vista `Evolución` de `mobile2` ahora agrega historico por tecnica y comparacion entre dos tecnicas marcadas como comparables por admin.
 
 Interaccion con calendario y recordatorios en `mobile2`:
 

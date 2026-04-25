@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
 
-import { DeleteObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client, CreateBucketCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client, CreateBucketCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 
 import { env } from "../config/env.js";
 
@@ -16,6 +16,11 @@ const s3Client = new S3Client({
 });
 
 let bucketReady = false;
+
+export function buildMediaAssetUrl(objectKey: string, bucket = env.MINIO_BUCKET) {
+  const normalizedKey = objectKey.replace(/^\/+/, "");
+  return `/api/v1/assets/${encodeURIComponent(bucket)}/${normalizedKey}`;
+}
 
 export async function ensureBucket() {
   if (bucketReady) {
@@ -59,12 +64,9 @@ export async function uploadExerciseMedia(params: {
     }),
   );
 
-  const baseUrl = env.MINIO_PUBLIC_BASE_URL.replace(/\/$/, "");
-  const url = `${baseUrl}/${env.MINIO_BUCKET}/${objectKey}`;
-
   return {
     objectKey,
-    url,
+    url: buildMediaAssetUrl(objectKey),
   };
 }
 
@@ -97,12 +99,9 @@ export async function uploadProgramTechniqueMedia(params: {
     }),
   );
 
-  const baseUrl = env.MINIO_PUBLIC_BASE_URL.replace(/\/$/, "");
-  const url = `${baseUrl}/${env.MINIO_BUCKET}/${objectKey}`;
-
   return {
     objectKey,
-    url,
+    url: buildMediaAssetUrl(objectKey),
   };
 }
 
@@ -135,8 +134,21 @@ export async function uploadAvatarMedia(params: {
     }),
   );
 
-  const baseUrl = env.MINIO_PUBLIC_BASE_URL.replace(/\/$/, "");
-  const url = `${baseUrl}/${env.MINIO_BUCKET}/${objectKey}`;
+  return { objectKey, url: buildMediaAssetUrl(objectKey) };
+}
 
-  return { objectKey, url };
+export async function getMediaObject(params: {
+  bucket?: string;
+  objectKey: string;
+  range?: string;
+}) {
+  const response = await s3Client.send(
+    new GetObjectCommand({
+      Bucket: params.bucket ?? env.MINIO_BUCKET,
+      Key: params.objectKey,
+      ...(params.range ? { Range: params.range } : {}),
+    }),
+  );
+
+  return response;
 }

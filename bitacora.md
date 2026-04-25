@@ -468,6 +468,35 @@ Todos los comandos pasaron después del cambio.
 - `npm --prefix apps/mobile2 run build`
 - `npx expo export -p android --clear`
 - `npm --prefix apps/api run prisma:generate`
+
+### 24. Tecnicas multiples por template, assets canonicos y evolucion por tecnica
+
+**Objetivo:** pasar del modelo de una sola tecnica por programa a un modelo con varias tecnicas, cada una con su propio media, mediciones configurables e historial comparable desde mobile2.
+
+**Decisiones de modelado:**
+- `ProgramTemplate` mantiene campos legacy de tecnica para compatibilidad, pero la fuente nueva pasa a ser `ProgramTemplateTechnique`.
+- Cada tecnica puede tener sus propias definiciones de medicion (`ProgramTemplateTechniqueMeasurementDefinition`) y las metricas del atleta guardan `techniqueId`, `measurementDefinitionId` y `completedSessionsAtMeasurement`.
+- Los assets nuevos ya no deben depender de `MINIO_PUBLIC_BASE_URL`; la URL canonica queda servida por la API bajo `/api/v1/assets/:bucket/*`.
+
+**Cambios aplicados:**
+1. API:
+	- se agrego hidratacion compatible para migrar datos legacy a la nueva estructura de tecnicas
+	- `GET /api/v1/athlete/technique` ahora devuelve `techniques[]` completo ademas del bloque legacy `technique`
+	- `POST /api/v1/athlete/technique/metrics` ya registra contra una tecnica concreta y enlaza la definicion de medicion cuando existe
+	- se incorporaron CRUDs admin para tecnicas, definiciones de medicion y media por tecnica
+	- se agrego streaming de assets por `/api/v1/assets/:bucket/*` con soporte `Range`
+2. Admin web:
+	- la seccion `Técnica` ahora administra varias tecnicas por template
+	- cada tecnica permite editar descripcion, instrucciones de medicion, flag de comparacion y mediciones configurables
+3. `apps/mobile2`:
+	- la vista `Técnica` paso a listar tecnicas del programa activo y a registrar mediciones por tecnica concreta
+	- la vista `Evolución` ahora muestra historico por tecnica y comparacion entre dos tecnicas habilitadas desde admin
+	- el historial visible incluye fecha y snapshot de sesiones completadas al momento de la medicion
+
+**Validacion ejecutada:**
+- `npm --prefix apps/mobile2 run build`
+
+La validacion paso despues del refactor del cliente.
 - `docker build -f apps/api/Dockerfile.prod .`
 
 **Resultado:**

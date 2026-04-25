@@ -125,5 +125,9 @@ export function rewriteLocalAssetUrl(url: string | null | undefined): string | n
     return null;
   }
 
+  if (/^\/api\//i.test(url)) {
+    return `${apiBaseUrl}${url}`;
+  }
+
   return url.replace(/^https?:\/\/localhost:9000/i, minioBaseUrl);
 }

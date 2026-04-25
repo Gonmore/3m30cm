@@ -491,17 +491,50 @@ interface AthleteTechniqueResponse {
         title: string | null;
         isPrimary: boolean;
       }>;
+      techniques?: TechniqueEntry[];
     };
-    metrics: Array<{
-      id: string;
-      label: string;
-      value: number;
-      unit: string | null;
-      notes: string | null;
-      recordedAt: string;
-      isBaseline: boolean;
-    }>;
+    metrics: TechniqueMetric[];
   } | null;
+  techniques?: TechniqueEntry[];
+}
+
+interface TechniqueMetric {
+  id: string;
+  label: string;
+  value: number;
+  unit: string | null;
+  notes: string | null;
+  recordedAt: string;
+  isBaseline: boolean;
+  completedSessionsAtMeasurement?: number | null;
+  measurementDefinitionId?: string | null;
+}
+
+interface TechniqueMeasurementDefinition {
+  id: string;
+  label: string;
+  instructions: string | null;
+  allowedUnits: unknown;
+  orderIndex: number;
+}
+
+interface TechniqueMediaAsset {
+  id: string;
+  kind: "IMAGE" | "GIF" | "VIDEO";
+  url: string | null;
+  title: string | null;
+  isPrimary: boolean;
+}
+
+interface TechniqueEntry {
+  id: string;
+  title: string;
+  description: string | null;
+  measurementInstructions: string | null;
+  comparisonEnabled: boolean;
+  mediaAssets: TechniqueMediaAsset[];
+  measurementDefinitions: TechniqueMeasurementDefinition[];
+  metrics: TechniqueMetric[];
 }
 
 interface CachedSessionRecord {
@@ -1338,6 +1371,9 @@ export default function HomeScreen() {
   const [profile, setProfile] = useState<AthleteProfileResponse["athleteProfile"] | null>(null);
   const [activeProgram, setActiveProgram] = useState<AthleteProfileResponse["activeProgram"] | null>(null);
   const [technique, setTechnique] = useState<AthleteTechniqueResponse["technique"] | null>(null);
+  const [techniques, setTechniques] = useState<TechniqueEntry[]>([]);
+  const [selectedTechniqueId, setSelectedTechniqueId] = useState<string | null>(null);
+  const [comparisonTechniqueIds, setComparisonTechniqueIds] = useState<[string | null, string | null]>([null, null]);
   const [planningRecommendation, setPlanningRecommendation] = useState<PlanningRecommendation | null>(null);
   const [programs, setPrograms] = useState<ProgramListResponse["programs"]>([]);
   const [sessions, setSessions] = useState<SessionListResponse["sessions"]>([]);
@@ -1370,6 +1406,16 @@ export default function HomeScreen() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [techniqueSaving, setTechniqueSaving] = useState(false);
+
+  const selectedTechniqueEntry = useMemo(
+    () => techniques.find((entry) => entry.id === selectedTechniqueId) ?? techniques[0] ?? null,
+    [selectedTechniqueId, techniques],
+  );
+
+  const comparisonTechniques = useMemo(
+    () => techniques.filter((entry) => entry.comparisonEnabled),
+    [techniques],
+  );
 
   // Auto-dismiss success toast after 10 s (errors stay until dismissed)
   useEffect(() => {
@@ -1885,6 +1931,22 @@ export default function HomeScreen() {
       setSessions(sessionsResponse.sessions);
       setProgress(progressResponse);
       setTechnique(techniqueResponse.technique);
+      setTechniques(techniqueResponse.techniques ?? techniqueResponse.technique?.template.techniques ?? []);
+      setSelectedTechniqueId((current) => {
+        const nextTechniques = techniqueResponse.techniques ?? techniqueResponse.technique?.template.techniques ?? [];
+        if (current && nextTechniques.some((entry) => entry.id === current)) {
+          return current;
+        }
+        return nextTechniques[0]?.id ?? null;
+      });
+      setComparisonTechniqueIds((current) => {
+        const enabled = (techniqueResponse.techniques ?? techniqueResponse.technique?.template.techniques ?? []).filter((entry) => entry.comparisonEnabled);
+        const first = current[0] && enabled.some((entry) => entry.id === current[0]) ? current[0] : enabled[0]?.id ?? null;
+        const second = current[1] && enabled.some((entry) => entry.id === current[1]) && current[1] !== first
+          ? current[1]
+          : enabled.find((entry) => entry.id !== first)?.id ?? null;
+        return [first, second];
+      });
 
       if (sessionAdjustment.rolledOverSessions.length || sessionAdjustment.skippedSessions.length) {
         const messages: string[] = [];
@@ -1934,8 +1996,9 @@ export default function HomeScreen() {
   }
 
   async function handleSaveTechniqueMetric(payload: {
-    programTemplateId: string;
-    label: string;
+    techniqueId: string;
+    measurementDefinitionId?: string;
+    label?: string;
     value: number;
     unit?: string;
     notes?: string;
@@ -1961,6 +2024,7 @@ export default function HomeScreen() {
       );
 
       setTechnique(response.technique);
+  setTechniques(response.techniques ?? response.technique?.template.techniques ?? []);
       setMessage("Métrica técnica guardada.");
     } catch (requestError) {
       if (requestError instanceof UnauthorizedRequestError) {
@@ -3168,7 +3232,7 @@ export default function HomeScreen() {
               : activeScreen === "programa"
                 ? (activeProgram?.name ?? "Sin programa activo")
                 : activeScreen === "tecnica"
-                  ? (technique?.template.techniqueTitle ?? technique?.template.name ?? "Sin técnica cargada")
+                  ? (selectedTechniqueEntry?.title ?? technique?.template.techniqueTitle ?? technique?.template.name ?? "Sin técnica cargada")
                 : `Racha: ${progress?.summary.currentStreak ?? 0}`
         }
         onMenuPress={() => setDrawerOpen(true)}
@@ -3280,8 +3344,11 @@ export default function HomeScreen() {
       {activeScreen === "tecnica" ? (
         <TecnicaScreen
           technique={technique}
+          techniques={techniques}
+          selectedTechniqueId={selectedTechniqueEntry?.id ?? null}
           loading={loading || refreshing}
           submitting={techniqueSaving}
+          onSelectTechnique={setSelectedTechniqueId}
           onRefresh={() => void refreshAthleteArea()}
           onSubmitMetric={(payload) => void handleSaveTechniqueMetric(payload)}
         />
@@ -3290,11 +3357,14 @@ export default function HomeScreen() {
       {activeScreen === "evolucion" ? (
         <EvolucionScreen
           progress={progress}
+          techniques={techniques}
+          comparisonTechniqueIds={comparisonTechniqueIds}
           trendWindow={trendWindow}
           selectedCycleId={selectedCycleId}
           loading={loading}
           onSetTrendWindow={setTrendWindow}
           onSetSelectedCycleId={setSelectedCycleId}
+          onSetComparisonTechniqueIds={setComparisonTechniqueIds}
           onShowJumpGuide={() => setJumpGuideVisible(true)}
         />
       ) : null}

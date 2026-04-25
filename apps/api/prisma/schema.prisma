@@ -240,13 +240,50 @@ model ProgramTemplate {
   team            Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
   days            ProgramDayTemplate[]
   personalPrograms PersonalProgram[]
+  techniques      ProgramTemplateTechnique[]
   techniqueMediaAssets ProgramTemplateTechniqueAsset[]
   techniqueMetrics AthleteTechniqueMetric[]
+}
+
+model ProgramTemplateTechnique {
+  id                     String                                   @id @default(cuid())
+  programTemplateId      String
+  title                  String
+  description            String?
+  measurementInstructions String?
+  comparisonEnabled      Boolean                                  @default(false)
+  orderIndex             Int                                      @default(1)
+  createdAt              DateTime                                 @default(now())
+  updatedAt              DateTime                                 @updatedAt
+  programTemplate        ProgramTemplate                          @relation(fields: [programTemplateId], references: [id], onDelete: Cascade)
+  mediaAssets            ProgramTemplateTechniqueAsset[]
+  measurementDefinitions ProgramTemplateTechniqueMeasurementDefinition[]
+  athleteMetrics         AthleteTechniqueMetric[]
+
+  @@unique([programTemplateId, orderIndex])
+  @@index([programTemplateId, orderIndex])
+}
+
+model ProgramTemplateTechniqueMeasurementDefinition {
+  id            String                   @id @default(cuid())
+  techniqueId    String
+  label         String
+  instructions  String?
+  allowedUnits  Json?
+  orderIndex    Int                      @default(1)
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  technique     ProgramTemplateTechnique @relation(fields: [techniqueId], references: [id], onDelete: Cascade)
+  athleteMetrics AthleteTechniqueMetric[]
+
+  @@unique([techniqueId, orderIndex])
+  @@index([techniqueId, orderIndex])
 }
 
 model ProgramTemplateTechniqueAsset {
   id                String          @id @default(cuid())
   programTemplateId String
+  techniqueId       String?
   kind              MediaKind
   bucket            String
   objectKey         String
@@ -257,26 +294,34 @@ model ProgramTemplateTechniqueAsset {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   programTemplate   ProgramTemplate @relation(fields: [programTemplateId], references: [id], onDelete: Cascade)
+  technique         ProgramTemplateTechnique? @relation(fields: [techniqueId], references: [id], onDelete: SetNull)
 
   @@index([programTemplateId, orderIndex])
+  @@index([techniqueId, orderIndex])
 }
 
 model AthleteTechniqueMetric {
   id                String          @id @default(cuid())
   athleteProfileId  String
   programTemplateId String
+  techniqueId       String?
+  measurementDefinitionId String?
   label             String
   value             Float
   unit              String?
   notes             String?
   recordedAt        DateTime        @default(now())
   isBaseline        Boolean         @default(false)
+  completedSessionsAtMeasurement Int?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   athleteProfile    AthleteProfile  @relation(fields: [athleteProfileId], references: [id], onDelete: Cascade)
   programTemplate   ProgramTemplate @relation(fields: [programTemplateId], references: [id], onDelete: Cascade)
+  technique         ProgramTemplateTechnique? @relation(fields: [techniqueId], references: [id], onDelete: SetNull)
+  measurementDefinition ProgramTemplateTechniqueMeasurementDefinition? @relation(fields: [measurementDefinitionId], references: [id], onDelete: SetNull)
 
   @@index([athleteProfileId, programTemplateId, recordedAt])
+  @@index([athleteProfileId, techniqueId, recordedAt])
 }
 
 model ProgramDayTemplate {

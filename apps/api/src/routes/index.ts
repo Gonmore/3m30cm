@@ -1,5 +1,6 @@
 import { Router } from "express";
 
+import { assetsRouter } from "./assets.js";
 import { adminRouter } from "./admin.js";
 import { athleteRouter } from "./athlete.js";
 import { coachRouter } from "./coach.js";
@@ -11,6 +12,7 @@ import { templatesRouter } from "./templates.js";
 
 export const apiRouter = Router();
 
+apiRouter.use(assetsRouter);
 apiRouter.use(healthRouter);
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/athlete", athleteRouter);

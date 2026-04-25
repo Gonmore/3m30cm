@@ -155,21 +155,25 @@ Lista los programas personales del atleta.
 Detalle de un programa personal con sesiones.
 
 ### GET `/athlete/technique`
-Devuelve la técnica asociada al template del programa activo del atleta.
+Devuelve la tecnica del programa activo del atleta en dos formas:
+- `technique`: bloque legacy basado en la tecnica primaria para compatibilidad.
+- `techniques`: arreglo completo de tecnicas del template activo.
 
 Incluye:
-- texto técnico del programa
-- recursos asociados (video, imagen o GIF)
-- métricas técnicas ya registradas por el atleta para ese template
+- texto tecnico por tecnica
+- recursos asociados por tecnica (video, imagen o GIF)
+- definiciones de medicion por tecnica
+- metricas tecnicas ya registradas por el atleta para ese template, incluyendo `completedSessionsAtMeasurement`
 
 ### POST `/athlete/technique/metrics`
-Registra una métrica técnica para el atleta autenticado en el template de su programa.
+Registra una metrica tecnica para el atleta autenticado sobre una tecnica concreta del template activo.
 
 **Body:**
 ```json
 {
-  "programTemplateId": "string (required)",
-  "label": "string (required)",
+  "techniqueId": "string (required)",
+  "measurementDefinitionId": "string (optional)",
+  "label": "string (optional si se manda measurementDefinitionId)",
   "value": "number (required)",
   "unit": "string (optional)",
   "notes": "string (optional)",
@@ -224,8 +228,49 @@ Actualiza metadata del template, incluyendo texto técnico.
 }
 ```
 
-### POST `/admin/program-templates/:code/technique/media`
-Sube un recurso técnico asociado a un template. Usa `multipart/form-data`.
+### GET `/admin/program-templates/:code/techniques`
+Lista las tecnicas del template, con media y definiciones de medicion.
+
+### POST `/admin/program-templates/:code/techniques`
+Crea una tecnica dentro del template.
+
+**Body:**
+```json
+{
+  "title": "string (required)",
+  "description": "string | null (optional)",
+  "measurementInstructions": "string | null (optional)",
+  "comparisonEnabled": "boolean (optional)"
+}
+```
+
+### PUT `/admin/program-templates/:code/techniques/:techniqueId`
+Actualiza titulo, descripcion, instrucciones de medicion o `comparisonEnabled` de una tecnica.
+
+### DELETE `/admin/program-templates/:code/techniques/:techniqueId`
+Elimina una tecnica del template.
+
+### POST `/admin/program-templates/:code/techniques/:techniqueId/measurements`
+Crea una definicion de medicion para una tecnica.
+
+**Body:**
+```json
+{
+  "label": "string (required)",
+  "instructions": "string | null (optional)",
+  "allowedUnits": ["cm", "kg", "s"],
+  "orderIndex": "number (optional)"
+}
+```
+
+### PUT `/admin/program-templates/:code/techniques/:techniqueId/measurements/:measurementId`
+Actualiza la definicion de medicion de una tecnica.
+
+### DELETE `/admin/program-templates/:code/techniques/:techniqueId/measurements/:measurementId`
+Elimina una definicion de medicion.
+
+### POST `/admin/program-templates/:code/techniques/:techniqueId/media`
+Sube un recurso tecnico asociado a una tecnica concreta. Usa `multipart/form-data`.
 
 **Campos esperados:**
 - `file`: archivo binario requerido
@@ -233,8 +278,11 @@ Sube un recurso técnico asociado a un template. Usa `multipart/form-data`.
 - `title`: string opcional
 - `isPrimary`: boolean opcional
 
-### DELETE `/admin/program-templates/:code/technique/media/:mediaId`
-Elimina un recurso técnico asociado a un template.
+### DELETE `/admin/program-templates/:code/techniques/:techniqueId/media/:mediaId`
+Elimina un recurso tecnico asociado a una tecnica concreta.
+
+### GET `/assets/:bucket/*`
+Sirve assets de ejercicio, avatar o tecnica a traves de la API. Soporta `Range` para video y evita depender de URLs directas de MinIO como `http://localhost:9000/...`.
 
 ---
 

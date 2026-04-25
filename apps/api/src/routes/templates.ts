@@ -1,6 +1,7 @@
 import { type Request, type Response, Router } from "express";
 
 import { prisma } from "../config/prisma.js";
+import { ensureTemplateTechniqueStructure } from "../lib/program-template-techniques.js";
 
 export const templatesRouter = Router();
 
@@ -26,6 +27,37 @@ templatesRouter.get("/program-templates", async (_req: Request, res: Response) =
             isPrimary: true,
           },
         },
+        techniques: {
+          orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            measurementInstructions: true,
+            comparisonEnabled: true,
+            orderIndex: true,
+            mediaAssets: {
+              orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+              select: {
+                id: true,
+                kind: true,
+                url: true,
+                title: true,
+                isPrimary: true,
+              },
+            },
+            measurementDefinitions: {
+              orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+              select: {
+                id: true,
+                label: true,
+                instructions: true,
+                allowedUnits: true,
+                orderIndex: true,
+              },
+            },
+          },
+        },
       },
     });
     res.json({ templates });
@@ -44,11 +76,34 @@ templatesRouter.get("/program-templates/:code", async (req: Request, res: Respon
       return;
     }
 
-    const template = await prisma.programTemplate.findUnique({
+    const templateRef = await prisma.programTemplate.findUnique({
       where: { code },
+      select: { id: true },
+    });
+
+    if (!templateRef) {
+      res.status(404).json({ message: "Program template not found" });
+      return;
+    }
+
+    await ensureTemplateTechniqueStructure(prisma, templateRef.id);
+
+    const template = await prisma.programTemplate.findUnique({
+      where: { id: templateRef.id },
       include: {
         techniqueMediaAssets: {
           orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+        },
+        techniques: {
+          orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+          include: {
+            mediaAssets: {
+              orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+            },
+            measurementDefinitions: {
+              orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+            },
+          },
         },
         days: {
           orderBy: { dayNumber: "asc" },
@@ -73,9 +128,11 @@ templatesRouter.get("/program-templates/:code", async (req: Request, res: Respon
       },
     });
 
-    if (!template) {
-      res.status(404).json({ message: "Program template not found" });
-      return;
+    const firstTechnique = template?.techniques[0] ?? null;
+
+    if (template && firstTechnique) {
+      template.techniqueTitle = firstTechnique.title;
+      template.techniqueDescription = firstTechnique.description;
     }
 
     res.json({ template });
