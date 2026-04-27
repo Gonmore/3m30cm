@@ -4,11 +4,12 @@
   "version": "1.1.4",
   "main": "index.js",
   "scripts": {
-    "dev": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --offline --port 8082 --clear",
-    "prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node ../../node_modules/expo/bin/cli start --offline --port 8082 --clear",
-    "android": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --android --offline --port 8082 --clear",
-    "android:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node ../../node_modules/expo/bin/cli start --android --offline --port 8082 --clear",
+    "dev": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --dev-client --offline --port 8082 --clear",
+    "prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node ../../node_modules/expo/bin/cli start --dev-client --offline --port 8082 --clear",
+    "android": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --dev-client --android --offline --port 8082 --clear",
+    "android:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node ../../node_modules/expo/bin/cli start --dev-client --android --offline --port 8082 --clear",
     "apk:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node scripts/build-android-apk.mjs",
+    "devbuild:android": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node scripts/build-android-devbuild.mjs",
     "ios": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --ios --offline --port 8082 --clear",
     "ios:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node ../../node_modules/expo/bin/cli start --ios --offline --port 8082 --clear",
     "web": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --web --port 8082 --clear",
@@ -27,6 +28,7 @@
     "expo-calendar": "~15.0.8",
     "expo-constants": "~18.0.10",
     "expo-crypto": "~15.0.8",
+    "expo-dev-client": "~5.0.20",
     "expo-device": "~8.0.10",
     "expo-file-system": "~19.0.21",
     "expo-image": "~3.0.11",
@@ -50,6 +52,7 @@
   "devDependencies": {
     "@babel/core": "^7.26.0",
     "babel-preset-expo": "~54.0.10",
+    "react-refresh": "^0.14.2",
     "typescript": "^5.8.3"
   }
 }

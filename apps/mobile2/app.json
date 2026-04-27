@@ -14,6 +14,7 @@
       "backgroundColor": "#0A1628"
     },
     "plugins": [
+      "expo-dev-client",
       "expo-router",
       "expo-web-browser",
       [

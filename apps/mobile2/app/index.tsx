@@ -3,7 +3,6 @@ import * as AuthSession from "expo-auth-session";
 import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
-import { GoogleSignin as NativeGoogleSignin } from "@react-native-google-signin/google-signin";
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams } from "expo-router";
@@ -121,7 +120,16 @@ const sessionStatuses = ["PLANNED", "COMPLETED", "SKIPPED"] as const;
 const notificationChannelId = "training-reminders";
 const isWebPlatform = Platform.OS === "web";
 const isExpoGo = !isWebPlatform && (Constants.executionEnvironment === "storeClient" || Constants.appOwnership === "expo");
-const useNativeAndroidGoogleSignIn = Platform.OS === "android" && !isExpoGo;
+const nativeGoogleSignInModule = (() => {
+  try {
+    // Avoid crashing in Expo Go: native module is only present in dev/release builds.
+    return require("@react-native-google-signin/google-signin");
+  } catch {
+    return null;
+  }
+})();
+const NativeGoogleSignin: any = nativeGoogleSignInModule?.GoogleSignin ?? null;
+const useNativeAndroidGoogleSignIn = Platform.OS === "android" && !isExpoGo && Boolean(NativeGoogleSignin);
 const sessionCacheVersion = 2;
 const offlinePreloadMessage = "cargando todo el contenido de la sesion en el telefono, luego podras entrenar estando offline";
 const sessionCacheRootDirectory = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}jump-session-cache/` : null;
