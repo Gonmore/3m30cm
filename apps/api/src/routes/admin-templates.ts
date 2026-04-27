@@ -181,6 +181,7 @@ const techniqueBiomechanicsKeyEventSchema = z.object({
 const techniqueBiomechanicsConfigSchema = z.object({
   schemaVersion: z.literal(1),
   referenceMediaAssetId: z.string().trim().min(1).nullable().optional(),
+  referenceMotionProfile: z.enum(["REAL_TIME", "SLOW_MOTION"]).nullable().optional(),
   focusPoints: z.array(techniqueBiomechanicsFocusPointSchema).max(12).default([]),
   angleChecks: z.array(techniqueBiomechanicsAngleCheckSchema).max(12).default([]),
   keyEvents: z.array(techniqueBiomechanicsKeyEventSchema).max(12).default([]),

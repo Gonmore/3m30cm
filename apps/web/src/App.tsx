@@ -47,6 +47,7 @@ const poseLandmarkOptions = [
 ] as const;
 const biomechanicsEventTypeOptions = ["SETUP", "DIP", "TAKE_OFF", "FLIGHT", "LANDING", "OTHER"] as const;
 const biomechanicsPlaneOptions = ["SAGITTAL_2D", "FRONTAL_2D", "TRANSVERSE_PROXY"] as const;
+const referenceMotionProfileOptions = ["REAL_TIME", "SLOW_MOTION"] as const;
 const strengthSeriesSummary = "Series 1-3 explosivas · serie 4 lenta y tecnica · serie 5 burnout/piramidal.";
 const strengthSeriesLoadHint = "85% del 1RM aprox.; corta cuando baje la velocidad maxima.";
 const strengthSeriesReminder = "RECUERDA: la subida siempre debe ser lo mas rapida posible; si la velocidad cae, la serie termina.";
@@ -96,6 +97,7 @@ type AdminView = "home" | "users" | "training" | "templates" | "technique";
 type LandmarkName = (typeof poseLandmarkOptions)[number]["value"];
 type TechniqueBiomechanicsEventType = (typeof biomechanicsEventTypeOptions)[number];
 type TechniqueBiomechanicsAnglePlane = (typeof biomechanicsPlaneOptions)[number];
+type TechniqueReferenceMotionProfile = (typeof referenceMotionProfileOptions)[number];
 
 interface AuthUser {
   id: string;
@@ -515,6 +517,7 @@ interface TechniqueBiomechanicsKeyEventRecord {
 interface TechniqueBiomechanicsConfig {
   schemaVersion: 1;
   referenceMediaAssetId: string | null;
+  referenceMotionProfile: TechniqueReferenceMotionProfile | null;
   focusPoints: TechniqueBiomechanicsFocusPointRecord[];
   angleChecks: TechniqueBiomechanicsAngleCheckRecord[];
   keyEvents: TechniqueBiomechanicsKeyEventRecord[];
@@ -587,6 +590,7 @@ interface TechniqueBiomechanicsKeyEventDraft {
 }
 
 interface TechniqueBiomechanicsFormState {
+  referenceMotionProfile: TechniqueReferenceMotionProfile;
   focusPoints: TechniqueBiomechanicsFocusPointDraft[];
   angleChecks: TechniqueBiomechanicsAngleCheckDraft[];
   keyEvents: TechniqueBiomechanicsKeyEventDraft[];
@@ -615,6 +619,7 @@ interface TechniqueUploadState {
   title: string;
   isPrimary: boolean;
   useAsProReference: boolean;
+  referenceMotionProfile: TechniqueReferenceMotionProfile;
   file: File | null;
 }
 
@@ -684,6 +689,7 @@ const emptyTechniqueForm = (): TechniqueFormState => ({
   comparisonEnabled: false,
   measurements: [],
   biomechanics: {
+    referenceMotionProfile: "REAL_TIME",
     focusPoints: [],
     angleChecks: [],
     keyEvents: [],
@@ -709,6 +715,7 @@ const emptyTechniqueUploadState = (): TechniqueUploadState => ({
   title: "",
   isPrimary: false,
   useAsProReference: true,
+  referenceMotionProfile: "REAL_TIME",
   file: null,
 });
 
@@ -928,6 +935,7 @@ function normalizeTechniqueBiomechanicsConfig(
   return {
     schemaVersion: 1,
     referenceMediaAssetId: config?.referenceMediaAssetId ?? null,
+    referenceMotionProfile: config?.referenceMotionProfile ?? "REAL_TIME",
     focusPoints: (config?.focusPoints ?? []).map((entry) => ({
       id: entry.id,
       label: entry.label,
@@ -964,6 +972,7 @@ function mapTechniqueBiomechanicsConfigToForm(
   const normalized = normalizeTechniqueBiomechanicsConfig(config);
 
   return {
+    referenceMotionProfile: normalized.referenceMotionProfile ?? "REAL_TIME",
     focusPoints: normalized.focusPoints.map((entry) => ({
       id: entry.id,
       label: entry.label,
@@ -1001,6 +1010,7 @@ function serializeTechniqueBiomechanicsForm(
   return {
     schemaVersion: 1,
     referenceMediaAssetId,
+    referenceMotionProfile: form.referenceMotionProfile,
     focusPoints: form.focusPoints
       .filter((entry) => entry.label.trim())
       .map((entry) => ({
@@ -1082,6 +1092,14 @@ function formatBiomechanicsPlaneLabel(plane: TechniqueBiomechanicsAnglePlane) {
     default:
       return "Proxy transversal";
   }
+}
+
+function formatReferenceMotionProfile(profile: TechniqueReferenceMotionProfile | null | undefined) {
+  if (profile === "SLOW_MOTION") {
+    return "Camara lenta";
+  }
+
+  return "Velocidad normal";
 }
 
 function landmarkLabel(value: LandmarkName) {
@@ -2008,6 +2026,7 @@ export default function App() {
                   ...normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig),
                   schemaVersion: 1,
                   referenceMediaAssetId: uploadResponse.mediaAsset.id,
+                  referenceMotionProfile: techniqueUploadState.referenceMotionProfile,
                 },
               }),
             },
@@ -2066,6 +2085,7 @@ export default function App() {
                 ...currentConfig,
                 schemaVersion: 1,
                 referenceMediaAssetId: null,
+                referenceMotionProfile: currentConfig.referenceMotionProfile,
               },
             }),
           },
@@ -4564,6 +4584,22 @@ export default function App() {
                     Usar este video como referencia biomecánica profesional
                   </label>
                   <label>
+                    Velocidad de la referencia
+                    <select
+                      value={techniqueUploadState.referenceMotionProfile}
+                      disabled={techniqueUploadState.kind !== "VIDEO" || !techniqueUploadState.useAsProReference}
+                      onChange={(event) =>
+                        setTechniqueUploadState((current) => ({
+                          ...current,
+                          referenceMotionProfile: event.target.value as TechniqueReferenceMotionProfile,
+                        }))
+                      }
+                    >
+                      <option value="REAL_TIME">Velocidad normal</option>
+                      <option value="SLOW_MOTION">Camara lenta</option>
+                    </select>
+                  </label>
+                  <label>
                     Archivo
                     <input
                       type="file"
@@ -4587,6 +4623,9 @@ export default function App() {
                     {selectedTechniqueReferenceAsset
                       ? `Referencia visible: ${selectedTechniqueReferenceAsset.title || "video profesional"}`
                       : "Referencia visible: todavía no asignada"}
+                  </span>
+                  <span className="biomechanics-badge">
+                    {`Modo: ${formatReferenceMotionProfile(normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMotionProfile)}`}
                   </span>
                 </div>
               </div>
@@ -5067,6 +5106,22 @@ export default function App() {
                     Usar este video como referencia biomecánica profesional
                   </label>
                   <label>
+                    Velocidad de la referencia
+                    <select
+                      value={techniqueUploadState.referenceMotionProfile}
+                      disabled={techniqueUploadState.kind !== "VIDEO" || !techniqueUploadState.useAsProReference}
+                      onChange={(event) =>
+                        setTechniqueUploadState((current) => ({
+                          ...current,
+                          referenceMotionProfile: event.target.value as TechniqueReferenceMotionProfile,
+                        }))
+                      }
+                    >
+                      <option value="REAL_TIME">Velocidad normal</option>
+                      <option value="SLOW_MOTION">Camara lenta</option>
+                    </select>
+                  </label>
+                  <label>
                     Archivo
                     <input
                       type="file"
@@ -5095,6 +5150,9 @@ export default function App() {
                     {selectedTechniqueReferenceAsset
                       ? `Referencia visible: ${selectedTechniqueReferenceAsset.title || "video profesional"}`
                       : "Referencia visible: todavía no asignada"}
+                  </span>
+                  <span className="biomechanics-badge">
+                    {`Modo: ${formatReferenceMotionProfile(normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMotionProfile)}`}
                   </span>
                   <span className="biomechanics-badge">
                     {`${templateTechniqueForm.biomechanics.focusPoints.length} punto(s) · ${templateTechniqueForm.biomechanics.angleChecks.length} ángulo(s) · ${templateTechniqueForm.biomechanics.keyEvents.length} evento(s)`}
