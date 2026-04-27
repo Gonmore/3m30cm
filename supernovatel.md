@@ -36,7 +36,7 @@ El objetivo es trabajar con una sola base de codigo y con un flujo que cumpla es
 
 - `api-3m30cm`: publica `4100:4100`
 - `web-3m30cm`: publica `4173:80`
-- `api-migrate`: contenedor efimero para `prisma migrate deploy`
+- `api-migrate`: contenedor efimero para el runner de Prisma que hace baseline automático sobre bases históricas y luego ejecuta `migrate deploy`
 - `api-seed`: contenedor efimero para seed opcional
 
 ### Dependencias externas en produccion

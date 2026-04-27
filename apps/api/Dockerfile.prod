@@ -30,6 +30,7 @@ COPY package.json ./package.json
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/api/package-lock.json ./apps/api/package-lock.json
 COPY apps/api/prisma/ ./apps/api/prisma/
+COPY apps/api/scripts/ ./apps/api/scripts/
 
 # Install only production dependencies for the API app.
 RUN npm ci --omit=dev --prefix apps/api --ignore-scripts

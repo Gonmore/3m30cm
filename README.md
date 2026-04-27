@@ -281,4 +281,4 @@ docker compose -f docker-compose.local.yml exec api-3m30cm npm run prisma:migrat
 docker compose -f docker-compose.local.yml exec api-3m30cm npm run db:seed --workspace @jump/api
 ```
 
-En produccion, `deploy.sh` ya corre `api-migrate` con `prisma:migrate:prod` (`prisma migrate deploy`); el seed sigue siendo opcional y queda gobernado por `RUN_SEED_ON_DEPLOY`.
+En produccion, `deploy.sh` ya corre `api-migrate` con `prisma:migrate:prod`; ese runner usa `prisma migrate deploy`, pero antes hace baseline/resolución automática si encuentra una base histórica creada con `db push` y sin `_prisma_migrations`. El seed sigue siendo opcional y queda gobernado por `RUN_SEED_ON_DEPLOY`.
