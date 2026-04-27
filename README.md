@@ -34,8 +34,10 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - El esquema Prisma contempla usuarios, equipos, atletas, catalogo de ejercicios, media, plantillas, sesiones y billing.
 - El portal web permite login, CRUD de ejercicios, carga de media a MinIO, edicion de prescripciones por dia, alta/edicion/baja de equipos, staff, atletas y asignaciones coach-atleta, mas generacion de programas personalizados.
 - El portal web permite ademas gestionar varias tecnicas por programa: cada tecnica tiene texto explicativo, instrucciones de medicion, flag de comparacion, mediciones configurables y uno o varios recursos de media para sprint, agilidad, remate, salto vertical o cualquier otro bloque futuro.
+- El portal web ya puede procesar un video profesional desde el navegador, guardar `proVideoUrl` y persistir `proLandmarks` para usarlo como referencia biomecanica del template.
 - La API expone gestion de equipos, membresias, perfiles de atleta, asignacion coach-atleta, generacion de `PersonalProgram` con `ScheduledSession`, multiples tecnicas por `ProgramTemplate`, streaming de assets via `/api/v1/assets/:bucket/*` y endpoints operativos del atleta para agenda, logging y seguimiento tecnico.
 - Las app moviles consumen login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local, registro de cumplimiento con metricas, una vista `Técnica` para elegir la tecnica activa y una vista `Evolución` que ya muestra historico/comparacion por tecnica.
+- `apps/mobile2` ahora exige completar `heightCm` y `weightKg` del atleta antes de salir de `Hoy`, y el backend persiste esos campos en `AthleteProfile`.
 - Se eliminan automaticamente los programas archivados de la vista de sesiones cuando se regenera un programa.
 - `forgot-password` ya soporta envio SMTP con override de TLS por `SMTP_TLS_SERVERNAME` y, en desarrollo, hace fallback a log con token, deep link y URL de reset si el SMTP falla, sin bloquear las pruebas locales.
 - `forgot-password` ahora tambien emite un codigo de 6 digitos persistido en Prisma para que `apps/mobile2` pueda restablecer la clave dentro de la app sin depender solo del deep link.
@@ -197,7 +199,8 @@ Flujo validado para release Android en Windows:
 - Si quieres regenerar la APK manualmente para probar el estado actual, usa exactamente `echo y | npm --prefix apps/mobile2 run apk:prod` desde la raiz del monorepo.
 - El helper de APK tarda porque rehace `expo prebuild --clean`, regenera recursos nativos, empaqueta JS/assets y vuelve a compilar Gradle/Kotlin/dependencias nativas antes de firmar el APK.
 - El helper local de `mobile2` ahora fuerza un release Gradle mas conservador en Windows (`workers=1`, `no-parallel`, Kotlin in-process) para evitar crashes intermitentes de Worker Daemon durante `assembleRelease`.
-- La ultima version release generada localmente queda en `1.1.4` (`versionCode 114`) y el artefacto esperado sigue siendo `apps/mobile2/android/app/build/outputs/apk/release/app-release.apk`.
+- La version release preparada en el repo queda en `1.2.0` (`versionCode 120`) y el artefacto esperado sigue siendo `apps/mobile2/android/app/build/outputs/apk/release/app-release.apk`.
+- Antes de distribuir la APK `1.2.0`, conviene ejecutar primero tu deploy manual con `./deploy.sh` para que produccion ya tenga aplicadas las migraciones de Prisma y los campos nuevos que consume la app.
 - Android release ya no usa el browser OAuth de `expo-auth-session`; usa Google Sign-In nativo. Si Google falla en un APK/AAB firmado, el primer punto a revisar ya no es el `.env`, sino el client OAuth Android en Google Cloud para `com.supernovatel.jump30cm.game` y el SHA-1 real del certificado con el que se firmo ese build.
 - El backend sigue necesitando `GOOGLE_CLIENT_ID_WEB` y `GOOGLE_CLIENT_ID_ANDROID` porque la app no abre sesion sola: entrega un `idToken` a `/api/v1/auth/google` y el servidor valida contra Google que ese token fue emitido para una audiencia permitida antes de crear el JWT propio de la plataforma.
 - Si la app abre y se cierra con `Cannot read property 'useState' of null`, el primer punto a revisar no es Google sino una instalacion local accidental en `apps/mobile2/node_modules`; el flujo correcto del monorepo deja una sola copia de React en el `node_modules` raiz.
@@ -206,14 +209,15 @@ Flujo validado para release Android en Windows:
 Tecnica multi-programa:
 
 - El punto de asociacion es `ProgramTemplate`, no `PersonalProgram`; asi una tecnica de sprint, agilidad, remate o salto vertical se define una sola vez y luego la consumen todos los atletas que usen ese template.
-- Cada `ProgramTemplate` ahora puede tener varias tecnicas (`ProgramTemplateTechnique`) y cada tecnica define su propio texto, media, instrucciones de medicion, flag `comparisonEnabled` y varias definiciones de medicion (`ProgramTemplateTechniqueMeasurementDefinition`).
+- Cada `ProgramTemplate` ahora puede tener varias tecnicas (`ProgramTemplateTechnique`) y cada tecnica define su propio texto, media, instrucciones de medicion, flag `comparisonEnabled`, varias definiciones de medicion (`ProgramTemplateTechniqueMeasurementDefinition`) y una referencia biomecanica profesional opcional (`proVideoUrl` + `proLandmarks`).
 - El seed actual deja una base textual para `JUMP-MANUAL-14D` bajo "Técnica base de salto vertical" para que `mobile2` no arranque vacio aunque todavia no se hayan cargado videos desde admin.
-- Ese seed no es una migracion: el schema nuevo se aplica con `prisma:push`; el seed solo inserta o refresca datos bootstrap/default, por ejemplo el texto inicial de técnica del template base.
+- El seed no reemplaza a las migraciones: ahora los cambios versionados para produccion se aplican con `prisma migrate deploy`, mientras que el seed solo inserta o refresca datos bootstrap/default, por ejemplo el texto inicial de técnica del template base.
 - En produccion no hace falta cambiar `RUN_SEED_ON_DEPLOY=0` para desplegar este feature. Solo ponlo en `1` si quieres que el deploy tambien ejecute el seed y repueble defaults automaticamente.
 - Los uploads nuevos ya no persisten `MINIO_PUBLIC_BASE_URL` como URL final: la API devuelve rutas canonicas bajo `/api/v1/assets/...` para que web y APK consuman media sin depender de `localhost:9000`.
 - Si una APK vieja sigue intentando abrir `https://s3.supernovatel.com/jump-assets/...` y el bucket es privado, esa build no vera la media. La app correcta debe pedirla via backend usando `/api/v1/assets/...`, por eso cualquier cambio en esa logica cliente requiere regenerar e instalar una APK nueva.
 - La vista `Técnica` de `mobile2` muestra una lista de tecnicas del programa activo, permite elegir la tecnica concreta, registrar mediciones por definicion configurada y guardar el snapshot de sesiones completadas al momento de medir.
 - La vista `Evolución` de `mobile2` ahora agrega historico por tecnica y comparacion entre dos tecnicas marcadas como comparables por admin.
+- El onboarding del atleta ahora se completa con altura y peso obligatorios, porque la referencia biomecanica y el futuro calculo de potencia ya necesitan ese perfil físico base.
 
 Interaccion con calendario y recordatorios en `mobile2`:
 
@@ -228,7 +232,7 @@ Interaccion con calendario y recordatorios en `mobile2`:
 2. Añadir captura de metricas mas ricas en el log del atleta (altura de salto, carga, velocidad).
 3. Añadir envio real de push remotas usando los `DeviceToken` registrados.
 4. Expandir la vista coach con drill-down por atleta y filtros de cumplimiento.
-5. Migrar el schema de `prisma db push` a `prisma migrate` para historial de migraciones en produccion.
+5. Consolidar una baseline inicial completa de Prisma si en el futuro quieres recrear una base desde cero usando solo `migrations/` sin depender del bootstrap historico por `db push`.
 
 ## Despliegue a produccion
 
@@ -257,7 +261,7 @@ El script:
 1. Construye la imagen de la API (`apps/api/Dockerfile.prod`) con el codigo compilado de TypeScript.
 2. Construye la imagen del web (`apps/web/Dockerfile.prod`) con Vite produccion + nginx; el frontend consume `/api/*` sobre el mismo dominio por defecto.
 3. Hace push de ambas imagenes a Docker Hub con tag `YYYYMMDDHHMM`.
-4. Se conecta por SSH al servidor, descarga las nuevas imagenes, aplica el schema Prisma y reinicia los contenedores.
+4. Se conecta por SSH al servidor, descarga las nuevas imagenes, aplica las migraciones Prisma versionadas y reinicia los contenedores.
 
 Para el detalle completo del flujo, convenciones y decisiones de infraestructura, ver `supernovatel.md`.
 
@@ -267,14 +271,14 @@ Para ejecutar el seed en el siguiente deploy:
 RUN_SEED_ON_DEPLOY=1
 ```
 
-Si antes del deploy quieres aplicar manualmente el cambio de schema en tu entorno actual, hazlo tambien desde la raiz del monorepo:
+Si antes del deploy quieres generar y aplicar una nueva migracion versionada en tu entorno local, hazlo tambien desde la raiz del monorepo:
 
 ```bash
 # local docker
-docker compose -f docker-compose.local.yml exec api-3m30cm npm run prisma:push --workspace @jump/api
+docker compose -f docker-compose.local.yml exec api-3m30cm npm run prisma:migrate --workspace @jump/api -- --name <descripcion>
 
 # seed local opcional para refrescar defaults/bootstraps
 docker compose -f docker-compose.local.yml exec api-3m30cm npm run db:seed --workspace @jump/api
 ```
 
-En produccion, `deploy.sh` ya corre `api-migrate` con `prisma:push`; el seed sigue siendo opcional y queda gobernado por `RUN_SEED_ON_DEPLOY`.
+En produccion, `deploy.sh` ya corre `api-migrate` con `prisma:migrate:prod` (`prisma migrate deploy`); el seed sigue siendo opcional y queda gobernado por `RUN_SEED_ON_DEPLOY`.

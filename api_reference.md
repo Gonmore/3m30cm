@@ -139,6 +139,30 @@ Obtiene el perfil del atleta autenticado con equipo y asignaciones de coach.
 ### PUT `/athlete/profile`
 Actualiza perfil de atleta (displayName, sport, seasonPhase, weeklyAvailability, etc.).
 
+### GET `/athlete/me`
+Obtiene el estado operativo del atleta autenticado: `athleteProfile`, `activeProgram` y `planningRecommendation`.
+
+Notas:
+- `athleteProfile` ya incluye `heightCm` y `weightKg`.
+- la app `mobile2` usa esta respuesta para decidir si debe forzar el onboarding fisico antes de dejar navegar al resto de pantallas.
+
+### PUT `/athlete/onboarding`
+Guarda el onboarding deportivo del atleta autenticado.
+
+Body relevante:
+- `displayName` opcional
+- `heightCm` requerido
+- `weightKg` requerido
+- `sport`, `trainsSport`, `sportTrainingDays`, `seasonPhase`, `availableWeekdays`, `notes`
+
+### POST `/athlete/programs/generate`
+Genera o regenera el programa activo del atleta.
+
+Notas:
+- reutiliza el mismo payload base del onboarding deportivo
+- `heightCm` y `weightKg` tambien son requeridos
+- si ya existia un programa activo, el backend deja solo uno vigente y archiva logicamente los anteriores
+
 ### GET `/athlete/sessions`
 Lista las sesiones programadas del atleta.
 
@@ -162,6 +186,7 @@ Devuelve la tecnica del programa activo del atleta en dos formas:
 Incluye:
 - texto tecnico por tecnica
 - recursos asociados por tecnica (video, imagen o GIF)
+- referencia biomecanica profesional opcional por tecnica (`proVideoUrl`, `proLandmarks`)
 - definiciones de medicion por tecnica
 - metricas tecnicas ya registradas por el atleta para ese template, incluyendo `completedSessionsAtMeasurement`
 
@@ -555,7 +580,7 @@ La infraestructura completa del proyecto, el flujo Docker local, el deploy con `
 Como contexto rapido:
 
 - local: la API y la web corren en Docker; Expo corre fuera de Docker
-- produccion: `deploy.sh` construye, hace push y luego ejecuta `pull + api-migrate + up -d` por SSH
+- produccion: `deploy.sh` construye, hace push y luego ejecuta `pull + api-migrate (prisma migrate deploy) + up -d` por SSH
 - mobile/mobile2: `run dev` apunta a local y `run prod` apunta al backend publico
 
 ---

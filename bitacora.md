@@ -524,3 +524,25 @@ La validacion paso despues del refactor del cliente.
 - queda explicitado que un cambio en la logica runtime del cliente requiere instalar una APK nueva para ser probado en dispositivo
 - el helper de build Android se ajusto para reducir bloqueos de Windows, limpiar builds intermedios de Expo Android y subir memoria de Gradle/Kotlin durante `assembleRelease`
 
+### 26. Migraciones Prisma versionadas + preparacion APK 1.2.0
+
+**Objetivo:** pasar el deploy productivo de `db push` a migraciones versionadas, dejar listo el onboarding fisico obligatorio y preparar la siguiente release Android como `1.2.0`.
+
+**Cambios aplicados:**
+1. Se agregaron migraciones versionadas en `apps/api/prisma/migrations/` para `proVideoUrl`/`proLandmarks` y para `heightCm`/`weightKg` del atleta.
+2. `docker-compose.prod.yml` y `deploy.sh` pasaron a ejecutar `api-migrate` con `prisma migrate deploy` en vez de `prisma db push`.
+3. `apps/mobile2` ahora bloquea la navegacion hasta completar altura y peso, y consume esos campos desde `GET /athlete/me`.
+4. `apps/mobile2/app.json` y `apps/mobile2/package.json` quedaron preparados para la release `1.2.0` con `android.versionCode = 120`.
+5. Los `.md` de la raiz quedaron actualizados para reflejar el nuevo flujo de migraciones y la condicion operativa previa a distribuir la APK.
+
+**Validacion ejecutada:**
+- `npm --prefix apps/api run prisma:generate`
+- `npm --prefix apps/api run lint`
+- `npm --prefix apps/api exec prisma validate -- --schema apps/api/prisma/schema.prisma`
+- `npm --prefix apps/mobile2 run build`
+
+**Resultado:**
+- el repo ya no deja la aplicacion del schema productivo librada a `db push`; el deploy manual pasa por migraciones versionadas
+- la APK `1.2.0` queda preparada a nivel de codigo y versionado
+- antes de distribuir esa APK, el paso operativo que sigue siendo obligatorio es tu `./deploy.sh` manual para que produccion tenga las migraciones aplicadas
+

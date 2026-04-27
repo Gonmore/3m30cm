@@ -143,6 +143,7 @@ interface HoyScreenV2Props {
   favoriteSessionId: string | null;
   todayCheckIn: PreSessionCheckInState | null;
   athleteSetup: AthleteSetupState;
+  needsPhysicalOnboarding: boolean;
   loading: boolean;
   refreshing: boolean;
   planningRecommendation: { summary: string; focusAreas: string[] } | null;
@@ -494,6 +495,50 @@ function NoProgram({
   );
 }
 
+function PhysicalProfileGate({
+  athleteSetup,
+  loading,
+  onSetAthleteSetup,
+  onSaveOnboarding,
+}: {
+  athleteSetup: AthleteSetupState;
+  loading: boolean;
+  onSetAthleteSetup: (updater: (prev: AthleteSetupState) => AthleteSetupState) => void;
+  onSaveOnboarding: () => void;
+}) {
+  const { C } = useTheme();
+  const styles = makeStyles(C);
+
+  return (
+    <View style={styles.noProgramCard}>
+      <Text style={styles.noProgramEmoji}>📏</Text>
+      <Text style={styles.noProgramTitle}>Completa tu perfil físico</Text>
+      <Text style={styles.noProgramSub}>
+        Antes de entrar a tus sesiones necesitamos tu altura y tu peso para personalizar la planificación y el análisis biomecánico.
+      </Text>
+      <TextInput
+        style={styles.profileGateInput}
+        value={athleteSetup.heightCm}
+        onChangeText={(value) => onSetAthleteSetup((current) => ({ ...current, heightCm: value }))}
+        keyboardType="decimal-pad"
+        placeholder="Altura (cm)"
+        placeholderTextColor={C.textDisabled}
+      />
+      <TextInput
+        style={styles.profileGateInput}
+        value={athleteSetup.weightKg}
+        onChangeText={(value) => onSetAthleteSetup((current) => ({ ...current, weightKg: value }))}
+        keyboardType="decimal-pad"
+        placeholder="Peso (kg)"
+        placeholderTextColor={C.textDisabled}
+      />
+      <Pressable style={({ pressed }) => [styles.noProgramCta, pressed && { opacity: 0.82 }]} onPress={onSaveOnboarding} disabled={loading}>
+        <Text style={styles.noProgramCtaText}>{loading ? "Guardando..." : "Guardar y continuar →"}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 //  Main screen
 // ─────────────────────────────────────────────────────────────
@@ -507,8 +552,12 @@ export default function HoyScreenV2({
   todayCompletion,
   favoriteSessionId,
   todayCheckIn,
+  athleteSetup,
+  needsPhysicalOnboarding,
   loading,
   refreshing,
+  onSetAthleteSetup,
+  onSaveOnboarding,
   onSaveCheckIn,
   onClearCheckIn,
   onStartSession,
@@ -569,6 +618,15 @@ export default function HoyScreenV2({
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
+      {needsPhysicalOnboarding ? (
+        <PhysicalProfileGate
+          athleteSetup={athleteSetup}
+          loading={loading}
+          onSetAthleteSetup={onSetAthleteSetup}
+          onSaveOnboarding={onSaveOnboarding}
+        />
+      ) : (
+        <>
       {/* ╔══════════════════════════════════════════════╗
           ║  HERO: Streak ring + jump delta              ║
           ╚══════════════════════════════════════════════╝ */}
@@ -774,6 +832,8 @@ export default function HoyScreenV2({
       <Pressable style={styles.refreshHint} onPress={onRefresh} disabled={refreshing}>
         <Text style={styles.refreshHintText}>{refreshing ? "Actualizando..." : "↻ Actualizar"}</Text>
       </Pressable>
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -1014,6 +1074,18 @@ return StyleSheet.create({
   noProgramEmoji:     { fontSize: 52 },
   noProgramTitle:     { color: C.teal, fontSize: 22, fontWeight: "800", textAlign: "center" },
   noProgramSub:       { color: C.textSub, fontSize: 14, textAlign: "center", lineHeight: 21 },
+  profileGateInput: {
+    width: "100%",
+    borderRadius: R.lg,
+    paddingHorizontal: S.md,
+    paddingVertical: 14,
+    backgroundColor: C.surfaceRaise,
+    borderWidth: 1,
+    borderColor: C.borderStrong,
+    color: C.text,
+    fontSize: 16,
+    fontWeight: "700",
+  },
   noProgramBadgeRow:  { flexDirection: "row", flexWrap: "wrap", gap: S.sm, justifyContent: "center" },
   noProgramBadge:     { backgroundColor: C.tealDim, borderRadius: R.full, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: C.tealBorder },
   noProgramBadgeText: { color: C.teal, fontSize: 12, fontWeight: "700" },

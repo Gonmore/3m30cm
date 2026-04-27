@@ -37,6 +37,8 @@ export async function ensureTemplateTechniqueStructure(db: DbClient, programTemp
         title: template.techniqueTitle?.trim() || `${template.name} · Técnica base`,
         description: template.techniqueDescription ?? null,
         measurementInstructions: null,
+        proVideoUrl: null,
+        proLandmarks: Prisma.JsonNull,
         comparisonEnabled: false,
         orderIndex: 1,
       },

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { extractTechniquePoseSequence, type TechniqueProLandmarks } from "./techniquePoseExtraction";
+
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
 const apiBaseUrl = configuredApiBaseUrl.replace(/\/$/, "");
 const tokenStorageKey = "jump-admin-access-token";
@@ -446,6 +448,8 @@ interface ProgramTechniqueRecord {
   title: string;
   description: string | null;
   measurementInstructions: string | null;
+  proVideoUrl: string | null;
+  proLandmarks: TechniqueProLandmarks | null;
   comparisonEnabled: boolean;
   orderIndex: number;
   mediaAssets: ProgramTechniqueMediaAsset[];
@@ -481,6 +485,13 @@ interface TechniqueFormState {
   measurementInstructions: string;
   comparisonEnabled: boolean;
   measurements: TechniqueMeasurementDraft[];
+}
+
+interface TechniquePoseProcessingState {
+  status: "idle" | "processing" | "error";
+  processedFrames: number;
+  totalFrames: number;
+  detail: string;
 }
 
 const emptyExerciseForm = (): ExerciseFormState => ({
@@ -554,6 +565,13 @@ const emptyTechniqueMeasurementDraft = (): TechniqueMeasurementDraft => ({
   label: "",
   instructions: "",
   allowedUnitsText: "cm",
+});
+
+const emptyTechniquePoseProcessingState = (): TechniquePoseProcessingState => ({
+  status: "idle",
+  processedFrames: 0,
+  totalFrames: 0,
+  detail: "",
 });
 
 const emptySessionEditor = (): SessionEditorState => ({
@@ -749,6 +767,15 @@ async function requestJson<T>(path: string, options: RequestInit = {}, token?: s
   return data;
 }
 
+function formatTechniquePoseSummary(landmarks: TechniqueProLandmarks | null | undefined) {
+  if (!landmarks) {
+    return "Sin referencia biomecánica procesada todavía.";
+  }
+
+  const fpsLabel = Number.isFinite(landmarks.fps) ? `${landmarks.fps.toFixed(1)} fps` : "fps s/d";
+  return `${landmarks.frameCount} frame(s) útiles · ${fpsLabel} · ${landmarks.keypointsModel}`;
+}
+
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem(tokenStorageKey));
   const [adminView, setAdminView] = useState<AdminView>("home");
@@ -797,6 +824,7 @@ export default function App() {
   const [templateTechniqueForm, setTemplateTechniqueForm] = useState<TechniqueFormState>(emptyTechniqueForm);
   const [selectedTemplateTechniqueMediaAssets, setSelectedTemplateTechniqueMediaAssets] = useState<ProgramTechniqueMediaAsset[]>([]);
   const [techniqueUploadState, setTechniqueUploadState] = useState({ kind: "VIDEO" as MediaKind, title: "", isPrimary: false, file: null as File | null });
+  const [techniquePoseProcessing, setTechniquePoseProcessing] = useState<TechniquePoseProcessingState>(emptyTechniquePoseProcessingState);
   const [exclusionsAthleteId, setExclusionsAthleteId] = useState<string>("");
   const [exclusionsDraft, setExclusionsDraft] = useState<string[]>([]);
 
@@ -819,6 +847,10 @@ export default function App() {
     () => templateTechniques.find((technique) => technique.id === selectedTechniqueId) ?? null,
     [templateTechniques, selectedTechniqueId],
   );
+
+  useEffect(() => {
+    setTechniquePoseProcessing(emptyTechniquePoseProcessingState());
+  }, [selectedTechniqueId]);
 
   const selectedTeam = useMemo(
     () => teams.find((team) => team.id === selectedTeamId) ?? null,
@@ -1633,22 +1665,75 @@ export default function App() {
       return;
     }
 
+    const uploadFile = techniqueUploadState.file;
+    const uploadKind = techniqueUploadState.kind;
+
     const formData = new FormData();
-    formData.append("file", techniqueUploadState.file);
-    formData.append("kind", techniqueUploadState.kind);
+    formData.append("file", uploadFile);
+    formData.append("kind", uploadKind);
     formData.append("title", techniqueUploadState.title);
     formData.append("isPrimary", String(techniqueUploadState.isPrimary));
 
     try {
       setLoading(true);
       setError("");
-      await requestJson(
+      const uploadResponse = await requestJson<{ mediaAsset: ProgramTechniqueMediaAsset }>(
         `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${selectedTechniqueId}/media`,
         { method: "POST", body: formData },
         accessToken,
       );
+
+      let nextMessage = "Recurso de técnica subido.";
+
+      if (uploadKind === "VIDEO") {
+        setTechniquePoseProcessing({
+          status: "processing",
+          processedFrames: 0,
+          totalFrames: 0,
+          detail: "Extrayendo landmarks del video profesional...",
+        });
+
+        try {
+          const poseSequence = await extractTechniquePoseSequence(uploadFile, {
+            onProgress: (processedFrames, totalFrames) => {
+              setTechniquePoseProcessing({
+                status: "processing",
+                processedFrames,
+                totalFrames,
+                detail: "Extrayendo landmarks del video profesional...",
+              });
+            },
+          });
+
+          await requestJson(
+            `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${selectedTechniqueId}`,
+            {
+              method: "PUT",
+              body: JSON.stringify({
+                proVideoUrl: uploadResponse.mediaAsset.url,
+                proLandmarks: poseSequence,
+              }),
+            },
+            accessToken,
+          );
+
+          setTechniquePoseProcessing(emptyTechniquePoseProcessingState());
+          nextMessage = `Recurso subido y referencia biomecánica generada (${poseSequence.frameCount} frame(s)).`;
+        } catch (processingError) {
+          setTechniquePoseProcessing({
+            status: "error",
+            processedFrames: 0,
+            totalFrames: 0,
+            detail: processingError instanceof Error
+              ? processingError.message
+              : "No se pudo extraer la referencia biomecánica del video.",
+          });
+          nextMessage = "El video se subió, pero no se pudo generar la referencia biomecánica automáticamente.";
+        }
+      }
+
       setTechniqueUploadState({ kind: "VIDEO", title: "", isPrimary: false, file: null });
-      setMessage("Recurso de técnica subido.");
+      setMessage(nextMessage);
       await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo subir el video de tecnica");
@@ -4413,6 +4498,7 @@ export default function App() {
                           onClick={() => {
                             setSelectedTechniqueId(technique.id);
                             setSelectedTemplateTechniqueMediaAssets(technique.mediaAssets);
+                            setTechniquePoseProcessing(emptyTechniquePoseProcessingState());
                             setTemplateTechniqueForm({
                               id: technique.id,
                               title: technique.title,
@@ -4634,6 +4720,26 @@ export default function App() {
                   Subir recurso de técnica
                 </button>
               </form>
+
+              <div className="detail-card program-card">
+                <strong>Referencia biomecánica profesional</strong>
+                <p>{formatTechniquePoseSummary(selectedTechnique?.proLandmarks)}</p>
+                {selectedTechnique?.proVideoUrl ? (
+                  <small>Video profesional enlazado: {normalizeMediaUrl(selectedTechnique.proVideoUrl) ?? selectedTechnique.proVideoUrl}</small>
+                ) : (
+                  <small>Sube un video profesional para generar landmarks en cliente y guardarlos en backend.</small>
+                )}
+                {techniquePoseProcessing.status === "processing" ? (
+                  <p className="helper-text">
+                    {techniquePoseProcessing.detail} {techniquePoseProcessing.totalFrames > 0
+                      ? `(${techniquePoseProcessing.processedFrames}/${techniquePoseProcessing.totalFrames})`
+                      : ""}
+                  </p>
+                ) : null}
+                {techniquePoseProcessing.status === "error" ? (
+                  <p className="helper-text" style={{ color: "#b91c1c" }}>{techniquePoseProcessing.detail}</p>
+                ) : null}
+              </div>
 
               <div className="program-list">
                 {selectedTemplateTechniqueMediaAssets.length ? (

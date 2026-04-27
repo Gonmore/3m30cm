@@ -39,7 +39,7 @@ services:
       - .env
     environment:
       NODE_ENV: production
-    command: ["npm", "run", "prisma:push:prod", "--workspace", "@jump/api"]
+    command: ["npm", "run", "prisma:migrate:prod", "--workspace", "@jump/api"]
     networks:
       - red-produccion
     profiles:

@@ -36,7 +36,7 @@ El objetivo es trabajar con una sola base de codigo y con un flujo que cumpla es
 
 - `api-3m30cm`: publica `4100:4100`
 - `web-3m30cm`: publica `4173:80`
-- `api-migrate`: contenedor efimero para `prisma:push`
+- `api-migrate`: contenedor efimero para `prisma migrate deploy`
 - `api-seed`: contenedor efimero para seed opcional
 
 ### Dependencias externas en produccion
@@ -141,22 +141,20 @@ El script hoy hace exactamente esto:
 9. valida que exista `docker-compose.prod.yml` remoto
 10. valida que exista la red Docker externa (`DOCKER_EXTERNAL_NETWORK`, default `red-interna`)
 11. ejecuta `docker compose pull`
-12. ejecuta `api-migrate` para `prisma:push`
+12. ejecuta `api-migrate` para `prisma migrate deploy`
 13. ejecuta `docker compose up -d`
 14. ejecuta `api-seed` solo si `RUN_SEED_ON_DEPLOY=1`
 15. hace `docker image prune -f`
 
-Si por operacion quieres correr `prisma:push` a mano antes del deploy, el comando correcto es desde la raiz del monorepo, no desde `apps/api`:
+Si por operacion quieres generar una nueva migracion versionada antes del deploy, el comando correcto es desde la raiz del monorepo, no desde `apps/api`:
 
 ```bash
 cd c:\Users\arman\Gon_local\Desarrollos\3m30cm
-npm run prisma:push --workspace @jump/api
+docker compose -f docker-compose.local.yml exec api-3m30cm npm run prisma:migrate --workspace @jump/api -- --name <descripcion>
 ```
 
-docker compose -f docker-compose.local.yml exec api-3m30cm npm run prisma:push --workspace @jump/api
-
 - Dentro del contenedor local `api-3m30cm-dev`, la `.env` raiz ya funciona porque `DATABASE_URL` usa `postgres-local:5432` en la red Docker.
-- Desde el host Windows, ese hostname no resuelve; en ese caso se debe exportar `DATABASE_URL=postgresql://postgres:D3v3%2Fop3R@localhost:5433/jump30cm?schema=public` antes de correr Prisma.
+- Desde el host Windows, ese hostname no resuelve; si alguna vez quieres correr Prisma desde el host, primero debes sobreescribir `DATABASE_URL` a `localhost:5433`.
 
 ```bash
 cd c:\Users\arman\Gon_local\Desarrollos\3m30cm
@@ -266,7 +264,7 @@ npm --prefix apps/mobile2 run web:prod
 - Si `android/` entra en el paquete del build remoto, EAS trata el proyecto como non-CNG y no resincroniza iconos/splash/config desde `app.json`.
 - Para evitar volver a empaquetar recursos nativos viejos en `apps/mobile2`, `.easignore` excluye `android/` completo.
 - Para el build local de APK en Windows, `apps/mobile2/scripts/build-android-apk.mjs` fuerza `expo prebuild --platform android --clean --no-install` antes de Gradle.
-- La version release local documentada mas reciente queda en `1.1.4` con `versionCode 114`.
+- La version release preparada en el repo queda en `1.2.0` con `versionCode 120`.
 
 ### VS Code y tsconfig de dependencias Expo
 

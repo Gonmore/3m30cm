@@ -126,6 +126,8 @@ model AthleteProfile {
   userId            String            @unique
   teamId            String?
   displayName       String?
+  heightCm          Float?
+  weightKg          Float?
   sport             String?
   trainsSport       Boolean           @default(false)
   seasonPhase       SeasonPhase       @default(OFF_SEASON)
@@ -251,6 +253,8 @@ model ProgramTemplateTechnique {
   title                  String
   description            String?
   measurementInstructions String?
+  proVideoUrl            String?
+  proLandmarks          Json?
   comparisonEnabled      Boolean                                  @default(false)
   orderIndex             Int                                      @default(1)
   createdAt              DateTime                                 @default(now())

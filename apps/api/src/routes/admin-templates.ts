@@ -43,10 +43,62 @@ const updateTemplateSchema = z.object({
   cycleLengthDays: z.number().int().min(1).max(365).optional(),
 });
 
+const techniquePoseLandmarkSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  z: z.number().finite(),
+  visibility: z.number().finite().min(0).max(1).optional(),
+  presence: z.number().finite().min(0).max(1).optional(),
+});
+
+const techniquePoseFrameSchema = z.object({
+  timestampMs: z.number().finite().nonnegative(),
+  landmarks: z.array(techniquePoseLandmarkSchema).length(33),
+});
+
+const techniqueProLandmarksSchema = z.object({
+  schemaVersion: z.literal(1),
+  source: z.string().trim().min(1).max(64),
+  keypointsModel: z.string().trim().min(1).max(64),
+  normalization: z.string().trim().min(1).max(128),
+  fps: z.number().finite().positive().max(240),
+  frameCount: z.number().int().nonnegative().max(10000),
+  durationMs: z.number().finite().nonnegative().optional(),
+  frames: z.array(techniquePoseFrameSchema).max(10000),
+}).superRefine((value, context) => {
+  if (value.frameCount !== value.frames.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "frameCount must match frames.length",
+      path: ["frameCount"],
+    });
+  }
+
+  for (let index = 1; index < value.frames.length; index += 1) {
+    const currentFrame = value.frames[index];
+    const previousFrame = value.frames[index - 1];
+
+    if (!currentFrame || !previousFrame) {
+      continue;
+    }
+
+    if (currentFrame.timestampMs < previousFrame.timestampMs) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "frames timestamps must be monotonic",
+        path: ["frames", index, "timestampMs"],
+      });
+      break;
+    }
+  }
+});
+
 const createTechniqueSchema = z.object({
   title: z.string().trim().min(2),
   description: z.string().trim().nullable().optional(),
   measurementInstructions: z.string().trim().nullable().optional(),
+  proVideoUrl: z.string().trim().url().nullable().optional(),
+  proLandmarks: techniqueProLandmarksSchema.nullable().optional(),
   comparisonEnabled: z.coerce.boolean().default(false),
 });
 
@@ -54,6 +106,8 @@ const updateTechniqueSchema = z.object({
   title: z.string().trim().min(2).optional(),
   description: z.string().trim().nullable().optional(),
   measurementInstructions: z.string().trim().nullable().optional(),
+  proVideoUrl: z.string().trim().url().nullable().optional(),
+  proLandmarks: techniqueProLandmarksSchema.nullable().optional(),
   comparisonEnabled: z.coerce.boolean().optional(),
   orderIndex: z.number().int().positive().optional(),
 });
@@ -338,6 +392,8 @@ adminTemplatesRouter.post("/program-templates/:code/techniques", async (req: Req
         title: payload.title,
         description: payload.description ?? null,
         measurementInstructions: payload.measurementInstructions ?? null,
+        proVideoUrl: payload.proVideoUrl ?? null,
+        proLandmarks: payload.proLandmarks ? (payload.proLandmarks as Prisma.InputJsonValue) : Prisma.JsonNull,
         comparisonEnabled: payload.comparisonEnabled,
         orderIndex: (existing?.techniques.length ?? 0) + 1,
       },
@@ -387,6 +443,10 @@ adminTemplatesRouter.put("/program-templates/:code/techniques/:techniqueId", asy
         ...(payload.title !== undefined && { title: payload.title }),
         ...(payload.description !== undefined && { description: payload.description }),
         ...(payload.measurementInstructions !== undefined && { measurementInstructions: payload.measurementInstructions }),
+        ...(payload.proVideoUrl !== undefined && { proVideoUrl: payload.proVideoUrl }),
+        ...(payload.proLandmarks !== undefined && {
+          proLandmarks: payload.proLandmarks ? (payload.proLandmarks as Prisma.InputJsonValue) : Prisma.JsonNull,
+        }),
         ...(payload.comparisonEnabled !== undefined && { comparisonEnabled: payload.comparisonEnabled }),
         ...(payload.orderIndex !== undefined && { orderIndex: payload.orderIndex }),
       },

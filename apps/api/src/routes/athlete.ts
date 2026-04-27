@@ -141,6 +141,8 @@ const deviceTokenSchema = z.object({
 
 const athletePlanningSchema = z.object({
   displayName: z.string().trim().optional(),
+  heightCm: z.number().min(100).max(260),
+  weightKg: z.number().min(25).max(300),
   sport: z.string().trim().optional(),
   trainsSport: z.boolean().default(false),
   sportTrainingDays: z.array(z.number().int().min(0).max(6)).optional(),
@@ -743,6 +745,8 @@ athleteRouter.put("/onboarding", async (req: AuthenticatedRequest, res: Response
       where: { userId },
       data: {
         ...(payload.displayName !== undefined ? { displayName: payload.displayName } : {}),
+        heightCm: payload.heightCm,
+        weightKg: payload.weightKg,
         sport: payload.sport ?? null,
         trainsSport: payload.trainsSport,
         seasonPhase: payload.seasonPhase,
@@ -839,6 +843,8 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
         where: { id: currentAthleteProfile.id },
         data: {
           displayName: payload.displayName ?? currentAthleteProfile.displayName,
+          heightCm: payload.heightCm,
+          weightKg: payload.weightKg,
           sport: payload.sport ?? null,
           trainsSport: payload.trainsSport,
           seasonPhase: payload.seasonPhase,
@@ -1758,6 +1764,8 @@ athleteRouter.get("/technique", async (req: AuthenticatedRequest, res: Response)
       title: technique.title,
       description: technique.description,
       measurementInstructions: technique.measurementInstructions,
+      proVideoUrl: technique.proVideoUrl,
+      proLandmarks: technique.proLandmarks,
       comparisonEnabled: technique.comparisonEnabled,
       mediaAssets: technique.mediaAssets,
       measurementDefinitions: technique.measurementDefinitions,
@@ -1932,6 +1940,8 @@ athleteRouter.post("/technique/metrics", async (req: AuthenticatedRequest, res: 
       title: entry.title,
       description: entry.description,
       measurementInstructions: entry.measurementInstructions,
+      proVideoUrl: entry.proVideoUrl,
+      proLandmarks: entry.proLandmarks,
       comparisonEnabled: entry.comparisonEnabled,
       mediaAssets: entry.mediaAssets,
       measurementDefinitions: entry.measurementDefinitions,

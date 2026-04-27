@@ -38,6 +38,8 @@ export interface PlanningRecommendation {
 export interface AthleteProfile {
   id: string;
   displayName: string | null;
+  heightCm: number | null;
+  weightKg: number | null;
   sport: string | null;
   trainsSport: boolean;
   seasonPhase: string;
@@ -231,6 +233,8 @@ export interface AthleteSetupState {
   email: string;
   password: string;
   displayName: string;
+  heightCm: string;
+  weightKg: string;
   sport: string;
   trainsSport: boolean;
   sportTrainingDays: string;

@@ -123,10 +123,10 @@ ssh "$SERVER_USER@$SERVER_IP" "SERVER_PATH=$SERVER_PATH VERSION=$VERSION bash -s
   "${COMPOSE[@]}" pull
   echo "⏱️  Pull remoto: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
 
-  echo "🗄️  Aplicando schema Prisma (db push)..."
+  echo "🗄️  Aplicando migraciones Prisma versionadas..."
   STEP_STARTED=$SECONDS
   "${COMPOSE[@]}" --profile tools run --rm api-migrate </dev/null
-  echo "⏱️  Prisma db push remoto: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
+  echo "⏱️  Prisma migrate deploy remoto: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
 
   echo "🔄 Reiniciando contenedores..."
   STEP_STARTED=$SECONDS

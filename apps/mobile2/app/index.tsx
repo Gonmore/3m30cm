@@ -210,6 +210,8 @@ interface AthleteProfileResponse {
   athleteProfile: {
     id: string;
     displayName: string | null;
+    heightCm: number | null;
+    weightKg: number | null;
     sport: string | null;
     trainsSport: boolean;
     seasonPhase: string;
@@ -726,6 +728,8 @@ interface AthleteSetupState {
   email: string;
   password: string;
   displayName: string;
+  heightCm: string;
+  weightKg: string;
   sport: string;
   trainsSport: boolean;
   sportTrainingDays: string;
@@ -845,6 +849,8 @@ const emptyAthleteSetup = (): AthleteSetupState => ({
   email: "",
   password: "",
   displayName: "",
+  heightCm: "",
+  weightKg: "",
   sport: "",
   trainsSport: false,
   sportTrainingDays: "2,4",
@@ -887,6 +893,11 @@ function parseWeekdaysInput(value: string) {
         .filter((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 6),
     ),
   ).sort((left, right) => left - right);
+}
+
+function parsePositiveMetricInput(value: string) {
+  const parsed = Number(value.replace(",", ".").trim());
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function buildReminderDate(sessionDate: string) {
@@ -1710,6 +1721,7 @@ export default function HomeScreen() {
     [todayCheckIn],
   );
   const needsProgramSetup = !activeProgram;
+  const needsPhysicalOnboarding = profile !== null && (typeof profile.heightCm !== "number" || typeof profile.weightKg !== "number");
   const todayCompletion = (() => {
     if (!todaySessionSummary) return 0;
     const total = Math.max(todaySessionSummary.sessionExercises.length, 1);
@@ -1798,6 +1810,8 @@ export default function HomeScreen() {
     setAthleteSetup((current) => ({
       ...current,
       displayName: profile.displayName ?? current.displayName,
+      heightCm: typeof profile.heightCm === "number" ? String(profile.heightCm) : current.heightCm,
+      weightKg: typeof profile.weightKg === "number" ? String(profile.weightKg) : current.weightKg,
       sport: profile.sport ?? current.sport,
       trainsSport: profile.trainsSport,
       sportTrainingDays: Array.isArray(profile.sportTrainingDays?.trainingDays)
@@ -1810,6 +1824,12 @@ export default function HomeScreen() {
       notes: profile.notes ?? current.notes,
     }));
   }, [profile]);
+
+  useEffect(() => {
+    if (needsPhysicalOnboarding && activeScreen !== "hoy") {
+      setActiveScreen("hoy");
+    }
+  }, [activeScreen, needsPhysicalOnboarding]);
 
   useEffect(() => {
     void writeStoredValue(trendWindowStorageKey, trendWindow);
@@ -2737,6 +2757,14 @@ export default function HomeScreen() {
       return;
     }
 
+    const heightCm = parsePositiveMetricInput(athleteSetup.heightCm);
+    const weightKg = parsePositiveMetricInput(athleteSetup.weightKg);
+
+    if (heightCm === null || weightKg === null) {
+      setError("Ingresa altura y peso válidos para continuar.");
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
@@ -2748,6 +2776,8 @@ export default function HomeScreen() {
           method: "PUT",
           body: JSON.stringify({
             displayName: athleteSetup.displayName || undefined,
+            heightCm,
+            weightKg,
             sport: athleteSetup.sport || undefined,
             trainsSport: athleteSetup.trainsSport,
             sportTrainingDays: athleteSetup.trainsSport ? parseWeekdaysInput(athleteSetup.sportTrainingDays) : [],
@@ -2779,6 +2809,14 @@ export default function HomeScreen() {
       return;
     }
 
+    const heightCm = parsePositiveMetricInput(athleteSetup.heightCm);
+    const weightKg = parsePositiveMetricInput(athleteSetup.weightKg);
+
+    if (heightCm === null || weightKg === null) {
+      setError("Completa altura y peso antes de generar tu programa.");
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
@@ -2790,6 +2828,8 @@ export default function HomeScreen() {
           method: "POST",
           body: JSON.stringify({
             displayName: athleteSetup.displayName || undefined,
+            heightCm,
+            weightKg,
             sport: athleteSetup.sport || undefined,
             trainsSport: athleteSetup.trainsSport,
             sportTrainingDays: athleteSetup.trainsSport ? parseWeekdaysInput(athleteSetup.sportTrainingDays) : [],
@@ -3279,6 +3319,7 @@ export default function HomeScreen() {
           favoriteSessionId={favoriteSessionId}
           todayCheckIn={todayCheckIn}
           athleteSetup={athleteSetup}
+          needsPhysicalOnboarding={needsPhysicalOnboarding}
           loading={loading}
           refreshing={refreshing}
           planningRecommendation={planningRecommendation}
@@ -3397,7 +3438,16 @@ export default function HomeScreen() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         activeScreen={activeScreen}
-        onNavigate={(screen) => { setActiveScreen(screen); setDrawerOpen(false); }}
+        onNavigate={(screen) => {
+          if (needsPhysicalOnboarding && screen !== "hoy") {
+            setDrawerOpen(false);
+            setError("Completa tu altura y peso antes de acceder al resto de la app.");
+            return;
+          }
+
+          setActiveScreen(screen);
+          setDrawerOpen(false);
+        }}
         athleteName={profile?.displayName ?? profile?.user.email ?? "Atleta"}
         athleteEmail={profile?.user.email ?? ""}
       />
