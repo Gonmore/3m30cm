@@ -903,10 +903,22 @@ async function requestJson<T>(path: string, options: RequestInit = {}, token?: s
     return undefined as T;
   }
 
-  const data = (await response.json().catch(() => ({}))) as { message?: string } & T;
+  const data = (await response.json().catch(() => ({}))) as {
+    message?: string;
+    issues?: Array<{ path?: Array<string | number>; message?: string }>;
+  } & T;
 
   if (!response.ok) {
-    throw new Error(data.message ?? "Request failed");
+    const issueSummary = Array.isArray(data.issues)
+      ? data.issues
+        .map((issue) => {
+          const issuePath = Array.isArray(issue.path) && issue.path.length ? issue.path.join(".") : "payload";
+          return `${issuePath}: ${issue.message ?? "valor inválido"}`;
+        })
+        .join(" | ")
+      : "";
+
+    throw new Error(issueSummary ? `${data.message ?? "Request failed"} - ${issueSummary}` : (data.message ?? "Request failed"));
   }
 
   return data;

@@ -93,6 +93,17 @@ const techniqueProLandmarksSchema = z.object({
   }
 });
 
+const techniqueAssetUrlSchema = z.string().trim().min(1).refine(
+  (value) => {
+    if (value.startsWith("/api/v1/assets/")) {
+      return true;
+    }
+
+    return z.string().url().safeParse(value).success;
+  },
+  { message: "proVideoUrl must be an absolute URL or an internal asset path" },
+);
+
 const poseLandmarkNames = [
   "NOSE",
   "LEFT_EYE_INNER",
@@ -192,7 +203,7 @@ const createTechniqueSchema = z.object({
   title: z.string().trim().min(2),
   description: z.string().trim().nullable().optional(),
   measurementInstructions: z.string().trim().nullable().optional(),
-  proVideoUrl: z.string().trim().url().nullable().optional(),
+  proVideoUrl: techniqueAssetUrlSchema.nullable().optional(),
   proLandmarks: techniqueProLandmarksSchema.nullable().optional(),
   biomechanicsConfig: techniqueBiomechanicsConfigSchema.nullable().optional(),
   comparisonEnabled: z.coerce.boolean().default(false),
@@ -202,7 +213,7 @@ const updateTechniqueSchema = z.object({
   title: z.string().trim().min(2).optional(),
   description: z.string().trim().nullable().optional(),
   measurementInstructions: z.string().trim().nullable().optional(),
-  proVideoUrl: z.string().trim().url().nullable().optional(),
+  proVideoUrl: techniqueAssetUrlSchema.nullable().optional(),
   proLandmarks: techniqueProLandmarksSchema.nullable().optional(),
   biomechanicsConfig: techniqueBiomechanicsConfigSchema.nullable().optional(),
   comparisonEnabled: z.coerce.boolean().optional(),
