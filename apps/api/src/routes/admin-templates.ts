@@ -225,7 +225,24 @@ const upsertDaySchema = z.object({
 const techniqueMediaSchema = z.object({
   kind: z.nativeEnum(MediaKind).default(MediaKind.VIDEO),
   title: z.string().trim().nullable().optional(),
-  isPrimary: z.coerce.boolean().default(false),
+  isPrimary: z.preprocess((value) => {
+    if (typeof value === "boolean") {
+      return value;
+    }
+
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["true", "1", "on", "yes"].includes(normalized)) {
+        return true;
+      }
+
+      if (["false", "0", "off", "no", ""].includes(normalized)) {
+        return false;
+      }
+    }
+
+    return Boolean(value);
+  }, z.boolean()).default(false),
 });
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } });

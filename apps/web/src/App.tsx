@@ -608,7 +608,7 @@ interface TechniqueFormState {
 }
 
 interface TechniquePoseProcessingState {
-  status: "idle" | "processing" | "error";
+  status: "idle" | "uploading" | "processing" | "error";
   processedFrames: number;
   totalFrames: number;
   detail: string;
@@ -1987,6 +1987,14 @@ export default function App() {
     try {
       setLoading(true);
       setError("");
+      setTechniquePoseProcessing({
+        status: "uploading",
+        processedFrames: 0,
+        totalFrames: 0,
+        detail: uploadKind === "VIDEO" && techniqueUploadState.useAsProReference
+          ? "Cargando video profesional..."
+          : "Cargando recurso de técnica...",
+      });
       const uploadResponse = await requestJson<{ mediaAsset: ProgramTechniqueMediaAsset }>(
         `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${selectedTechniqueId}/media`,
         { method: "POST", body: formData },
@@ -2046,6 +2054,10 @@ export default function App() {
           });
           nextMessage = "El video se subió, pero no se pudo generar la referencia biomecánica automáticamente.";
         }
+      }
+
+      if (!(uploadKind === "VIDEO" && techniqueUploadState.useAsProReference)) {
+        setTechniquePoseProcessing(emptyTechniquePoseProcessingState());
       }
 
       setTechniqueUploadState(emptyTechniqueUploadState());
@@ -5164,6 +5176,9 @@ export default function App() {
                       ? `(${techniquePoseProcessing.processedFrames}/${techniquePoseProcessing.totalFrames})`
                       : ""}
                   </p>
+                ) : null}
+                {techniquePoseProcessing.status === "uploading" ? (
+                  <p className="helper-text">{techniquePoseProcessing.detail}</p>
                 ) : null}
                 {techniquePoseProcessing.status === "error" ? (
                   <p className="helper-text" style={{ color: "#b91c1c" }}>{techniquePoseProcessing.detail}</p>
