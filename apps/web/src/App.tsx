@@ -10,6 +10,43 @@ const weekdayLabels = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
 const seasonPhaseOptions = ["OFF_SEASON", "PRESEASON", "IN_SEASON", "COMPETITION"] as const;
 const sessionStatusOptions = ["PLANNED", "COMPLETED", "SKIPPED", "RESCHEDULED"] as const;
 const seriesProtocolOptions = ["NONE", "STRENGTH_EXPLOSION", "PLYOMETRIC_SPEED"] as const;
+const poseLandmarkOptions = [
+  { value: "NOSE", label: "Nariz" },
+  { value: "LEFT_EYE_INNER", label: "Ojo izq. interno" },
+  { value: "LEFT_EYE", label: "Ojo izquierdo" },
+  { value: "LEFT_EYE_OUTER", label: "Ojo izq. externo" },
+  { value: "RIGHT_EYE_INNER", label: "Ojo der. interno" },
+  { value: "RIGHT_EYE", label: "Ojo derecho" },
+  { value: "RIGHT_EYE_OUTER", label: "Ojo der. externo" },
+  { value: "LEFT_EAR", label: "Oreja izquierda" },
+  { value: "RIGHT_EAR", label: "Oreja derecha" },
+  { value: "MOUTH_LEFT", label: "Comisura izq." },
+  { value: "MOUTH_RIGHT", label: "Comisura der." },
+  { value: "LEFT_SHOULDER", label: "Hombro izquierdo" },
+  { value: "RIGHT_SHOULDER", label: "Hombro derecho" },
+  { value: "LEFT_ELBOW", label: "Codo izquierdo" },
+  { value: "RIGHT_ELBOW", label: "Codo derecho" },
+  { value: "LEFT_WRIST", label: "Muñeca izquierda" },
+  { value: "RIGHT_WRIST", label: "Muñeca derecha" },
+  { value: "LEFT_PINKY", label: "Meñique izq." },
+  { value: "RIGHT_PINKY", label: "Meñique der." },
+  { value: "LEFT_INDEX", label: "Índice izq." },
+  { value: "RIGHT_INDEX", label: "Índice der." },
+  { value: "LEFT_THUMB", label: "Pulgar izq." },
+  { value: "RIGHT_THUMB", label: "Pulgar der." },
+  { value: "LEFT_HIP", label: "Cadera izquierda" },
+  { value: "RIGHT_HIP", label: "Cadera derecha" },
+  { value: "LEFT_KNEE", label: "Rodilla izquierda" },
+  { value: "RIGHT_KNEE", label: "Rodilla derecha" },
+  { value: "LEFT_ANKLE", label: "Tobillo izquierdo" },
+  { value: "RIGHT_ANKLE", label: "Tobillo derecho" },
+  { value: "LEFT_HEEL", label: "Talón izquierdo" },
+  { value: "RIGHT_HEEL", label: "Talón derecho" },
+  { value: "LEFT_FOOT_INDEX", label: "Punta pie izq." },
+  { value: "RIGHT_FOOT_INDEX", label: "Punta pie der." },
+] as const;
+const biomechanicsEventTypeOptions = ["SETUP", "DIP", "TAKE_OFF", "FLIGHT", "LANDING", "OTHER"] as const;
+const biomechanicsPlaneOptions = ["SAGITTAL_2D", "FRONTAL_2D", "TRANSVERSE_PROXY"] as const;
 const strengthSeriesSummary = "Series 1-3 explosivas · serie 4 lenta y tecnica · serie 5 burnout/piramidal.";
 const strengthSeriesLoadHint = "85% del 1RM aprox.; corta cuando baje la velocidad maxima.";
 const strengthSeriesReminder = "RECUERDA: la subida siempre debe ser lo mas rapida posible; si la velocidad cae, la serie termina.";
@@ -56,6 +93,9 @@ type SeasonPhase = (typeof seasonPhaseOptions)[number];
 type SessionStatus = (typeof sessionStatusOptions)[number];
 type SeriesProtocol = (typeof seriesProtocolOptions)[number];
 type AdminView = "home" | "users" | "training" | "templates" | "technique";
+type LandmarkName = (typeof poseLandmarkOptions)[number]["value"];
+type TechniqueBiomechanicsEventType = (typeof biomechanicsEventTypeOptions)[number];
+type TechniqueBiomechanicsAnglePlane = (typeof biomechanicsPlaneOptions)[number];
 
 interface AuthUser {
   id: string;
@@ -443,6 +483,44 @@ interface ProgramTechniqueMeasurementDefinition {
   orderIndex: number;
 }
 
+interface TechniqueBiomechanicsFocusPointRecord {
+  id: string;
+  label: string;
+  landmark: LandmarkName;
+  cue: string | null;
+  notes: string | null;
+}
+
+interface TechniqueBiomechanicsAngleCheckRecord {
+  id: string;
+  label: string;
+  pointA: LandmarkName;
+  vertex: LandmarkName;
+  pointC: LandmarkName;
+  plane: TechniqueBiomechanicsAnglePlane;
+  targetMinDeg: number | null;
+  targetMaxDeg: number | null;
+  phase: string | null;
+  notes: string | null;
+}
+
+interface TechniqueBiomechanicsKeyEventRecord {
+  id: string;
+  label: string;
+  eventType: TechniqueBiomechanicsEventType;
+  frameHint: string | null;
+  notes: string | null;
+}
+
+interface TechniqueBiomechanicsConfig {
+  schemaVersion: 1;
+  referenceMediaAssetId: string | null;
+  focusPoints: TechniqueBiomechanicsFocusPointRecord[];
+  angleChecks: TechniqueBiomechanicsAngleCheckRecord[];
+  keyEvents: TechniqueBiomechanicsKeyEventRecord[];
+  coachNotes: string | null;
+}
+
 interface ProgramTechniqueRecord {
   id: string;
   title: string;
@@ -450,6 +528,7 @@ interface ProgramTechniqueRecord {
   measurementInstructions: string | null;
   proVideoUrl: string | null;
   proLandmarks: TechniqueProLandmarks | null;
+  biomechanicsConfig: TechniqueBiomechanicsConfig | null;
   comparisonEnabled: boolean;
   orderIndex: number;
   mediaAssets: ProgramTechniqueMediaAsset[];
@@ -478,6 +557,42 @@ interface TechniqueMeasurementDraft {
   allowedUnitsText: string;
 }
 
+interface TechniqueBiomechanicsFocusPointDraft {
+  id: string;
+  label: string;
+  landmark: LandmarkName;
+  cue: string;
+  notes: string;
+}
+
+interface TechniqueBiomechanicsAngleCheckDraft {
+  id: string;
+  label: string;
+  pointA: LandmarkName;
+  vertex: LandmarkName;
+  pointC: LandmarkName;
+  plane: TechniqueBiomechanicsAnglePlane;
+  targetMinDeg: string;
+  targetMaxDeg: string;
+  phase: string;
+  notes: string;
+}
+
+interface TechniqueBiomechanicsKeyEventDraft {
+  id: string;
+  label: string;
+  eventType: TechniqueBiomechanicsEventType;
+  frameHint: string;
+  notes: string;
+}
+
+interface TechniqueBiomechanicsFormState {
+  focusPoints: TechniqueBiomechanicsFocusPointDraft[];
+  angleChecks: TechniqueBiomechanicsAngleCheckDraft[];
+  keyEvents: TechniqueBiomechanicsKeyEventDraft[];
+  coachNotes: string;
+}
+
 interface TechniqueFormState {
   id?: string;
   title: string;
@@ -485,6 +600,7 @@ interface TechniqueFormState {
   measurementInstructions: string;
   comparisonEnabled: boolean;
   measurements: TechniqueMeasurementDraft[];
+  biomechanics: TechniqueBiomechanicsFormState;
 }
 
 interface TechniquePoseProcessingState {
@@ -492,6 +608,14 @@ interface TechniquePoseProcessingState {
   processedFrames: number;
   totalFrames: number;
   detail: string;
+}
+
+interface TechniqueUploadState {
+  kind: MediaKind;
+  title: string;
+  isPrimary: boolean;
+  useAsProReference: boolean;
+  file: File | null;
 }
 
 const emptyExerciseForm = (): ExerciseFormState => ({
@@ -559,6 +683,12 @@ const emptyTechniqueForm = (): TechniqueFormState => ({
   measurementInstructions: "",
   comparisonEnabled: false,
   measurements: [],
+  biomechanics: {
+    focusPoints: [],
+    angleChecks: [],
+    keyEvents: [],
+    coachNotes: "",
+  },
 });
 
 const emptyTechniqueMeasurementDraft = (): TechniqueMeasurementDraft => ({
@@ -572,6 +702,14 @@ const emptyTechniquePoseProcessingState = (): TechniquePoseProcessingState => ({
   processedFrames: 0,
   totalFrames: 0,
   detail: "",
+});
+
+const emptyTechniqueUploadState = (): TechniqueUploadState => ({
+  kind: "VIDEO",
+  title: "",
+  isPrimary: false,
+  useAsProReference: true,
+  file: null,
 });
 
 const emptySessionEditor = (): SessionEditorState => ({
@@ -776,6 +914,180 @@ function formatTechniquePoseSummary(landmarks: TechniqueProLandmarks | null | un
   return `${landmarks.frameCount} frame(s) útiles · ${fpsLabel} · ${landmarks.keypointsModel}`;
 }
 
+function createDraftId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `draft-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeTechniqueBiomechanicsConfig(
+  config: TechniqueBiomechanicsConfig | null | undefined,
+): TechniqueBiomechanicsConfig {
+  return {
+    schemaVersion: 1,
+    referenceMediaAssetId: config?.referenceMediaAssetId ?? null,
+    focusPoints: (config?.focusPoints ?? []).map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      landmark: entry.landmark,
+      cue: entry.cue ?? null,
+      notes: entry.notes ?? null,
+    })),
+    angleChecks: (config?.angleChecks ?? []).map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      pointA: entry.pointA,
+      vertex: entry.vertex,
+      pointC: entry.pointC,
+      plane: entry.plane,
+      targetMinDeg: typeof entry.targetMinDeg === "number" ? entry.targetMinDeg : null,
+      targetMaxDeg: typeof entry.targetMaxDeg === "number" ? entry.targetMaxDeg : null,
+      phase: entry.phase ?? null,
+      notes: entry.notes ?? null,
+    })),
+    keyEvents: (config?.keyEvents ?? []).map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      eventType: entry.eventType,
+      frameHint: entry.frameHint ?? null,
+      notes: entry.notes ?? null,
+    })),
+    coachNotes: config?.coachNotes ?? null,
+  };
+}
+
+function mapTechniqueBiomechanicsConfigToForm(
+  config: TechniqueBiomechanicsConfig | null | undefined,
+): TechniqueBiomechanicsFormState {
+  const normalized = normalizeTechniqueBiomechanicsConfig(config);
+
+  return {
+    focusPoints: normalized.focusPoints.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      landmark: entry.landmark,
+      cue: entry.cue ?? "",
+      notes: entry.notes ?? "",
+    })),
+    angleChecks: normalized.angleChecks.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      pointA: entry.pointA,
+      vertex: entry.vertex,
+      pointC: entry.pointC,
+      plane: entry.plane,
+      targetMinDeg: entry.targetMinDeg?.toString() ?? "",
+      targetMaxDeg: entry.targetMaxDeg?.toString() ?? "",
+      phase: entry.phase ?? "",
+      notes: entry.notes ?? "",
+    })),
+    keyEvents: normalized.keyEvents.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      eventType: entry.eventType,
+      frameHint: entry.frameHint ?? "",
+      notes: entry.notes ?? "",
+    })),
+    coachNotes: normalized.coachNotes ?? "",
+  };
+}
+
+function serializeTechniqueBiomechanicsForm(
+  form: TechniqueBiomechanicsFormState,
+  referenceMediaAssetId: string | null,
+): TechniqueBiomechanicsConfig {
+  return {
+    schemaVersion: 1,
+    referenceMediaAssetId,
+    focusPoints: form.focusPoints
+      .filter((entry) => entry.label.trim())
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.label.trim(),
+        landmark: entry.landmark,
+        cue: entry.cue.trim() || null,
+        notes: entry.notes.trim() || null,
+      })),
+    angleChecks: form.angleChecks
+      .filter((entry) => entry.label.trim())
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.label.trim(),
+        pointA: entry.pointA,
+        vertex: entry.vertex,
+        pointC: entry.pointC,
+        plane: entry.plane,
+        targetMinDeg: entry.targetMinDeg.trim() ? Number(entry.targetMinDeg) : null,
+        targetMaxDeg: entry.targetMaxDeg.trim() ? Number(entry.targetMaxDeg) : null,
+        phase: entry.phase.trim() || null,
+        notes: entry.notes.trim() || null,
+      })),
+    keyEvents: form.keyEvents
+      .filter((entry) => entry.label.trim())
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.label.trim(),
+        eventType: entry.eventType,
+        frameHint: entry.frameHint.trim() || null,
+        notes: entry.notes.trim() || null,
+      })),
+    coachNotes: form.coachNotes.trim() || null,
+  };
+}
+
+function mapTechniqueToForm(technique: ProgramTechniqueRecord): TechniqueFormState {
+  return {
+    id: technique.id,
+    title: technique.title,
+    description: technique.description ?? "",
+    measurementInstructions: technique.measurementInstructions ?? "",
+    comparisonEnabled: technique.comparisonEnabled,
+    measurements: technique.measurementDefinitions.map((definition) => ({
+      id: definition.id,
+      label: definition.label,
+      instructions: definition.instructions ?? "",
+      allowedUnitsText: Array.isArray(definition.allowedUnits)
+        ? definition.allowedUnits.filter((unit): unit is string => typeof unit === "string").join(", ")
+        : "",
+    })),
+    biomechanics: mapTechniqueBiomechanicsConfigToForm(technique.biomechanicsConfig),
+  };
+}
+
+function formatBiomechanicsEventLabel(eventType: TechniqueBiomechanicsEventType) {
+  switch (eventType) {
+    case "SETUP":
+      return "Setup";
+    case "DIP":
+      return "Dip";
+    case "TAKE_OFF":
+      return "Despegue";
+    case "FLIGHT":
+      return "Vuelo";
+    case "LANDING":
+      return "Aterrizaje";
+    default:
+      return "Otro";
+  }
+}
+
+function formatBiomechanicsPlaneLabel(plane: TechniqueBiomechanicsAnglePlane) {
+  switch (plane) {
+    case "SAGITTAL_2D":
+      return "Sagital 2D";
+    case "FRONTAL_2D":
+      return "Frontal 2D";
+    default:
+      return "Proxy transversal";
+  }
+}
+
+function landmarkLabel(value: LandmarkName) {
+  return poseLandmarkOptions.find((option) => option.value === value)?.label ?? value;
+}
+
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem(tokenStorageKey));
   const [adminView, setAdminView] = useState<AdminView>("home");
@@ -823,7 +1135,7 @@ export default function App() {
   const [selectedTechniqueId, setSelectedTechniqueId] = useState<string>("");
   const [templateTechniqueForm, setTemplateTechniqueForm] = useState<TechniqueFormState>(emptyTechniqueForm);
   const [selectedTemplateTechniqueMediaAssets, setSelectedTemplateTechniqueMediaAssets] = useState<ProgramTechniqueMediaAsset[]>([]);
-  const [techniqueUploadState, setTechniqueUploadState] = useState({ kind: "VIDEO" as MediaKind, title: "", isPrimary: false, file: null as File | null });
+  const [techniqueUploadState, setTechniqueUploadState] = useState<TechniqueUploadState>(emptyTechniqueUploadState);
   const [techniquePoseProcessing, setTechniquePoseProcessing] = useState<TechniquePoseProcessingState>(emptyTechniquePoseProcessingState);
   const [exclusionsAthleteId, setExclusionsAthleteId] = useState<string>("");
   const [exclusionsDraft, setExclusionsDraft] = useState<string[]>([]);
@@ -847,6 +1159,15 @@ export default function App() {
     () => templateTechniques.find((technique) => technique.id === selectedTechniqueId) ?? null,
     [templateTechniques, selectedTechniqueId],
   );
+
+  const selectedTechniqueReferenceAsset = useMemo(() => {
+    const referenceMediaAssetId = normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMediaAssetId;
+    if (!referenceMediaAssetId) {
+      return null;
+    }
+
+    return selectedTemplateTechniqueMediaAssets.find((asset) => asset.id === referenceMediaAssetId) ?? null;
+  }, [selectedTechnique?.biomechanicsConfig, selectedTemplateTechniqueMediaAssets]);
 
   useEffect(() => {
     setTechniquePoseProcessing(emptyTechniquePoseProcessingState());
@@ -1095,25 +1416,8 @@ export default function App() {
       setTemplateTechniques(templateResponse.template.techniques ?? []);
       setSelectedTechniqueId(initialTechnique?.id ?? "");
       setSelectedTemplateTechniqueMediaAssets(initialTechnique?.mediaAssets ?? []);
-      setTemplateTechniqueForm(
-        initialTechnique
-          ? {
-              id: initialTechnique.id,
-              title: initialTechnique.title,
-              description: initialTechnique.description ?? "",
-              measurementInstructions: initialTechnique.measurementInstructions ?? "",
-              comparisonEnabled: initialTechnique.comparisonEnabled,
-              measurements: initialTechnique.measurementDefinitions.map((definition) => ({
-                id: definition.id,
-                label: definition.label,
-                instructions: definition.instructions ?? "",
-                allowedUnitsText: Array.isArray(definition.allowedUnits)
-                  ? definition.allowedUnits.filter((unit): unit is string => typeof unit === "string").join(", ")
-                  : "",
-              })),
-            }
-          : emptyTechniqueForm(),
-      );
+      setTemplateTechniqueForm(initialTechnique ? mapTechniqueToForm(initialTechnique) : emptyTechniqueForm());
+      setTechniqueUploadState(emptyTechniqueUploadState());
       setAllTemplates(allTemplatesResponse.templates);
 
       const firstExercise = exercisesResponse.exercises[0];
@@ -1498,25 +1802,8 @@ export default function App() {
       setTemplateTechniques(techniques);
       setSelectedTechniqueId(nextTechnique?.id ?? "");
       setSelectedTemplateTechniqueMediaAssets(nextTechnique?.mediaAssets ?? []);
-      setTemplateTechniqueForm(
-        nextTechnique
-          ? {
-              id: nextTechnique.id,
-              title: nextTechnique.title,
-              description: nextTechnique.description ?? "",
-              measurementInstructions: nextTechnique.measurementInstructions ?? "",
-              comparisonEnabled: nextTechnique.comparisonEnabled,
-              measurements: nextTechnique.measurementDefinitions.map((definition) => ({
-                id: definition.id,
-                label: definition.label,
-                instructions: definition.instructions ?? "",
-                allowedUnitsText: Array.isArray(definition.allowedUnits)
-                  ? definition.allowedUnits.filter((unit): unit is string => typeof unit === "string").join(", ")
-                  : "",
-              })),
-            }
-          : emptyTechniqueForm(),
-      );
+      setTemplateTechniqueForm(nextTechnique ? mapTechniqueToForm(nextTechnique) : emptyTechniqueForm());
+      setTechniqueUploadState(emptyTechniqueUploadState());
       setSelectedDayNumber(response.template.days[0]?.dayNumber ?? 1);
     } catch {
       setTemplateDays([]);
@@ -1524,6 +1811,7 @@ export default function App() {
       setSelectedTechniqueId("");
       setSelectedTemplateTechniqueMediaAssets([]);
       setTemplateTechniqueForm(emptyTechniqueForm());
+      setTechniqueUploadState(emptyTechniqueUploadState());
     }
   }
 
@@ -1536,6 +1824,10 @@ export default function App() {
         title: templateTechniqueForm.title,
         description: templateTechniqueForm.description || null,
         measurementInstructions: templateTechniqueForm.measurementInstructions || null,
+        biomechanicsConfig: serializeTechniqueBiomechanicsForm(
+          templateTechniqueForm.biomechanics,
+          normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMediaAssetId,
+        ),
         comparisonEnabled: templateTechniqueForm.comparisonEnabled,
       };
 
@@ -1685,7 +1977,7 @@ export default function App() {
 
       let nextMessage = "Recurso de técnica subido.";
 
-      if (uploadKind === "VIDEO") {
+      if (uploadKind === "VIDEO" && techniqueUploadState.useAsProReference) {
         setTechniquePoseProcessing({
           status: "processing",
           processedFrames: 0,
@@ -1712,6 +2004,11 @@ export default function App() {
               body: JSON.stringify({
                 proVideoUrl: uploadResponse.mediaAsset.url,
                 proLandmarks: poseSequence,
+                biomechanicsConfig: {
+                  ...normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig),
+                  schemaVersion: 1,
+                  referenceMediaAssetId: uploadResponse.mediaAsset.id,
+                },
               }),
             },
             accessToken,
@@ -1732,7 +2029,7 @@ export default function App() {
         }
       }
 
-      setTechniqueUploadState({ kind: "VIDEO", title: "", isPrimary: false, file: null });
+      setTechniqueUploadState(emptyTechniqueUploadState());
       setMessage(nextMessage);
       await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
     } catch (requestError) {
@@ -1750,11 +2047,32 @@ export default function App() {
     try {
       setLoading(true);
       setError("");
+      const currentConfig = normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig);
       await requestJson(
         `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${selectedTechniqueId}/media/${mediaId}`,
         { method: "DELETE" },
         accessToken,
       );
+
+      if (currentConfig.referenceMediaAssetId === mediaId) {
+        await requestJson(
+          `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${selectedTechniqueId}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              proVideoUrl: null,
+              proLandmarks: null,
+              biomechanicsConfig: {
+                ...currentConfig,
+                schemaVersion: 1,
+                referenceMediaAssetId: null,
+              },
+            }),
+          },
+          accessToken,
+        );
+      }
+
       setMessage("Recurso de técnica eliminado.");
       await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
     } catch (requestError) {
@@ -4193,13 +4511,24 @@ export default function App() {
               </form>
 
               <form className="stack-form" onSubmit={(event) => void handleTechniqueMediaUpload(event)}>
+                <div className="workflow-note">
+                  <strong>Referencia profesional visible</strong>
+                  <p>
+                    Marca el video como referencia biomecánica profesional si este recurso debe generar
+                    la base de comparación con landmarks para la técnica.
+                  </p>
+                </div>
                 <div className="form-grid">
                   <label>
                     Tipo de recurso
                     <select
                       value={techniqueUploadState.kind}
                       onChange={(event) =>
-                        setTechniqueUploadState((current) => ({ ...current, kind: event.target.value as MediaKind }))
+                        setTechniqueUploadState((current) => ({
+                          ...current,
+                          kind: event.target.value as MediaKind,
+                          useAsProReference: event.target.value === "VIDEO" ? current.useAsProReference : false,
+                        }))
                       }
                     >
                       <option value="VIDEO">Video</option>
@@ -4223,6 +4552,17 @@ export default function App() {
                     />
                     Marcar como principal
                   </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={techniqueUploadState.useAsProReference}
+                      disabled={techniqueUploadState.kind !== "VIDEO"}
+                      onChange={(event) =>
+                        setTechniqueUploadState((current) => ({ ...current, useAsProReference: event.target.checked }))
+                      }
+                    />
+                    Usar este video como referencia biomecánica profesional
+                  </label>
                   <label>
                     Archivo
                     <input
@@ -4238,6 +4578,18 @@ export default function App() {
                   Subir recurso de técnica
                 </button>
               </form>
+
+              <div className="detail-card program-card">
+                <strong>Estado de la referencia biomecánica</strong>
+                <p>{formatTechniquePoseSummary(selectedTechnique?.proLandmarks)}</p>
+                <div className="biomechanics-summary-grid">
+                  <span className="biomechanics-badge">
+                    {selectedTechniqueReferenceAsset
+                      ? `Referencia visible: ${selectedTechniqueReferenceAsset.title || "video profesional"}`
+                      : "Referencia visible: todavía no asignada"}
+                  </span>
+                </div>
+              </div>
 
               <div className="program-list">
                 {selectedTemplateTechniqueMediaAssets.length ? (
@@ -4499,21 +4851,8 @@ export default function App() {
                             setSelectedTechniqueId(technique.id);
                             setSelectedTemplateTechniqueMediaAssets(technique.mediaAssets);
                             setTechniquePoseProcessing(emptyTechniquePoseProcessingState());
-                            setTemplateTechniqueForm({
-                              id: technique.id,
-                              title: technique.title,
-                              description: technique.description ?? "",
-                              measurementInstructions: technique.measurementInstructions ?? "",
-                              comparisonEnabled: technique.comparisonEnabled,
-                              measurements: technique.measurementDefinitions.map((definition) => ({
-                                id: definition.id,
-                                label: definition.label,
-                                instructions: definition.instructions ?? "",
-                                allowedUnitsText: Array.isArray(definition.allowedUnits)
-                                  ? definition.allowedUnits.filter((unit): unit is string => typeof unit === "string").join(", ")
-                                  : "",
-                              })),
-                            });
+                            setTemplateTechniqueForm(mapTechniqueToForm(technique));
+                            setTechniqueUploadState(emptyTechniqueUploadState());
                           }}
                         >
                           Editar
@@ -4675,13 +5014,24 @@ export default function App() {
               </form>
 
               <form className="stack-form" onSubmit={(event) => void handleTechniqueMediaUpload(event)}>
+                <div className="workflow-note">
+                  <strong>Subida visible de referencia biomecánica</strong>
+                  <p>
+                    Si este video debe convertirse en la referencia profesional, marca la casilla inferior.
+                    Al subirlo se extraerán los 33 landmarks y quedará enlazado a esta técnica.
+                  </p>
+                </div>
                 <div className="form-grid">
                   <label>
                     Tipo de recurso
                     <select
                       value={techniqueUploadState.kind}
                       onChange={(event) =>
-                        setTechniqueUploadState((current) => ({ ...current, kind: event.target.value as MediaKind }))
+                        setTechniqueUploadState((current) => ({
+                          ...current,
+                          kind: event.target.value as MediaKind,
+                          useAsProReference: event.target.value === "VIDEO" ? current.useAsProReference : false,
+                        }))
                       }
                     >
                       <option value="VIDEO">Video</option>
@@ -4704,6 +5054,17 @@ export default function App() {
                       onChange={(event) => setTechniqueUploadState((current) => ({ ...current, isPrimary: event.target.checked }))}
                     />
                     Marcar como principal
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={techniqueUploadState.useAsProReference}
+                      disabled={techniqueUploadState.kind !== "VIDEO"}
+                      onChange={(event) =>
+                        setTechniqueUploadState((current) => ({ ...current, useAsProReference: event.target.checked }))
+                      }
+                    />
+                    Usar este video como referencia biomecánica profesional
                   </label>
                   <label>
                     Archivo
@@ -4729,6 +5090,16 @@ export default function App() {
                 ) : (
                   <small>Sube un video profesional para generar landmarks en cliente y guardarlos en backend.</small>
                 )}
+                <div className="biomechanics-summary-grid">
+                  <span className="biomechanics-badge">
+                    {selectedTechniqueReferenceAsset
+                      ? `Referencia visible: ${selectedTechniqueReferenceAsset.title || "video profesional"}`
+                      : "Referencia visible: todavía no asignada"}
+                  </span>
+                  <span className="biomechanics-badge">
+                    {`${templateTechniqueForm.biomechanics.focusPoints.length} punto(s) · ${templateTechniqueForm.biomechanics.angleChecks.length} ángulo(s) · ${templateTechniqueForm.biomechanics.keyEvents.length} evento(s)`}
+                  </span>
+                </div>
                 {techniquePoseProcessing.status === "processing" ? (
                   <p className="helper-text">
                     {techniquePoseProcessing.detail} {techniquePoseProcessing.totalFrames > 0
@@ -4739,6 +5110,555 @@ export default function App() {
                 {techniquePoseProcessing.status === "error" ? (
                   <p className="helper-text" style={{ color: "#b91c1c" }}>{techniquePoseProcessing.detail}</p>
                 ) : null}
+              </div>
+
+              <div className="detail-stack">
+                <div className="section-header compact-header">
+                  <div>
+                    <p className="eyebrow">Biomecánica</p>
+                    <h3>Puntos, ángulos y eventos clave</h3>
+                  </div>
+                </div>
+
+                <div className="workflow-note">
+                  <strong>Qué define esta configuración</strong>
+                  <p>
+                    Aquí decides qué landmarks mirar, qué ángulos comparar y en qué momentos del gesto
+                    debe fijarse el análisis sobre la referencia profesional ya subida.
+                  </p>
+                </div>
+
+                <div className="detail-card program-card biomechanics-card">
+                  <div className="section-header compact-header">
+                    <div>
+                      <p className="eyebrow">Puntos clave</p>
+                      <h3>Landmarks a seguir</h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() =>
+                        setTemplateTechniqueForm((current) => ({
+                          ...current,
+                          biomechanics: {
+                            ...current.biomechanics,
+                            focusPoints: [
+                              ...current.biomechanics.focusPoints,
+                              {
+                                id: createDraftId(),
+                                label: "",
+                                landmark: "RIGHT_HIP",
+                                cue: "",
+                                notes: "",
+                              },
+                            ],
+                          },
+                        }))
+                      }
+                    >
+                      + Punto clave
+                    </button>
+                  </div>
+                  {templateTechniqueForm.biomechanics.focusPoints.length ? (
+                    templateTechniqueForm.biomechanics.focusPoints.map((point, index) => (
+                      <article key={point.id} className="detail-card program-card">
+                        <div className="form-grid">
+                          <label>
+                            Nombre del punto
+                            <input
+                              value={point.label}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    focusPoints: current.biomechanics.focusPoints.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, label: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="ej. Cadera de impulso"
+                            />
+                          </label>
+                          <label>
+                            Landmark
+                            <select
+                              value={point.landmark}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    focusPoints: current.biomechanics.focusPoints.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, landmark: event.target.value as LandmarkName } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {poseLandmarkOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Cue técnico
+                            <input
+                              value={point.cue}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    focusPoints: current.biomechanics.focusPoints.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, cue: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="ej. Mantener la cadera alta"
+                            />
+                          </label>
+                          <label>
+                            Notas
+                            <textarea
+                              value={point.notes}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    focusPoints: current.biomechanics.focusPoints.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, notes: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              rows={3}
+                              placeholder="Qué se compara contra la referencia o por qué importa este punto."
+                            />
+                          </label>
+                        </div>
+                        <div className="chip-row">
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() =>
+                              setTemplateTechniqueForm((current) => ({
+                                ...current,
+                                biomechanics: {
+                                  ...current.biomechanics,
+                                  focusPoints: current.biomechanics.focusPoints.filter((_, entryIndex) => entryIndex !== index),
+                                },
+                              }))
+                            }
+                          >
+                            Eliminar punto
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="helper-text">Define los landmarks que deben seguirse de forma explícita sobre el gesto profesional.</p>
+                  )}
+                </div>
+
+                <div className="detail-card program-card biomechanics-card">
+                  <div className="section-header compact-header">
+                    <div>
+                      <p className="eyebrow">Ángulos clave</p>
+                      <h3>Comparaciones articulares</h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() =>
+                        setTemplateTechniqueForm((current) => ({
+                          ...current,
+                          biomechanics: {
+                            ...current.biomechanics,
+                            angleChecks: [
+                              ...current.biomechanics.angleChecks,
+                              {
+                                id: createDraftId(),
+                                label: "",
+                                pointA: "RIGHT_HIP",
+                                vertex: "RIGHT_KNEE",
+                                pointC: "RIGHT_ANKLE",
+                                plane: "SAGITTAL_2D",
+                                targetMinDeg: "",
+                                targetMaxDeg: "",
+                                phase: "",
+                                notes: "",
+                              },
+                            ],
+                          },
+                        }))
+                      }
+                    >
+                      + Ángulo
+                    </button>
+                  </div>
+                  {templateTechniqueForm.biomechanics.angleChecks.length ? (
+                    templateTechniqueForm.biomechanics.angleChecks.map((angleCheck, index) => (
+                      <article key={angleCheck.id} className="detail-card program-card">
+                        <div className="form-grid-3">
+                          <label>
+                            Nombre del ángulo
+                            <input
+                              value={angleCheck.label}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    angleChecks: current.biomechanics.angleChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, label: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="ej. Flexión de rodilla derecha"
+                            />
+                          </label>
+                          <label>
+                            Punto A
+                            <select
+                              value={angleCheck.pointA}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    angleChecks: current.biomechanics.angleChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, pointA: event.target.value as LandmarkName } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {poseLandmarkOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Vértice
+                            <select
+                              value={angleCheck.vertex}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    angleChecks: current.biomechanics.angleChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, vertex: event.target.value as LandmarkName } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {poseLandmarkOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Punto C
+                            <select
+                              value={angleCheck.pointC}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    angleChecks: current.biomechanics.angleChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, pointC: event.target.value as LandmarkName } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {poseLandmarkOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Plano
+                            <select
+                              value={angleCheck.plane}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    angleChecks: current.biomechanics.angleChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, plane: event.target.value as TechniqueBiomechanicsAnglePlane } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {biomechanicsPlaneOptions.map((option) => (
+                                <option key={option} value={option}>{formatBiomechanicsPlaneLabel(option)}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Fase
+                            <input
+                              value={angleCheck.phase}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    angleChecks: current.biomechanics.angleChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, phase: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="ej. Dip final"
+                            />
+                          </label>
+                          <label>
+                            Mínimo objetivo (°)
+                            <input
+                              type="number"
+                              value={angleCheck.targetMinDeg}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    angleChecks: current.biomechanics.angleChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, targetMinDeg: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="70"
+                            />
+                          </label>
+                          <label>
+                            Máximo objetivo (°)
+                            <input
+                              type="number"
+                              value={angleCheck.targetMaxDeg}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    angleChecks: current.biomechanics.angleChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, targetMaxDeg: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="95"
+                            />
+                          </label>
+                          <label style={{ gridColumn: "1 / -1" }}>
+                            Notas
+                            <textarea
+                              value={angleCheck.notes}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    angleChecks: current.biomechanics.angleChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, notes: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              rows={3}
+                              placeholder="Qué rango quieres comparar contra la referencia."
+                            />
+                          </label>
+                        </div>
+                        <div className="chip-row">
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() =>
+                              setTemplateTechniqueForm((current) => ({
+                                ...current,
+                                biomechanics: {
+                                  ...current.biomechanics,
+                                  angleChecks: current.biomechanics.angleChecks.filter((_, entryIndex) => entryIndex !== index),
+                                },
+                              }))
+                            }
+                          >
+                            Eliminar ángulo
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="helper-text">Agrega los ángulos que deben compararse contra la referencia profesional.</p>
+                  )}
+                </div>
+
+                <div className="detail-card program-card biomechanics-card">
+                  <div className="section-header compact-header">
+                    <div>
+                      <p className="eyebrow">Eventos clave</p>
+                      <h3>Momentos del gesto</h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() =>
+                        setTemplateTechniqueForm((current) => ({
+                          ...current,
+                          biomechanics: {
+                            ...current.biomechanics,
+                            keyEvents: [
+                              ...current.biomechanics.keyEvents,
+                              {
+                                id: createDraftId(),
+                                label: "",
+                                eventType: "TAKE_OFF",
+                                frameHint: "",
+                                notes: "",
+                              },
+                            ],
+                          },
+                        }))
+                      }
+                    >
+                      + Evento
+                    </button>
+                  </div>
+                  {templateTechniqueForm.biomechanics.keyEvents.length ? (
+                    templateTechniqueForm.biomechanics.keyEvents.map((keyEvent, index) => (
+                      <article key={keyEvent.id} className="detail-card program-card">
+                        <div className="form-grid">
+                          <label>
+                            Nombre del evento
+                            <input
+                              value={keyEvent.label}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    keyEvents: current.biomechanics.keyEvents.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, label: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="ej. Despegue principal"
+                            />
+                          </label>
+                          <label>
+                            Tipo de evento
+                            <select
+                              value={keyEvent.eventType}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    keyEvents: current.biomechanics.keyEvents.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, eventType: event.target.value as TechniqueBiomechanicsEventType } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {biomechanicsEventTypeOptions.map((option) => (
+                                <option key={option} value={option}>{formatBiomechanicsEventLabel(option)}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Pista temporal
+                            <input
+                              value={keyEvent.frameHint}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    keyEvents: current.biomechanics.keyEvents.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, frameHint: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="ej. último frame antes de perder contacto"
+                            />
+                          </label>
+                          <label>
+                            Notas
+                            <textarea
+                              value={keyEvent.notes}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    keyEvents: current.biomechanics.keyEvents.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, notes: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              rows={3}
+                              placeholder="Qué debe detectarse o compararse en este momento."
+                            />
+                          </label>
+                        </div>
+                        <div className="chip-row">
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() =>
+                              setTemplateTechniqueForm((current) => ({
+                                ...current,
+                                biomechanics: {
+                                  ...current.biomechanics,
+                                  keyEvents: current.biomechanics.keyEvents.filter((_, entryIndex) => entryIndex !== index),
+                                },
+                              }))
+                            }
+                          >
+                            Eliminar evento
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="helper-text">Declara las fases o frames clave que usarás después en la comparación.</p>
+                  )}
+                </div>
+
+                <label>
+                  Nota global para el análisis
+                  <textarea
+                    value={templateTechniqueForm.biomechanics.coachNotes}
+                    onChange={(event) =>
+                      setTemplateTechniqueForm((current) => ({
+                        ...current,
+                        biomechanics: {
+                          ...current.biomechanics,
+                          coachNotes: event.target.value,
+                        },
+                      }))
+                    }
+                    rows={4}
+                    placeholder="Resume qué debe priorizar el análisis biomecánico en esta técnica."
+                  />
+                </label>
               </div>
 
               <div className="program-list">

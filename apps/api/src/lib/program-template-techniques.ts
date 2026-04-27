@@ -39,6 +39,7 @@ export async function ensureTemplateTechniqueStructure(db: DbClient, programTemp
         measurementInstructions: null,
         proVideoUrl: null,
         proLandmarks: Prisma.JsonNull,
+        biomechanicsConfig: Prisma.JsonNull,
         comparisonEnabled: false,
         orderIndex: 1,
       },
@@ -47,6 +48,10 @@ export async function ensureTemplateTechniqueStructure(db: DbClient, programTemp
         measurementDefinitions: { orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }] },
       },
     });
+  }
+
+  if (!primaryTechnique) {
+    return null;
   }
 
   if (template.techniqueMediaAssets.length) {

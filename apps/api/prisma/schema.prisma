@@ -255,6 +255,7 @@ model ProgramTemplateTechnique {
   measurementInstructions String?
   proVideoUrl            String?
   proLandmarks          Json?
+  biomechanicsConfig    Json?
   comparisonEnabled      Boolean                                  @default(false)
   orderIndex             Int                                      @default(1)
   createdAt              DateTime                                 @default(now())

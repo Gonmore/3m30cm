@@ -34,6 +34,9 @@ templatesRouter.get("/program-templates", async (_req: Request, res: Response) =
             title: true,
             description: true,
             measurementInstructions: true,
+            proVideoUrl: true,
+            proLandmarks: true,
+            biomechanicsConfig: true,
             comparisonEnabled: true,
             orderIndex: true,
             mediaAssets: {

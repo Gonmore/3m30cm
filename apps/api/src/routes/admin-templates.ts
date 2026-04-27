@@ -93,12 +93,107 @@ const techniqueProLandmarksSchema = z.object({
   }
 });
 
+const poseLandmarkNames = [
+  "NOSE",
+  "LEFT_EYE_INNER",
+  "LEFT_EYE",
+  "LEFT_EYE_OUTER",
+  "RIGHT_EYE_INNER",
+  "RIGHT_EYE",
+  "RIGHT_EYE_OUTER",
+  "LEFT_EAR",
+  "RIGHT_EAR",
+  "MOUTH_LEFT",
+  "MOUTH_RIGHT",
+  "LEFT_SHOULDER",
+  "RIGHT_SHOULDER",
+  "LEFT_ELBOW",
+  "RIGHT_ELBOW",
+  "LEFT_WRIST",
+  "RIGHT_WRIST",
+  "LEFT_PINKY",
+  "RIGHT_PINKY",
+  "LEFT_INDEX",
+  "RIGHT_INDEX",
+  "LEFT_THUMB",
+  "RIGHT_THUMB",
+  "LEFT_HIP",
+  "RIGHT_HIP",
+  "LEFT_KNEE",
+  "RIGHT_KNEE",
+  "LEFT_ANKLE",
+  "RIGHT_ANKLE",
+  "LEFT_HEEL",
+  "RIGHT_HEEL",
+  "LEFT_FOOT_INDEX",
+  "RIGHT_FOOT_INDEX",
+] as const;
+
+const techniqueBiomechanicsFocusPointSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  landmark: z.enum(poseLandmarkNames),
+  cue: z.string().trim().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+});
+
+const techniqueBiomechanicsAngleCheckSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  pointA: z.enum(poseLandmarkNames),
+  vertex: z.enum(poseLandmarkNames),
+  pointC: z.enum(poseLandmarkNames),
+  plane: z.enum(["SAGITTAL_2D", "FRONTAL_2D", "TRANSVERSE_PROXY"]),
+  targetMinDeg: z.number().finite().min(0).max(360).nullable().optional(),
+  targetMaxDeg: z.number().finite().min(0).max(360).nullable().optional(),
+  phase: z.string().trim().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+}).superRefine((value, context) => {
+  if (value.pointA === value.vertex || value.pointC === value.vertex || value.pointA === value.pointC) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Angle points must be different",
+      path: ["vertex"],
+    });
+  }
+
+  if (
+    typeof value.targetMinDeg === "number"
+    && typeof value.targetMaxDeg === "number"
+    && value.targetMinDeg > value.targetMaxDeg
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "targetMinDeg must be lower than targetMaxDeg",
+      path: ["targetMinDeg"],
+    });
+  }
+});
+
+const techniqueBiomechanicsKeyEventSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  eventType: z.enum(["SETUP", "DIP", "TAKE_OFF", "FLIGHT", "LANDING", "OTHER"]),
+  frameHint: z.string().trim().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+});
+
+const techniqueBiomechanicsConfigSchema = z.object({
+  schemaVersion: z.literal(1),
+  referenceMediaAssetId: z.string().trim().min(1).nullable().optional(),
+  focusPoints: z.array(techniqueBiomechanicsFocusPointSchema).max(12).default([]),
+  angleChecks: z.array(techniqueBiomechanicsAngleCheckSchema).max(12).default([]),
+  keyEvents: z.array(techniqueBiomechanicsKeyEventSchema).max(12).default([]),
+  coachNotes: z.string().trim().nullable().optional(),
+});
+
 const createTechniqueSchema = z.object({
   title: z.string().trim().min(2),
   description: z.string().trim().nullable().optional(),
   measurementInstructions: z.string().trim().nullable().optional(),
   proVideoUrl: z.string().trim().url().nullable().optional(),
   proLandmarks: techniqueProLandmarksSchema.nullable().optional(),
+  biomechanicsConfig: techniqueBiomechanicsConfigSchema.nullable().optional(),
   comparisonEnabled: z.coerce.boolean().default(false),
 });
 
@@ -108,6 +203,7 @@ const updateTechniqueSchema = z.object({
   measurementInstructions: z.string().trim().nullable().optional(),
   proVideoUrl: z.string().trim().url().nullable().optional(),
   proLandmarks: techniqueProLandmarksSchema.nullable().optional(),
+  biomechanicsConfig: techniqueBiomechanicsConfigSchema.nullable().optional(),
   comparisonEnabled: z.coerce.boolean().optional(),
   orderIndex: z.number().int().positive().optional(),
 });
@@ -394,6 +490,7 @@ adminTemplatesRouter.post("/program-templates/:code/techniques", async (req: Req
         measurementInstructions: payload.measurementInstructions ?? null,
         proVideoUrl: payload.proVideoUrl ?? null,
         proLandmarks: payload.proLandmarks ? (payload.proLandmarks as Prisma.InputJsonValue) : Prisma.JsonNull,
+        biomechanicsConfig: payload.biomechanicsConfig ? (payload.biomechanicsConfig as Prisma.InputJsonValue) : Prisma.JsonNull,
         comparisonEnabled: payload.comparisonEnabled,
         orderIndex: (existing?.techniques.length ?? 0) + 1,
       },
@@ -446,6 +543,11 @@ adminTemplatesRouter.put("/program-templates/:code/techniques/:techniqueId", asy
         ...(payload.proVideoUrl !== undefined && { proVideoUrl: payload.proVideoUrl }),
         ...(payload.proLandmarks !== undefined && {
           proLandmarks: payload.proLandmarks ? (payload.proLandmarks as Prisma.InputJsonValue) : Prisma.JsonNull,
+        }),
+        ...(payload.biomechanicsConfig !== undefined && {
+          biomechanicsConfig: payload.biomechanicsConfig
+            ? (payload.biomechanicsConfig as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
         }),
         ...(payload.comparisonEnabled !== undefined && { comparisonEnabled: payload.comparisonEnabled }),
         ...(payload.orderIndex !== undefined && { orderIndex: payload.orderIndex }),
