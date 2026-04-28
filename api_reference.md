@@ -187,6 +187,8 @@ Incluye:
 - texto tecnico por tecnica
 - recursos asociados por tecnica (video, imagen o GIF)
 - referencia biomecanica profesional opcional por tecnica (`proVideoUrl`, `proLandmarks`)
+- metadata biomecanica persistida por tecnica en `biomechanicsConfig`, incluyendo `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `angleChecks`, `keyEvents` y `coachNotes`
+- en `keyEvents`, el admin ya puede persistir `frameIndex` explicito ademas de `frameHint` para volver al frame exacto en el editor visual del portal web
 - definiciones de medicion por tecnica
 - metricas tecnicas ya registradas por el atleta para ese template, incluyendo `completedSessionsAtMeasurement`
 

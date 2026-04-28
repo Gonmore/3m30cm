@@ -14,6 +14,23 @@
 
 ## Registro de trabajo
 
+### 0. Iteracion biomecanica visual en admin web
+
+Se cerro una nueva iteracion del flujo biomecanico del portal admin web sobre `ProgramTemplateTechnique`:
+
+- la referencia profesional sigue subiéndose desde `apps/web`, no desde mobile
+- el backend valida y persiste `proVideoUrl`, `proLandmarks` y `biomechanicsConfig`
+- `biomechanicsConfig` ya guarda `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `angleChecks`, `keyEvents` y `coachNotes`
+- los `keyEvents` ahora persisten `frameIndex` explicito ademas de `frameHint`
+- el portal admin ya tiene un editor visual funcional con video sincronizado por frame, overlay SVG, scrubber, timeline con markers, creacion visual de puntos, alta visual de angulos y marcado visual de eventos
+- los formularios estructurados inferiores siguen presentes como respaldo de edicion fina, pero ahora tambien resaltan la seleccion activa en overlay y timeline
+- el bloque visual se extrajo de `App.tsx` a componentes propios para reducir acoplamiento y facilitar iteraciones futuras
+
+Validacion ejecutada durante esta iteracion:
+
+- `npm --prefix apps/api run build`
+- `npm --prefix apps/web run build`
+
 ### 1. Creación de mobile2 (apps/mobile2)
 
 Se creó `apps/mobile2` como clon gamificado de `apps/mobile`. Archivos creados:

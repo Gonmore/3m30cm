@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { extractTechniquePoseSequence, type TechniqueProLandmarks } from "./techniquePoseExtraction";
+import { BiomechanicsVisualEditor } from "./components/BiomechanicsVisualEditor";
+import { extractTechniquePoseSequence, type TechniquePoseFrame, type TechniqueProLandmarks } from "./techniquePoseExtraction";
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
 const apiBaseUrl = configuredApiBaseUrl.replace(/\/$/, "");
@@ -98,6 +99,36 @@ type LandmarkName = (typeof poseLandmarkOptions)[number]["value"];
 type TechniqueBiomechanicsEventType = (typeof biomechanicsEventTypeOptions)[number];
 type TechniqueBiomechanicsAnglePlane = (typeof biomechanicsPlaneOptions)[number];
 type TechniqueReferenceMotionProfile = (typeof referenceMotionProfileOptions)[number];
+type TechniqueVisualEditorMode = "inspect" | "points" | "angles" | "events";
+
+interface TechniqueVisualLandmarkPoint {
+  landmark: LandmarkName;
+  x: number;
+  y: number;
+}
+
+const poseConnections: Array<[LandmarkName, LandmarkName]> = [
+  ["LEFT_SHOULDER", "RIGHT_SHOULDER"],
+  ["LEFT_SHOULDER", "LEFT_ELBOW"],
+  ["LEFT_ELBOW", "LEFT_WRIST"],
+  ["RIGHT_SHOULDER", "RIGHT_ELBOW"],
+  ["RIGHT_ELBOW", "RIGHT_WRIST"],
+  ["LEFT_SHOULDER", "LEFT_HIP"],
+  ["RIGHT_SHOULDER", "RIGHT_HIP"],
+  ["LEFT_HIP", "RIGHT_HIP"],
+  ["LEFT_HIP", "LEFT_KNEE"],
+  ["LEFT_KNEE", "LEFT_ANKLE"],
+  ["RIGHT_HIP", "RIGHT_KNEE"],
+  ["RIGHT_KNEE", "RIGHT_ANKLE"],
+  ["LEFT_ANKLE", "LEFT_HEEL"],
+  ["LEFT_HEEL", "LEFT_FOOT_INDEX"],
+  ["RIGHT_ANKLE", "RIGHT_HEEL"],
+  ["RIGHT_HEEL", "RIGHT_FOOT_INDEX"],
+] as const;
+
+const landmarkIndexByName = Object.fromEntries(
+  poseLandmarkOptions.map((option, index) => [option.value, index]),
+) as Record<LandmarkName, number>;
 
 interface AuthUser {
   id: string;
@@ -510,6 +541,7 @@ interface TechniqueBiomechanicsKeyEventRecord {
   id: string;
   label: string;
   eventType: TechniqueBiomechanicsEventType;
+  frameIndex: number | null;
   frameHint: string | null;
   notes: string | null;
 }
@@ -585,6 +617,7 @@ interface TechniqueBiomechanicsKeyEventDraft {
   id: string;
   label: string;
   eventType: TechniqueBiomechanicsEventType;
+  frameIndex: string;
   frameHint: string;
   notes: string;
 }
@@ -971,6 +1004,9 @@ function normalizeTechniqueBiomechanicsConfig(
       id: entry.id,
       label: entry.label,
       eventType: entry.eventType,
+      frameIndex: typeof entry.frameIndex === "number"
+        ? Math.max(0, Math.trunc(entry.frameIndex))
+        : parseFrameIndexFromHint(entry.frameHint),
       frameHint: entry.frameHint ?? null,
       notes: entry.notes ?? null,
     })),
@@ -1008,6 +1044,7 @@ function mapTechniqueBiomechanicsConfigToForm(
       id: entry.id,
       label: entry.label,
       eventType: entry.eventType,
+      frameIndex: entry.frameIndex?.toString() ?? "",
       frameHint: entry.frameHint ?? "",
       notes: entry.notes ?? "",
     })),
@@ -1048,13 +1085,17 @@ function serializeTechniqueBiomechanicsForm(
       })),
     keyEvents: form.keyEvents
       .filter((entry) => entry.label.trim())
-      .map((entry) => ({
-        id: entry.id,
-        label: entry.label.trim(),
-        eventType: entry.eventType,
-        frameHint: entry.frameHint.trim() || null,
-        notes: entry.notes.trim() || null,
-      })),
+      .map((entry) => {
+        const parsedFrameIndex = parseFrameIndexInput(entry.frameIndex) ?? parseFrameIndexFromHint(entry.frameHint);
+        return {
+          id: entry.id,
+          label: entry.label.trim(),
+          eventType: entry.eventType,
+          frameIndex: parsedFrameIndex,
+          frameHint: entry.frameHint.trim() || null,
+          notes: entry.notes.trim() || null,
+        };
+      }),
     coachNotes: form.coachNotes.trim() || null,
   };
 }
@@ -1118,6 +1159,105 @@ function landmarkLabel(value: LandmarkName) {
   return poseLandmarkOptions.find((option) => option.value === value)?.label ?? value;
 }
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getReferencePoseFrame(landmarks: TechniqueProLandmarks | null | undefined, frameIndex: number): TechniquePoseFrame | null {
+  if (!landmarks?.frames.length) {
+    return null;
+  }
+
+  const safeIndex = clampNumber(frameIndex, 0, landmarks.frames.length - 1);
+  return landmarks.frames[safeIndex] ?? null;
+}
+
+function getLandmarkPoint(frame: TechniquePoseFrame | null, landmark: LandmarkName): TechniqueVisualLandmarkPoint | null {
+  if (!frame) {
+    return null;
+  }
+
+  const landmarkIndex = landmarkIndexByName[landmark];
+  const point = frame.landmarks[landmarkIndex];
+  if (!point) {
+    return null;
+  }
+
+  return {
+    landmark,
+    x: point.x,
+    y: point.y,
+  };
+}
+
+function formatReferenceFrameLabel(timestampMs: number) {
+  const totalSeconds = Math.max(Math.round(timestampMs / 100) / 10, 0);
+  return `${totalSeconds.toFixed(1)}s`;
+}
+
+function buildFrameHint(frameIndex: number, timestampMs: number) {
+  return `Frame ${frameIndex + 1} · ${formatReferenceFrameLabel(timestampMs)}`;
+}
+
+function parseFrameIndexFromHint(frameHint: string | null | undefined) {
+  if (!frameHint) {
+    return null;
+  }
+
+  const match = frameHint.match(/frame\s+(\d+)/i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const parsed = Number(match[1]);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed - 1;
+}
+
+function parseFrameIndexInput(value: string | null | undefined) {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function measureAngleDegrees(
+  pointA: TechniqueVisualLandmarkPoint | null,
+  vertex: TechniqueVisualLandmarkPoint | null,
+  pointC: TechniqueVisualLandmarkPoint | null,
+) {
+  if (!pointA || !vertex || !pointC) {
+    return null;
+  }
+
+  const vectorA = { x: pointA.x - vertex.x, y: pointA.y - vertex.y };
+  const vectorC = { x: pointC.x - vertex.x, y: pointC.y - vertex.y };
+  const magnitudeA = Math.hypot(vectorA.x, vectorA.y);
+  const magnitudeC = Math.hypot(vectorC.x, vectorC.y);
+
+  if (!magnitudeA || !magnitudeC) {
+    return null;
+  }
+
+  const cosine = clampNumber(
+    (vectorA.x * vectorC.x + vectorA.y * vectorC.y) / (magnitudeA * magnitudeC),
+    -1,
+    1,
+  );
+
+  return Math.round((Math.acos(cosine) * 180) / Math.PI);
+}
+
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem(tokenStorageKey));
   const [adminView, setAdminView] = useState<AdminView>("home");
@@ -1167,6 +1307,15 @@ export default function App() {
   const [selectedTemplateTechniqueMediaAssets, setSelectedTemplateTechniqueMediaAssets] = useState<ProgramTechniqueMediaAsset[]>([]);
   const [techniqueUploadState, setTechniqueUploadState] = useState<TechniqueUploadState>(emptyTechniqueUploadState);
   const [techniquePoseProcessing, setTechniquePoseProcessing] = useState<TechniquePoseProcessingState>(emptyTechniquePoseProcessingState);
+  const [visualEditorMode, setVisualEditorMode] = useState<TechniqueVisualEditorMode>("inspect");
+  const [selectedReferenceFrameIndex, setSelectedReferenceFrameIndex] = useState(0);
+  const [hoveredVisualLandmark, setHoveredVisualLandmark] = useState<LandmarkName | null>(null);
+  const [pendingAngleLandmarks, setPendingAngleLandmarks] = useState<LandmarkName[]>([]);
+  const [pendingEventType, setPendingEventType] = useState<TechniqueBiomechanicsEventType>("TAKE_OFF");
+  const [selectedFocusPointId, setSelectedFocusPointId] = useState<string | null>(null);
+  const [selectedAngleCheckId, setSelectedAngleCheckId] = useState<string | null>(null);
+  const [selectedKeyEventId, setSelectedKeyEventId] = useState<string | null>(null);
+  const referenceVideoRef = useRef<HTMLVideoElement | null>(null);
   const [exclusionsAthleteId, setExclusionsAthleteId] = useState<string>("");
   const [exclusionsDraft, setExclusionsDraft] = useState<string[]>([]);
 
@@ -1199,9 +1348,397 @@ export default function App() {
     return selectedTemplateTechniqueMediaAssets.find((asset) => asset.id === referenceMediaAssetId) ?? null;
   }, [selectedTechnique?.biomechanicsConfig, selectedTemplateTechniqueMediaAssets]);
 
+  const selectedReferenceFrame = useMemo(
+    () => getReferencePoseFrame(selectedTechnique?.proLandmarks, selectedReferenceFrameIndex),
+    [selectedTechnique?.proLandmarks, selectedReferenceFrameIndex],
+  );
+
+  const selectedReferenceAnglePreview = useMemo(() => {
+    if (pendingAngleLandmarks.length !== 3) {
+      return null;
+    }
+
+    const [pointA, vertex, pointC] = pendingAngleLandmarks;
+    if (!pointA || !vertex || !pointC) {
+      return null;
+    }
+
+    return measureAngleDegrees(
+      getLandmarkPoint(selectedReferenceFrame, pointA),
+      getLandmarkPoint(selectedReferenceFrame, vertex),
+      getLandmarkPoint(selectedReferenceFrame, pointC),
+    );
+  }, [pendingAngleLandmarks, selectedReferenceFrame]);
+
+  const selectedReferenceVideoUrl = useMemo(
+    () => normalizeMediaUrl(selectedTechniqueReferenceAsset?.url ?? selectedTechnique?.proVideoUrl),
+    [selectedTechnique?.proVideoUrl, selectedTechniqueReferenceAsset?.url],
+  );
+
+  const selectedReferenceFramePoints = useMemo(
+    () => poseLandmarkOptions
+      .map((option) => getLandmarkPoint(selectedReferenceFrame, option.value))
+      .filter((point): point is TechniqueVisualLandmarkPoint => Boolean(point)),
+    [selectedReferenceFrame],
+  );
+
+  const selectedReferenceFrameCount = selectedTechnique?.proLandmarks?.frames.length ?? 0;
+
+  const referenceEventMarkers = useMemo(
+    () => templateTechniqueForm.biomechanics.keyEvents
+      .map((event) => ({
+        ...event,
+        frameIndex: parseFrameIndexInput(event.frameIndex) ?? parseFrameIndexFromHint(event.frameHint),
+      }))
+      .filter((event): event is TechniqueBiomechanicsKeyEventDraft & { frameIndex: number } => event.frameIndex !== null),
+    [templateTechniqueForm.biomechanics.keyEvents],
+  );
+
+  const focusPointLandmarkSet = useMemo(
+    () => new Set(templateTechniqueForm.biomechanics.focusPoints.map((point) => point.landmark)),
+    [templateTechniqueForm.biomechanics.focusPoints],
+  );
+
+  const selectedFocusPoint = useMemo(
+    () => templateTechniqueForm.biomechanics.focusPoints.find((point) => point.id === selectedFocusPointId) ?? null,
+    [selectedFocusPointId, templateTechniqueForm.biomechanics.focusPoints],
+  );
+
+  const selectedAngleCheck = useMemo(
+    () => templateTechniqueForm.biomechanics.angleChecks.find((angle) => angle.id === selectedAngleCheckId) ?? null,
+    [selectedAngleCheckId, templateTechniqueForm.biomechanics.angleChecks],
+  );
+
+  const selectedAngleLandmarks = useMemo(
+    () => selectedAngleCheck ? [selectedAngleCheck.pointA, selectedAngleCheck.vertex, selectedAngleCheck.pointC] : [],
+    [selectedAngleCheck],
+  );
+
+  const selectedKeyEvent = useMemo(
+    () => templateTechniqueForm.biomechanics.keyEvents.find((event) => event.id === selectedKeyEventId) ?? null,
+    [selectedKeyEventId, templateTechniqueForm.biomechanics.keyEvents],
+  );
+
+  const selectedAngleOverlayPoints = useMemo(() => {
+    if (!selectedAngleCheck) {
+      return null;
+    }
+
+    const pointA = getLandmarkPoint(selectedReferenceFrame, selectedAngleCheck.pointA);
+    const vertex = getLandmarkPoint(selectedReferenceFrame, selectedAngleCheck.vertex);
+    const pointC = getLandmarkPoint(selectedReferenceFrame, selectedAngleCheck.pointC);
+    if (!pointA || !vertex || !pointC) {
+      return null;
+    }
+
+    return { pointA, vertex, pointC };
+  }, [selectedAngleCheck, selectedReferenceFrame]);
+
+  const referenceConnectionSegments = useMemo(() => {
+    const baseSegments = poseConnections
+      .map(([startLandmark, endLandmark]) => {
+        const startPoint = getLandmarkPoint(selectedReferenceFrame, startLandmark);
+        const endPoint = getLandmarkPoint(selectedReferenceFrame, endLandmark);
+        if (!startPoint || !endPoint) {
+          return null;
+        }
+
+        return {
+          key: `${startLandmark}-${endLandmark}`,
+          x1: startPoint.x,
+          y1: startPoint.y,
+          x2: endPoint.x,
+          y2: endPoint.y,
+        };
+      })
+      .filter((segment): segment is { key: string; x1: number; y1: number; x2: number; y2: number } => Boolean(segment));
+
+    if (!selectedAngleOverlayPoints) {
+      return baseSegments;
+    }
+
+    return [
+      ...baseSegments,
+      {
+        key: "selected-angle-a",
+        x1: selectedAngleOverlayPoints.pointA.x,
+        y1: selectedAngleOverlayPoints.pointA.y,
+        x2: selectedAngleOverlayPoints.vertex.x,
+        y2: selectedAngleOverlayPoints.vertex.y,
+        highlight: true,
+      },
+      {
+        key: "selected-angle-c",
+        x1: selectedAngleOverlayPoints.vertex.x,
+        y1: selectedAngleOverlayPoints.vertex.y,
+        x2: selectedAngleOverlayPoints.pointC.x,
+        y2: selectedAngleOverlayPoints.pointC.y,
+        highlight: true,
+      },
+    ];
+  }, [selectedAngleOverlayPoints, selectedReferenceFrame]);
+
+  const referenceLandmarkNodes = useMemo(
+    () => selectedReferenceFramePoints.map((point) => ({
+      landmark: point.landmark,
+      x: point.x,
+      y: point.y,
+      isFocused: focusPointLandmarkSet.has(point.landmark),
+      isPending: pendingAngleLandmarks.includes(point.landmark),
+      isSelected: point.landmark === selectedFocusPoint?.landmark || selectedAngleLandmarks.includes(point.landmark),
+      isHovered: hoveredVisualLandmark === point.landmark,
+    })),
+    [focusPointLandmarkSet, hoveredVisualLandmark, pendingAngleLandmarks, selectedAngleLandmarks, selectedFocusPoint?.landmark, selectedReferenceFramePoints],
+  );
+
+  const referenceTimelineMarkers = useMemo(
+    () => referenceEventMarkers.map((event) => ({
+      id: event.id,
+      label: event.label,
+      title: `${event.label} · ${event.frameHint ?? `Frame ${event.frameIndex + 1}`}`,
+      leftPercent: selectedReferenceFrameCount > 1 ? (event.frameIndex / (selectedReferenceFrameCount - 1)) * 100 : 0,
+      isActive: selectedKeyEventId === event.id,
+    })),
+    [referenceEventMarkers, selectedKeyEventId, selectedReferenceFrameCount],
+  );
+
+  const focusPointChips = useMemo(
+    () => templateTechniqueForm.biomechanics.focusPoints.map((point) => ({
+      id: point.id,
+      label: point.label || landmarkLabel(point.landmark),
+      landmark: point.landmark,
+      isActive: selectedFocusPointId === point.id,
+    })),
+    [selectedFocusPointId, templateTechniqueForm.biomechanics.focusPoints],
+  );
+
+  const angleSelectionLabels = useMemo(() => {
+    if (pendingAngleLandmarks.length) {
+      return pendingAngleLandmarks.map((landmark) => landmarkLabel(landmark));
+    }
+
+    if (selectedAngleCheck) {
+      return [selectedAngleCheck.pointA, selectedAngleCheck.vertex, selectedAngleCheck.pointC].map((landmark) => landmarkLabel(landmark));
+    }
+
+    return [];
+  }, [pendingAngleLandmarks, selectedAngleCheck]);
+
+  const eventChips = useMemo(
+    () => referenceEventMarkers.map((event) => ({
+      id: event.id,
+      label: event.label,
+      isActive: selectedKeyEventId === event.id,
+    })),
+    [referenceEventMarkers, selectedKeyEventId],
+  );
+
+  const inspectSummaryChips = useMemo(
+    () => [
+      `Timestamp: ${formatReferenceFrameLabel(selectedReferenceFrame?.timestampMs ?? 0)}`,
+      `Landmarks visibles: ${selectedReferenceFramePoints.length}`,
+      `Modo referencia: ${formatReferenceMotionProfile(templateTechniqueForm.biomechanics.referenceMotionProfile)}`,
+    ],
+    [selectedReferenceFrame?.timestampMs, selectedReferenceFramePoints.length, templateTechniqueForm.biomechanics.referenceMotionProfile],
+  );
+
   useEffect(() => {
     setTechniquePoseProcessing(emptyTechniquePoseProcessingState());
   }, [selectedTechniqueId]);
+
+  useEffect(() => {
+    setVisualEditorMode("inspect");
+    setSelectedReferenceFrameIndex(0);
+    setHoveredVisualLandmark(null);
+    setPendingAngleLandmarks([]);
+    setPendingEventType("TAKE_OFF");
+    setSelectedFocusPointId(null);
+    setSelectedAngleCheckId(null);
+    setSelectedKeyEventId(null);
+  }, [selectedTechniqueId]);
+
+  useEffect(() => {
+    const frameCount = selectedTechnique?.proLandmarks?.frames.length ?? 0;
+    if (!frameCount) {
+      setSelectedReferenceFrameIndex(0);
+      return;
+    }
+
+    setSelectedReferenceFrameIndex((current) => clampNumber(current, 0, frameCount - 1));
+  }, [selectedTechnique?.proLandmarks?.frames.length]);
+
+  useEffect(() => {
+    const video = referenceVideoRef.current;
+    if (!video || !selectedReferenceFrame) {
+      return;
+    }
+
+    const targetTimeSeconds = selectedReferenceFrame.timestampMs / 1000;
+    if (Math.abs(video.currentTime - targetTimeSeconds) > 0.05) {
+      video.currentTime = targetTimeSeconds;
+    }
+
+    video.pause();
+  }, [selectedReferenceFrame]);
+
+  function handleVisualLandmarkSelect(landmark: LandmarkName) {
+    setHoveredVisualLandmark(landmark);
+
+    if (visualEditorMode === "points") {
+      const nextPointId = createDraftId();
+      setSelectedFocusPointId(nextPointId);
+      setSelectedAngleCheckId(null);
+      setSelectedKeyEventId(null);
+      setTemplateTechniqueForm((current) => {
+        if (current.biomechanics.focusPoints.some((point) => point.landmark === landmark)) {
+          return current;
+        }
+
+        return {
+          ...current,
+          biomechanics: {
+            ...current.biomechanics,
+            focusPoints: [
+              ...current.biomechanics.focusPoints,
+              {
+                id: nextPointId,
+                label: landmarkLabel(landmark),
+                landmark,
+                cue: "",
+                notes: "",
+              },
+            ],
+          },
+        };
+      });
+
+      return;
+    }
+
+    if (visualEditorMode === "angles") {
+      setSelectedFocusPointId(null);
+      setSelectedAngleCheckId(null);
+      setSelectedKeyEventId(null);
+      setPendingAngleLandmarks((current) => {
+        if (current.length >= 3) {
+          return [landmark];
+        }
+
+        return [...current, landmark];
+      });
+    }
+  }
+
+  function handleCreateAngleFromPendingSelection() {
+    if (pendingAngleLandmarks.length !== 3) {
+      return;
+    }
+
+    const [pointA, vertex, pointC] = pendingAngleLandmarks;
+    if (!pointA || !vertex || !pointC) {
+      return;
+    }
+
+    const nextAngleId = createDraftId();
+    setSelectedFocusPointId(null);
+    setSelectedAngleCheckId(nextAngleId);
+    setSelectedKeyEventId(null);
+    setTemplateTechniqueForm((current) => ({
+      ...current,
+      biomechanics: {
+        ...current.biomechanics,
+        angleChecks: [
+          ...current.biomechanics.angleChecks,
+          {
+            id: nextAngleId,
+            label: `Ángulo ${landmarkLabel(vertex)}`,
+            pointA,
+            vertex,
+            pointC,
+            plane: "SAGITTAL_2D",
+            targetMinDeg: "",
+            targetMaxDeg: "",
+            phase: "",
+            notes: selectedReferenceAnglePreview ? `Preview visual: ${selectedReferenceAnglePreview}°` : "",
+          },
+        ],
+      },
+    }));
+    setPendingAngleLandmarks([]);
+  }
+
+  function handleCreateEventFromCurrentFrame() {
+    if (!selectedReferenceFrame) {
+      return;
+    }
+
+    const nextEventId = createDraftId();
+    setSelectedFocusPointId(null);
+    setSelectedAngleCheckId(null);
+    setSelectedKeyEventId(nextEventId);
+    const nextFrameHint = buildFrameHint(selectedReferenceFrameIndex, selectedReferenceFrame.timestampMs);
+    setTemplateTechniqueForm((current) => ({
+      ...current,
+      biomechanics: {
+        ...current.biomechanics,
+        keyEvents: [
+          ...current.biomechanics.keyEvents,
+          {
+            id: nextEventId,
+            label: `${formatBiomechanicsEventLabel(pendingEventType)} ${selectedReferenceFrameIndex + 1}`,
+            eventType: pendingEventType,
+            frameIndex: selectedReferenceFrameIndex.toString(),
+            frameHint: nextFrameHint,
+            notes: "",
+          },
+        ],
+      },
+    }));
+  }
+
+  function handleFocusPointSelect(pointId: string, landmark: LandmarkName) {
+    setVisualEditorMode("points");
+    setSelectedFocusPointId(pointId);
+    setSelectedAngleCheckId(null);
+    setSelectedKeyEventId(null);
+    setHoveredVisualLandmark(landmark);
+  }
+
+  function handleAngleCheckSelect(angleId: string) {
+    setVisualEditorMode("angles");
+    setSelectedFocusPointId(null);
+    setSelectedAngleCheckId(angleId);
+    setSelectedKeyEventId(null);
+    setPendingAngleLandmarks([]);
+    setHoveredVisualLandmark(null);
+  }
+
+  function handleKeyEventSelect(eventId: string, eventType: TechniqueBiomechanicsEventType, frameIndex: number | null) {
+    setVisualEditorMode("events");
+    setSelectedFocusPointId(null);
+    setSelectedAngleCheckId(null);
+    setSelectedKeyEventId(eventId);
+    setPendingEventType(eventType);
+    if (frameIndex !== null) {
+      setSelectedReferenceFrameIndex(frameIndex);
+    }
+  }
+
+  function handleVisualEditorModeChange(mode: TechniqueVisualEditorMode) {
+    setVisualEditorMode(mode);
+    if (mode !== "angles") {
+      setPendingAngleLandmarks([]);
+    }
+  }
+
+  function handleTimelineMarkerSelect(markerId: string) {
+    const marker = referenceEventMarkers.find((event) => event.id === markerId);
+    if (!marker) {
+      return;
+    }
+
+    handleKeyEventSelect(marker.id, marker.eventType, marker.frameIndex);
+  }
 
   const selectedTeam = useMemo(
     () => teams.find((team) => team.id === selectedTeamId) ?? null,
@@ -5197,6 +5734,66 @@ export default function App() {
                 ) : null}
               </div>
 
+              {selectedTechnique?.proLandmarks && selectedReferenceFrame && selectedReferenceVideoUrl ? (
+                <BiomechanicsVisualEditor
+                  mode={visualEditorMode}
+                  modeOptions={[
+                    { mode: "inspect", label: "Inspección" },
+                    { mode: "points", label: "Puntos" },
+                    { mode: "angles", label: "Ángulos" },
+                    { mode: "events", label: "Eventos" },
+                  ]}
+                  inspectorTitle={hoveredVisualLandmark ? landmarkLabel(hoveredVisualLandmark) : "Inspector biomecánico"}
+                  inspectorDescription={visualEditorMode === "inspect"
+                    ? "Usa el scrubber para recorrer la referencia y pasa el cursor sobre los landmarks para inspeccionarlos."
+                    : visualEditorMode === "points"
+                      ? "Haz click sobre un landmark del cuerpo para crear un punto clave vinculado a esa articulación."
+                      : visualEditorMode === "angles"
+                        ? "Selecciona tres landmarks en orden A → vértice → C para construir un ángulo visual."
+                        : "Elige el frame actual en la timeline y marca el evento biomecánico desde este momento del gesto."}
+                  videoRef={referenceVideoRef}
+                  videoUrl={selectedReferenceVideoUrl}
+                  currentTimestampMs={selectedReferenceFrame.timestampMs}
+                  frameIndex={selectedReferenceFrameIndex}
+                  frameCount={selectedReferenceFrameCount}
+                  frameLabel={`Frame ${selectedReferenceFrameIndex + 1}/${selectedReferenceFrameCount} · ${formatReferenceFrameLabel(selectedReferenceFrame.timestampMs)}`}
+                  connectionSegments={referenceConnectionSegments}
+                  landmarkNodes={referenceLandmarkNodes}
+                  markers={referenceTimelineMarkers}
+                  focusPointChips={focusPointChips}
+                  angleSelectionLabels={angleSelectionLabels}
+                  anglePreviewLabel={selectedReferenceAnglePreview ? `Preview: ${selectedReferenceAnglePreview}°` : "Preview: pendiente"}
+                  canCreateAngle={pendingAngleLandmarks.length === 3}
+                  canClearAngleSelection={pendingAngleLandmarks.length > 0}
+                  eventTypeOptions={biomechanicsEventTypeOptions.map((option) => ({ value: option, label: formatBiomechanicsEventLabel(option) }))}
+                  pendingEventType={pendingEventType}
+                  eventChips={eventChips}
+                  inspectSummaryChips={inspectSummaryChips}
+                  onModeChange={handleVisualEditorModeChange}
+                  onVideoLoadedMetadata={(event) => {
+                    event.currentTarget.currentTime = selectedReferenceFrame.timestampMs / 1000;
+                    event.currentTarget.pause();
+                  }}
+                  onLandmarkHover={(landmark) => setHoveredVisualLandmark(landmark as LandmarkName | null)}
+                  onLandmarkSelect={(landmark) => handleVisualLandmarkSelect(landmark as LandmarkName)}
+                  onPreviousFrame={() => setSelectedReferenceFrameIndex((current) => clampNumber(current - 1, 0, Math.max(selectedReferenceFrameCount - 1, 0)))}
+                  onNextFrame={() => setSelectedReferenceFrameIndex((current) => clampNumber(current + 1, 0, Math.max(selectedReferenceFrameCount - 1, 0)))}
+                  onFrameChange={setSelectedReferenceFrameIndex}
+                  onMarkerSelect={handleTimelineMarkerSelect}
+                  onFocusPointChipSelect={(pointId, landmark) => handleFocusPointSelect(pointId, landmark as LandmarkName)}
+                  onCreateAngle={() => void handleCreateAngleFromPendingSelection()}
+                  onClearAngleSelection={() => setPendingAngleLandmarks([])}
+                  onPendingEventTypeChange={(eventType) => setPendingEventType(eventType as TechniqueBiomechanicsEventType)}
+                  onCreateEvent={() => void handleCreateEventFromCurrentFrame()}
+                  onEventChipSelect={(eventId) => {
+                    const selectedEvent = referenceEventMarkers.find((event) => event.id === eventId);
+                    if (selectedEvent) {
+                      handleKeyEventSelect(selectedEvent.id, selectedEvent.eventType, selectedEvent.frameIndex);
+                    }
+                  }}
+                />
+              ) : null}
+
               <div className="detail-stack">
                 <div className="section-header compact-header">
                   <div>
@@ -5246,7 +5843,12 @@ export default function App() {
                   </div>
                   {templateTechniqueForm.biomechanics.focusPoints.length ? (
                     templateTechniqueForm.biomechanics.focusPoints.map((point, index) => (
-                      <article key={point.id} className="detail-card program-card">
+                      <article
+                        key={point.id}
+                        className={`detail-card program-card${selectedFocusPointId === point.id ? " highlight-card" : ""}`}
+                        onClick={() => handleFocusPointSelect(point.id, point.landmark)}
+                        onFocusCapture={() => handleFocusPointSelect(point.id, point.landmark)}
+                      >
                         <div className="form-grid">
                           <label>
                             Nombre del punto
@@ -5387,7 +5989,12 @@ export default function App() {
                   </div>
                   {templateTechniqueForm.biomechanics.angleChecks.length ? (
                     templateTechniqueForm.biomechanics.angleChecks.map((angleCheck, index) => (
-                      <article key={angleCheck.id} className="detail-card program-card">
+                      <article
+                        key={angleCheck.id}
+                        className={`detail-card program-card${selectedAngleCheckId === angleCheck.id ? " highlight-card" : ""}`}
+                        onClick={() => handleAngleCheckSelect(angleCheck.id)}
+                        onFocusCapture={() => handleAngleCheckSelect(angleCheck.id)}
+                      >
                         <div className="form-grid-3">
                           <label>
                             Nombre del ángulo
@@ -5611,6 +6218,7 @@ export default function App() {
                                 id: createDraftId(),
                                 label: "",
                                 eventType: "TAKE_OFF",
+                                frameIndex: "",
                                 frameHint: "",
                                 notes: "",
                               },
@@ -5624,7 +6232,12 @@ export default function App() {
                   </div>
                   {templateTechniqueForm.biomechanics.keyEvents.length ? (
                     templateTechniqueForm.biomechanics.keyEvents.map((keyEvent, index) => (
-                      <article key={keyEvent.id} className="detail-card program-card">
+                      <article
+                        key={keyEvent.id}
+                        className={`detail-card program-card${selectedKeyEventId === keyEvent.id ? " highlight-card" : ""}`}
+                        onClick={() => handleKeyEventSelect(keyEvent.id, keyEvent.eventType, parseFrameIndexInput(keyEvent.frameIndex) ?? parseFrameIndexFromHint(keyEvent.frameHint))}
+                        onFocusCapture={() => handleKeyEventSelect(keyEvent.id, keyEvent.eventType, parseFrameIndexInput(keyEvent.frameIndex) ?? parseFrameIndexFromHint(keyEvent.frameHint))}
+                      >
                         <div className="form-grid">
                           <label>
                             Nombre del evento
@@ -5664,6 +6277,27 @@ export default function App() {
                                 <option key={option} value={option}>{formatBiomechanicsEventLabel(option)}</option>
                               ))}
                             </select>
+                          </label>
+                          <label>
+                            Frame índice
+                            <input
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={keyEvent.frameIndex}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    keyEvents: current.biomechanics.keyEvents.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, frameIndex: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="ej. 12"
+                            />
                           </label>
                           <label>
                             Pista temporal

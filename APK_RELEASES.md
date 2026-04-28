@@ -108,5 +108,6 @@ Checklist corto para la proxima version:
 - Este proceso no modifica `deploy.sh` ni el deploy Docker de `api`/`web`.
 - `EXPO_PUBLIC_API_BASE_URL` para `apk:prod` ya apunta a `https://3m30cm.supernovatel.com`.
 - La APK `1.2.0` depende de cambios de backend y schema; antes de distribuirla conviene correr primero tu deploy manual con `./deploy.sh` para que produccion aplique `prisma migrate deploy` y exponga los campos nuevos del atleta.
+- La ultima iteracion del editor biomecanico visual vive en `apps/web` y `apps/api`; no obliga por si sola a generar una APK nueva mientras no cambie el runtime de `apps/mobile2`.
 - La app movil no debe depender de links directos a MinIO si el bucket productivo es privado; la ruta correcta para media queda proxyada por la API bajo `/api/v1/assets/...` y por eso una APK nueva es necesaria cuando cambia esa logica cliente.
 - Si Google login falla en un APK firmado, revisa el SHA-1 real del build release antes de tocar el codigo JS.

@@ -185,6 +185,7 @@ const techniqueBiomechanicsKeyEventSchema = z.object({
   id: z.string().trim().min(1).max(80),
   label: z.string().trim().min(1).max(120),
   eventType: z.enum(["SETUP", "DIP", "TAKE_OFF", "FLIGHT", "LANDING", "OTHER"]),
+  frameIndex: z.number().int().min(0).nullable().optional(),
   frameHint: z.string().trim().nullable().optional(),
   notes: z.string().trim().nullable().optional(),
 });

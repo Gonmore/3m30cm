@@ -171,6 +171,7 @@ Ademas, `apps/api/prisma.config.ts` ahora carga el `.env` raiz para que Prisma C
 - El script mide tiempos de build, push y tareas remotas para detectar cuellos de botella.
 - El `seed` no corre siempre; queda controlado por variable remota.
 - Si el proveedor SMTP se consume por un alias DNS cuyo certificado TLS pertenece a otro host canonico, hay que definir `SMTP_TLS_SERVERNAME` con el nombre que realmente aparece en el certificado.
+- Las iteraciones recientes del editor biomecanico del admin web no requieren tocar `deploy.sh`: el flujo correcto sigue siendo dejar el repo y los builds listos localmente, hacer `git push`, y luego ejecutar manualmente `./deploy.sh` cuando quieras publicar.
 
 ### Requisitos minimos del servidor remoto
 

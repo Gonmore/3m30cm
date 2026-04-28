@@ -592,6 +592,136 @@ textarea { resize: vertical; }
   color: var(--ink);
   font-size: 0.8rem;
 }
+.biomechanics-visual-shell { gap: 14px; }
+.biomechanics-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.biomechanics-mode-row .ghost-button.active {
+  border-color: rgba(42, 157, 143, 0.38);
+  background: rgba(42, 157, 143, 0.14);
+  color: var(--ink);
+}
+.biomechanics-visual-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr);
+  gap: 14px;
+  align-items: start;
+}
+.biomechanics-stage-column {
+  display: grid;
+  gap: 12px;
+}
+.biomechanics-stage-shell {
+  border-radius: 18px;
+  padding: 12px;
+  border: 1px solid rgba(20, 33, 61, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 247, 248, 0.88));
+}
+.biomechanics-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #0f172a;
+}
+.biomechanics-reference-video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.biomechanics-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.biomechanics-connection {
+  stroke: rgba(250, 250, 250, 0.58);
+  stroke-width: 5;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.biomechanics-connection.highlight {
+  stroke: rgba(250, 204, 21, 0.95);
+  stroke-width: 8;
+}
+.biomechanics-landmark {
+  fill: rgba(255, 255, 255, 0.92);
+  stroke: rgba(15, 23, 42, 0.84);
+  stroke-width: 4;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 120ms ease, fill 120ms ease, stroke 120ms ease;
+}
+.biomechanics-landmark.focus {
+  fill: rgba(42, 157, 143, 0.95);
+  stroke: rgba(14, 116, 144, 0.95);
+}
+.biomechanics-landmark.pending {
+  fill: rgba(231, 111, 81, 0.96);
+  stroke: rgba(153, 27, 27, 0.95);
+}
+.biomechanics-landmark.hovered {
+  fill: rgba(250, 204, 21, 0.96);
+  stroke: rgba(146, 64, 14, 0.95);
+}
+.biomechanics-landmark.selected {
+  fill: rgba(59, 130, 246, 0.96);
+  stroke: rgba(30, 64, 175, 0.98);
+}
+.biomechanics-frame-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+.biomechanics-timeline-shell {
+  display: grid;
+  gap: 8px;
+}
+.biomechanics-frame-slider {
+  width: 100%;
+}
+.biomechanics-timeline-track {
+  position: relative;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(20, 33, 61, 0.08);
+}
+.biomechanics-timeline-marker {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(135deg, var(--accent) 0%, #f97316 100%);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+}
+.biomechanics-timeline-marker.active {
+  width: 16px;
+  height: 16px;
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+}
+.biomechanics-inspector {
+  gap: 12px;
+  position: sticky;
+  top: 16px;
+}
+.biomechanics-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.biomechanics-helper-copy {
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+}
 
 .compact-detail-list { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 .banner { margin-top: 14px; }
@@ -661,6 +791,11 @@ textarea { resize: vertical; }
   color: var(--ink);
   font-size: 0.79rem;
   text-align: center;
+}
+.session-chip.active {
+  background: rgba(59, 130, 246, 0.16);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.28);
 }
 
 .removable-chip { gap: 6px; flex-wrap: wrap; justify-content: space-between; }
@@ -791,10 +926,12 @@ textarea { resize: vertical; }
 @media (max-width: 1100px) {
   .workspace-grid,
   .management-grid { grid-template-columns: 1fr; }
+  .biomechanics-visual-layout { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .form-grid-3 { grid-template-columns: 1fr 1fr; }
   .prescription-row { grid-template-columns: 1fr; }
   .sidebar-card { position: static; }
+  .biomechanics-inspector { position: static; }
   .wide-field { grid-column: span 1; }
   .section-header,
   .action-row,
