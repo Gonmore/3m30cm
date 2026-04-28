@@ -20,9 +20,11 @@ Se cerro una nueva iteracion del flujo biomecanico del portal admin web sobre `P
 
 - la referencia profesional sigue subiéndose desde `apps/web`, no desde mobile
 - el backend valida y persiste `proVideoUrl`, `proLandmarks` y `biomechanicsConfig`
-- `biomechanicsConfig` ya guarda `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `angleChecks`, `keyEvents` y `coachNotes`
+- `biomechanicsConfig` ya guarda `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `angleChecks`, `trajectoryChecks`, `keyEvents`, `orientationPolicy` y `coachNotes`
+- `angleChecks` ya puede anclarse a un evento concreto o a una ventana entre eventos, y `trajectoryChecks` expresa recorridos biomecanicos como la cadera entre penúltimo apoyo y despegue
 - los `keyEvents` ahora persisten `frameIndex` explicito ademas de `frameHint`
 - el portal admin ya tiene un editor visual funcional con video sincronizado por frame, overlay SVG, scrubber, timeline con markers, creacion visual de puntos, alta visual de angulos y marcado visual de eventos
+- los formularios inferiores del admin ahora exponen tambien anclajes por evento/ventana, trayectorias y politica de orientacion para dejar listo el contrato canónico atleta-vs-pro
 - los formularios estructurados inferiores siguen presentes como respaldo de edicion fina, pero ahora tambien resaltan la seleccion activa en overlay y timeline
 - el bloque visual se extrajo de `App.tsx` a componentes propios para reducir acoplamiento y facilitar iteraciones futuras
 

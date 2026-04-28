@@ -187,8 +187,12 @@ Incluye:
 - texto tecnico por tecnica
 - recursos asociados por tecnica (video, imagen o GIF)
 - referencia biomecanica profesional opcional por tecnica (`proVideoUrl`, `proLandmarks`)
-- metadata biomecanica persistida por tecnica en `biomechanicsConfig`, incluyendo `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `angleChecks`, `keyEvents` y `coachNotes`
+- metadata biomecanica persistida por tecnica en `biomechanicsConfig`, incluyendo `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `angleChecks`, `trajectoryChecks`, `keyEvents`, `orientationPolicy` y `coachNotes`
 - en `keyEvents`, el admin ya puede persistir `frameIndex` explicito ademas de `frameHint` para volver al frame exacto en el editor visual del portal web
+- `angleChecks` soporta anclaje a evento/ventana para que el JSON administrativo ya exprese dónde debe evaluarse cada ángulo
+- `trajectoryChecks` expresa trayectorias biomecanicas entre eventos, por ejemplo la cadera antes del despegue
+- `orientationPolicy` deja declarada la direccion preferida, el espejo permitido y el modo de normalizacion esperado para la futura capa atleta
+- `GET /athlete/technique` ya expone `biomechanicsConfig` junto a la referencia profesional para que la capa atleta futura consuma el mismo contrato canónico
 - definiciones de medicion por tecnica
 - metricas tecnicas ya registradas por el atleta para ese template, incluyendo `completedSessionsAtMeasurement`
 

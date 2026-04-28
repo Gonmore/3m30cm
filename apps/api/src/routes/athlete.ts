@@ -1766,6 +1766,7 @@ athleteRouter.get("/technique", async (req: AuthenticatedRequest, res: Response)
       measurementInstructions: technique.measurementInstructions,
       proVideoUrl: technique.proVideoUrl,
       proLandmarks: technique.proLandmarks,
+      biomechanicsConfig: technique.biomechanicsConfig,
       comparisonEnabled: technique.comparisonEnabled,
       mediaAssets: technique.mediaAssets,
       measurementDefinitions: technique.measurementDefinitions,

@@ -139,6 +139,13 @@ const poseLandmarkNames = [
   "LEFT_FOOT_INDEX",
   "RIGHT_FOOT_INDEX",
 ] as const;
+const techniqueBiomechanicsEventTypes = ["SETUP", "DIP", "PENULTIMATE_CONTACT", "LAST_CONTACT", "TAKE_OFF", "TOE_OFF", "FLIGHT", "LANDING", "OTHER"] as const;
+const techniqueBiomechanicsAngleSampleModes = ["AT_EVENT", "WINDOW_MIN", "WINDOW_MAX", "WINDOW_AVERAGE"] as const;
+const techniqueBiomechanicsTrajectoryMetrics = ["DISPLACEMENT", "RANGE", "STABILITY"] as const;
+const techniqueBiomechanicsTrajectoryAxes = ["X", "Y"] as const;
+const techniqueBiomechanicsTrajectoryReferenceModes = ["ABSOLUTE", "DELTA_FROM_START"] as const;
+const techniqueBiomechanicsPreferredDirections = ["ANY", "LEFT_TO_RIGHT", "RIGHT_TO_LEFT"] as const;
+const techniqueBiomechanicsNormalizationModes = ["AUTO", "MANUAL_ONLY"] as const;
 
 const techniqueBiomechanicsFocusPointSchema = z.object({
   id: z.string().trim().min(1).max(80),
@@ -155,6 +162,11 @@ const techniqueBiomechanicsAngleCheckSchema = z.object({
   vertex: z.enum(poseLandmarkNames),
   pointC: z.enum(poseLandmarkNames),
   plane: z.enum(["SAGITTAL_2D", "FRONTAL_2D", "TRANSVERSE_PROXY"]),
+  anchorEventId: z.string().trim().min(1).max(80).nullable().optional(),
+  anchorEventType: z.enum(techniqueBiomechanicsEventTypes).nullable().optional(),
+  windowStartEventId: z.string().trim().min(1).max(80).nullable().optional(),
+  windowEndEventId: z.string().trim().min(1).max(80).nullable().optional(),
+  sampleMode: z.enum(techniqueBiomechanicsAngleSampleModes).nullable().optional(),
   targetMinDeg: z.number().finite().min(0).max(360).nullable().optional(),
   targetMaxDeg: z.number().finite().min(0).max(360).nullable().optional(),
   phase: z.string().trim().nullable().optional(),
@@ -179,15 +191,64 @@ const techniqueBiomechanicsAngleCheckSchema = z.object({
       path: ["targetMinDeg"],
     });
   }
+
+  if ((value.windowStartEventId && !value.windowEndEventId) || (!value.windowStartEventId && value.windowEndEventId)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "windowStartEventId and windowEndEventId must be provided together",
+      path: ["windowStartEventId"],
+    });
+  }
+});
+
+const techniqueBiomechanicsTrajectoryCheckSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  landmark: z.enum(poseLandmarkNames),
+  windowStartEventId: z.string().trim().min(1).max(80).nullable().optional(),
+  windowEndEventId: z.string().trim().min(1).max(80).nullable().optional(),
+  metric: z.enum(techniqueBiomechanicsTrajectoryMetrics),
+  axis: z.enum(techniqueBiomechanicsTrajectoryAxes),
+  referenceMode: z.enum(techniqueBiomechanicsTrajectoryReferenceModes),
+  targetMin: z.number().finite().nullable().optional(),
+  targetMax: z.number().finite().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+}).superRefine((value, context) => {
+  if (!value.windowStartEventId || !value.windowEndEventId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Trajectory checks require a start and end event",
+      path: ["windowStartEventId"],
+    });
+  }
+
+  if (
+    typeof value.targetMin === "number"
+    && typeof value.targetMax === "number"
+    && value.targetMin > value.targetMax
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "targetMin must be lower than targetMax",
+      path: ["targetMin"],
+    });
+  }
 });
 
 const techniqueBiomechanicsKeyEventSchema = z.object({
   id: z.string().trim().min(1).max(80),
   label: z.string().trim().min(1).max(120),
-  eventType: z.enum(["SETUP", "DIP", "TAKE_OFF", "FLIGHT", "LANDING", "OTHER"]),
+  eventType: z.enum(techniqueBiomechanicsEventTypes),
   frameIndex: z.number().int().min(0).nullable().optional(),
   frameHint: z.string().trim().nullable().optional(),
   notes: z.string().trim().nullable().optional(),
+});
+
+const techniqueBiomechanicsOrientationPolicySchema = z.object({
+  allowMirror: z.boolean().default(true),
+  preferredTravelDirection: z.enum(techniqueBiomechanicsPreferredDirections).default("ANY"),
+  manualOverrideAllowed: z.boolean().default(true),
+  normalizationMode: z.enum(techniqueBiomechanicsNormalizationModes).default("AUTO"),
 });
 
 const techniqueBiomechanicsConfigSchema = z.object({
@@ -196,7 +257,14 @@ const techniqueBiomechanicsConfigSchema = z.object({
   referenceMotionProfile: z.enum(["REAL_TIME", "SLOW_MOTION"]).nullable().optional(),
   focusPoints: z.array(techniqueBiomechanicsFocusPointSchema).max(12).default([]),
   angleChecks: z.array(techniqueBiomechanicsAngleCheckSchema).max(12).default([]),
+  trajectoryChecks: z.array(techniqueBiomechanicsTrajectoryCheckSchema).max(12).default([]),
   keyEvents: z.array(techniqueBiomechanicsKeyEventSchema).max(12).default([]),
+  orientationPolicy: techniqueBiomechanicsOrientationPolicySchema.default({
+    allowMirror: true,
+    preferredTravelDirection: "ANY",
+    manualOverrideAllowed: true,
+    normalizationMode: "AUTO",
+  }),
   coachNotes: z.string().trim().nullable().optional(),
 });
 
