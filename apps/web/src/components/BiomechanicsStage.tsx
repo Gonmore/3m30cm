@@ -27,6 +27,21 @@ export interface BiomechanicsTimelineMarker {
   isActive: boolean;
 }
 
+export interface BiomechanicsAngleOverlay {
+  arcPath: string;
+  bandPath?: string | null;
+  labelX: number;
+  labelY: number;
+  label: string;
+  rangeLabel?: string | null;
+  rangeLabelX?: number;
+  rangeLabelY?: number;
+}
+
+export interface BiomechanicsTrajectoryOverlay {
+  path: string;
+}
+
 interface BiomechanicsStageProps {
   videoRef: RefObject<HTMLVideoElement | null>;
   videoUrl: string;
@@ -37,7 +52,12 @@ interface BiomechanicsStageProps {
   connectionSegments: BiomechanicsConnectionSegment[];
   landmarkNodes: BiomechanicsLandmarkNode[];
   markers: BiomechanicsTimelineMarker[];
+  angleOverlay: BiomechanicsAngleOverlay | null;
+  trajectoryOverlay: BiomechanicsTrajectoryOverlay | null;
   onVideoLoadedMetadata: (event: SyntheticEvent<HTMLVideoElement>) => void;
+  onVideoPlay: () => void;
+  onVideoPause: () => void;
+  onVideoTimeUpdate: (currentTimeSeconds: number) => void;
   onLandmarkHover: (landmark: string | null) => void;
   onLandmarkSelect: (landmark: string) => void;
   onPreviousFrame: () => void;
@@ -56,7 +76,12 @@ export function BiomechanicsStage({
   connectionSegments,
   landmarkNodes,
   markers,
+  angleOverlay,
+  trajectoryOverlay,
   onVideoLoadedMetadata,
+  onVideoPlay,
+  onVideoPause,
+  onVideoTimeUpdate,
   onLandmarkHover,
   onLandmarkSelect,
   onPreviousFrame,
@@ -75,8 +100,18 @@ export function BiomechanicsStage({
             preload="metadata"
             controls
             onLoadedMetadata={onVideoLoadedMetadata}
+            onPlay={onVideoPlay}
+            onPause={onVideoPause}
+            onTimeUpdate={(event) => onVideoTimeUpdate(event.currentTarget.currentTime)}
           />
           <svg className="biomechanics-overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+            {trajectoryOverlay ? (
+              <>
+                <path d={trajectoryOverlay.path} className="biomechanics-trajectory-shadow" />
+                <path d={trajectoryOverlay.path} className="biomechanics-trajectory-line" />
+              </>
+            ) : null}
+            {angleOverlay?.bandPath ? <path d={angleOverlay.bandPath} className="biomechanics-angle-range" /> : null}
             {connectionSegments.map((segment) => (
               <line
                 key={segment.key}
@@ -99,6 +134,31 @@ export function BiomechanicsStage({
                 onClick={() => onLandmarkSelect(point.landmark)}
               />
             ))}
+            {angleOverlay ? (
+              <>
+                <path d={angleOverlay.arcPath} className="biomechanics-angle-arc" />
+                <text
+                  x={angleOverlay.labelX}
+                  y={angleOverlay.labelY}
+                  className="biomechanics-angle-label"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                >
+                  {angleOverlay.label}
+                </text>
+                {angleOverlay.rangeLabel && typeof angleOverlay.rangeLabelX === "number" && typeof angleOverlay.rangeLabelY === "number" ? (
+                  <text
+                    x={angleOverlay.rangeLabelX}
+                    y={angleOverlay.rangeLabelY}
+                    className="biomechanics-angle-range-label"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                  >
+                    {angleOverlay.rangeLabel}
+                  </text>
+                ) : null}
+              </>
+            ) : null}
           </svg>
         </div>
       </div>

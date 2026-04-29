@@ -119,6 +119,17 @@ interface TechniqueVisualLandmarkPoint {
   y: number;
 }
 
+interface TechniqueAngleOverlayModel {
+  arcPath: string;
+  bandPath: string | null;
+  label: string;
+  labelX: number;
+  labelY: number;
+  rangeLabel?: string;
+  rangeLabelX?: number;
+  rangeLabelY?: number;
+}
+
 const poseConnections: Array<[LandmarkName, LandmarkName]> = [
   ["LEFT_SHOULDER", "RIGHT_SHOULDER"],
   ["LEFT_SHOULDER", "LEFT_ELBOW"],
@@ -1460,6 +1471,161 @@ function measureAngleDegrees(
   return Math.round((Math.acos(cosine) * 180) / Math.PI);
 }
 
+function normalizeAngleDeltaRadians(deltaRadians: number) {
+  let normalized = deltaRadians;
+
+  while (normalized <= -Math.PI) {
+    normalized += Math.PI * 2;
+  }
+
+  while (normalized > Math.PI) {
+    normalized -= Math.PI * 2;
+  }
+
+  return normalized;
+}
+
+function parseOptionalNumberInput(value: string | null | undefined) {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function buildSvgPathFromPoints(points: Array<{ x: number; y: number }>) {
+  if (points.length < 2) {
+    return "";
+  }
+
+  return points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${(point.x * 1000).toFixed(1)} ${(point.y * 1000).toFixed(1)}`)
+    .join(" ");
+}
+
+function buildAngleArcPoints(
+  vertex: { x: number; y: number },
+  startAngle: number,
+  deltaAngle: number,
+  radius: number,
+) {
+  const stepCount = Math.max(8, Math.ceil(Math.abs(deltaAngle) / (Math.PI / 18)));
+
+  return Array.from({ length: stepCount + 1 }, (_, index) => {
+    const progress = stepCount === 0 ? 0 : index / stepCount;
+    const angle = startAngle + (deltaAngle * progress);
+    return {
+      x: vertex.x + (Math.cos(angle) * radius),
+      y: vertex.y + (Math.sin(angle) * radius),
+    };
+  });
+}
+
+function buildAngleOverlay(
+  pointA: TechniqueVisualLandmarkPoint,
+  vertex: TechniqueVisualLandmarkPoint,
+  pointC: TechniqueVisualLandmarkPoint,
+  targetMinDeg: number | null,
+  targetMaxDeg: number | null,
+): TechniqueAngleOverlayModel | null {
+  const vectorA = { x: pointA.x - vertex.x, y: pointA.y - vertex.y };
+  const vectorC = { x: pointC.x - vertex.x, y: pointC.y - vertex.y };
+  const magnitudeA = Math.hypot(vectorA.x, vectorA.y);
+  const magnitudeC = Math.hypot(vectorC.x, vectorC.y);
+
+  if (!magnitudeA || !magnitudeC) {
+    return null;
+  }
+
+  const angleA = Math.atan2(vectorA.y, vectorA.x);
+  const angleC = Math.atan2(vectorC.y, vectorC.x);
+  const deltaAngle = normalizeAngleDeltaRadians(angleC - angleA);
+  const currentAngleDeg = Math.round(Math.abs(deltaAngle) * (180 / Math.PI));
+  const radius = clampNumber(Math.min(magnitudeA, magnitudeC) * 0.34, 0.045, 0.11);
+  const arcPath = buildSvgPathFromPoints(buildAngleArcPoints(vertex, angleA, deltaAngle, radius));
+
+  if (!arcPath) {
+    return null;
+  }
+
+  const labelAngle = angleA + (deltaAngle / 2);
+  const labelRadius = radius * 1.52;
+
+  let bandPath: string | null = null;
+  let rangeLabel: string | null = null;
+  let rangeLabelX: number | undefined;
+  let rangeLabelY: number | undefined;
+
+  if (typeof targetMinDeg === "number" && typeof targetMaxDeg === "number") {
+    const minMagnitude = Math.min(targetMinDeg, targetMaxDeg) * (Math.PI / 180);
+    const maxMagnitude = Math.max(targetMinDeg, targetMaxDeg) * (Math.PI / 180);
+    const direction = deltaAngle === 0 ? 1 : Math.sign(deltaAngle);
+    const bandStartAngle = angleA + (direction * minMagnitude);
+    const bandDeltaAngle = direction * (maxMagnitude - minMagnitude);
+    const outerRadius = radius * 1.2;
+    const innerRadius = radius * 0.82;
+    const outerArc = buildAngleArcPoints(vertex, bandStartAngle, bandDeltaAngle, outerRadius);
+    const innerArc = buildAngleArcPoints(vertex, bandStartAngle, bandDeltaAngle, innerRadius).reverse();
+    const bandOutline = buildSvgPathFromPoints([...outerArc, ...innerArc]);
+
+    if (bandOutline) {
+      bandPath = `${bandOutline} Z`;
+      rangeLabel = `${Math.round(Math.min(targetMinDeg, targetMaxDeg))}° - ${Math.round(Math.max(targetMinDeg, targetMaxDeg))}°`;
+      const rangeAngle = bandStartAngle + (bandDeltaAngle / 2);
+      rangeLabelX = (vertex.x + (Math.cos(rangeAngle) * outerRadius * 1.22)) * 1000;
+      rangeLabelY = (vertex.y + (Math.sin(rangeAngle) * outerRadius * 1.22)) * 1000;
+    }
+  }
+
+  const overlay = {
+    arcPath,
+    bandPath,
+    label: `${currentAngleDeg}°`,
+    labelX: (vertex.x + (Math.cos(labelAngle) * labelRadius)) * 1000,
+    labelY: (vertex.y + (Math.sin(labelAngle) * labelRadius)) * 1000,
+  };
+
+  if (rangeLabel && typeof rangeLabelX === "number" && typeof rangeLabelY === "number") {
+    return {
+      ...overlay,
+      rangeLabel,
+      rangeLabelX,
+      rangeLabelY,
+    };
+  }
+
+  return overlay;
+}
+
+function findNearestReferenceFrameIndex(
+  landmarks: TechniqueProLandmarks | null | undefined,
+  targetTimestampMs: number,
+) {
+  const frames = landmarks?.frames ?? [];
+  if (!frames.length) {
+    return null;
+  }
+
+  let nearestIndex = 0;
+  let nearestDistance = Infinity;
+
+  frames.forEach((frame, index) => {
+    const distance = Math.abs(frame.timestampMs - targetTimestampMs);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+
+  return nearestIndex;
+}
+
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem(tokenStorageKey));
   const [adminView, setAdminView] = useState<AdminView>("home");
@@ -1516,8 +1682,10 @@ export default function App() {
   const [pendingEventType, setPendingEventType] = useState<TechniqueBiomechanicsEventType>("TAKE_OFF");
   const [selectedFocusPointId, setSelectedFocusPointId] = useState<string | null>(null);
   const [selectedAngleCheckId, setSelectedAngleCheckId] = useState<string | null>(null);
+  const [selectedTrajectoryCheckId, setSelectedTrajectoryCheckId] = useState<string | null>(null);
   const [selectedKeyEventId, setSelectedKeyEventId] = useState<string | null>(null);
   const referenceVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [isReferenceVideoPlaying, setIsReferenceVideoPlaying] = useState(false);
   const [exclusionsAthleteId, setExclusionsAthleteId] = useState<string>("");
   const [exclusionsDraft, setExclusionsDraft] = useState<string[]>([]);
 
@@ -1611,6 +1779,11 @@ export default function App() {
     [selectedAngleCheckId, templateTechniqueForm.biomechanics.angleChecks],
   );
 
+  const selectedTrajectoryCheck = useMemo(
+    () => templateTechniqueForm.biomechanics.trajectoryChecks.find((trajectory) => trajectory.id === selectedTrajectoryCheckId) ?? null,
+    [selectedTrajectoryCheckId, templateTechniqueForm.biomechanics.trajectoryChecks],
+  );
+
   const selectedAngleLandmarks = useMemo(
     () => selectedAngleCheck ? [selectedAngleCheck.pointA, selectedAngleCheck.vertex, selectedAngleCheck.pointC] : [],
     [selectedAngleCheck],
@@ -1635,6 +1808,86 @@ export default function App() {
 
     return { pointA, vertex, pointC };
   }, [selectedAngleCheck, selectedReferenceFrame]);
+
+  const activeAngleOverlayPoints = useMemo(() => {
+    if (pendingAngleLandmarks.length === 3) {
+      const [pointA, vertex, pointC] = pendingAngleLandmarks;
+      if (!pointA || !vertex || !pointC) {
+        return null;
+      }
+
+      const pendingPointA = getLandmarkPoint(selectedReferenceFrame, pointA);
+      const pendingVertex = getLandmarkPoint(selectedReferenceFrame, vertex);
+      const pendingPointC = getLandmarkPoint(selectedReferenceFrame, pointC);
+      if (!pendingPointA || !pendingVertex || !pendingPointC) {
+        return null;
+      }
+
+      return { pointA: pendingPointA, vertex: pendingVertex, pointC: pendingPointC };
+    }
+
+    return selectedAngleOverlayPoints;
+  }, [pendingAngleLandmarks, selectedAngleOverlayPoints, selectedReferenceFrame]);
+
+  const selectedAngleOverlay = useMemo(() => {
+    if (!activeAngleOverlayPoints) {
+      return null;
+    }
+
+    let targetMinDeg: number | null = null;
+    let targetMaxDeg: number | null = null;
+
+    if (pendingAngleLandmarks.length === 3 && selectedReferenceAnglePreview !== null) {
+      targetMinDeg = clampNumber(selectedReferenceAnglePreview - 10, 0, 360);
+      targetMaxDeg = clampNumber(selectedReferenceAnglePreview + 10, 0, 360);
+    } else if (selectedAngleCheck) {
+      targetMinDeg = parseOptionalNumberInput(selectedAngleCheck.targetMinDeg);
+      targetMaxDeg = parseOptionalNumberInput(selectedAngleCheck.targetMaxDeg);
+    }
+
+    return buildAngleOverlay(
+      activeAngleOverlayPoints.pointA,
+      activeAngleOverlayPoints.vertex,
+      activeAngleOverlayPoints.pointC,
+      targetMinDeg,
+      targetMaxDeg,
+    );
+  }, [activeAngleOverlayPoints, pendingAngleLandmarks.length, selectedAngleCheck, selectedReferenceAnglePreview]);
+
+  const selectedTrajectoryOverlay = useMemo(() => {
+    if (!selectedTrajectoryCheck || !selectedTechnique?.proLandmarks) {
+      return null;
+    }
+
+    const startFrame = referenceEventMarkers.find((event) => event.id === selectedTrajectoryCheck.windowStartEventId)?.frameIndex;
+    const endFrame = referenceEventMarkers.find((event) => event.id === selectedTrajectoryCheck.windowEndEventId)?.frameIndex;
+    if (typeof startFrame !== "number" || typeof endFrame !== "number") {
+      return null;
+    }
+
+    const fromFrame = Math.min(startFrame, endFrame);
+    const toFrame = Math.max(startFrame, endFrame);
+    if (selectedReferenceFrameIndex <= fromFrame) {
+      return null;
+    }
+
+    const visibleToFrame = clampNumber(selectedReferenceFrameIndex, fromFrame, toFrame);
+    const trajectoryPoints: TechniqueVisualLandmarkPoint[] = [];
+
+    for (let frameIndex = fromFrame; frameIndex <= visibleToFrame; frameIndex += 1) {
+      const point = getLandmarkPoint(selectedTechnique.proLandmarks.frames[frameIndex] ?? null, selectedTrajectoryCheck.landmark);
+      if (point) {
+        trajectoryPoints.push(point);
+      }
+    }
+
+    const path = buildSvgPathFromPoints(trajectoryPoints);
+    if (!path) {
+      return null;
+    }
+
+    return { path };
+  }, [referenceEventMarkers, selectedReferenceFrameIndex, selectedTechnique?.proLandmarks, selectedTrajectoryCheck]);
 
   const referenceConnectionSegments = useMemo(() => {
     const baseSegments = poseConnections
@@ -1687,10 +1940,20 @@ export default function App() {
       y: point.y,
       isFocused: focusPointLandmarkSet.has(point.landmark),
       isPending: pendingAngleLandmarks.includes(point.landmark),
-      isSelected: point.landmark === selectedFocusPoint?.landmark || selectedAngleLandmarks.includes(point.landmark),
+      isSelected: point.landmark === selectedFocusPoint?.landmark
+        || selectedAngleLandmarks.includes(point.landmark)
+        || point.landmark === selectedTrajectoryCheck?.landmark,
       isHovered: hoveredVisualLandmark === point.landmark,
     })),
-    [focusPointLandmarkSet, hoveredVisualLandmark, pendingAngleLandmarks, selectedAngleLandmarks, selectedFocusPoint?.landmark, selectedReferenceFramePoints],
+    [
+      focusPointLandmarkSet,
+      hoveredVisualLandmark,
+      pendingAngleLandmarks,
+      selectedAngleLandmarks,
+      selectedFocusPoint?.landmark,
+      selectedReferenceFramePoints,
+      selectedTrajectoryCheck?.landmark,
+    ],
   );
 
   const referenceTimelineMarkers = useMemo(
@@ -1725,6 +1988,22 @@ export default function App() {
 
     return [];
   }, [pendingAngleLandmarks, selectedAngleCheck]);
+
+  const anglePreviewLabel = useMemo(() => {
+    if (pendingAngleLandmarks.length === 3 && selectedReferenceAnglePreview !== null) {
+      return `Preview: ${selectedReferenceAnglePreview}° · rango ${(clampNumber(selectedReferenceAnglePreview - 10, 0, 360)).toFixed(0)}° - ${(clampNumber(selectedReferenceAnglePreview + 10, 0, 360)).toFixed(0)}°`;
+    }
+
+    if (selectedAngleOverlay?.rangeLabel) {
+      return `Actual: ${selectedAngleOverlay.label} · objetivo ${selectedAngleOverlay.rangeLabel}`;
+    }
+
+    if (selectedAngleOverlay) {
+      return `Actual: ${selectedAngleOverlay.label}`;
+    }
+
+    return "Preview: pendiente";
+  }, [pendingAngleLandmarks.length, selectedAngleOverlay, selectedReferenceAnglePreview]);
 
   const eventChips = useMemo(
     () => referenceEventMarkers.map((event) => ({
@@ -1764,7 +2043,9 @@ export default function App() {
     setPendingEventType("TAKE_OFF");
     setSelectedFocusPointId(null);
     setSelectedAngleCheckId(null);
+    setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(null);
+    setIsReferenceVideoPlaying(false);
   }, [selectedTechniqueId]);
 
   useEffect(() => {
@@ -1779,7 +2060,7 @@ export default function App() {
 
   useEffect(() => {
     const video = referenceVideoRef.current;
-    if (!video || !selectedReferenceFrame) {
+    if (!video || !selectedReferenceFrame || isReferenceVideoPlaying) {
       return;
     }
 
@@ -1787,9 +2068,48 @@ export default function App() {
     if (Math.abs(video.currentTime - targetTimeSeconds) > 0.05) {
       video.currentTime = targetTimeSeconds;
     }
+  }, [isReferenceVideoPlaying, selectedReferenceFrame]);
 
-    video.pause();
-  }, [selectedReferenceFrame]);
+  function pauseReferenceVideo() {
+    const video = referenceVideoRef.current;
+    if (video && !video.paused) {
+      video.pause();
+    }
+
+    setIsReferenceVideoPlaying(false);
+  }
+
+  function handlePreviousReferenceFrame() {
+    pauseReferenceVideo();
+    setSelectedReferenceFrameIndex((current) => clampNumber(current - 1, 0, Math.max(selectedReferenceFrameCount - 1, 0)));
+  }
+
+  function handleNextReferenceFrame() {
+    pauseReferenceVideo();
+    setSelectedReferenceFrameIndex((current) => clampNumber(current + 1, 0, Math.max(selectedReferenceFrameCount - 1, 0)));
+  }
+
+  function handleReferenceFrameChange(frameIndex: number) {
+    pauseReferenceVideo();
+    setSelectedReferenceFrameIndex(frameIndex);
+  }
+
+  function handleReferenceVideoPlay() {
+    setIsReferenceVideoPlaying(true);
+  }
+
+  function handleReferenceVideoPause() {
+    setIsReferenceVideoPlaying(false);
+  }
+
+  function handleReferenceVideoTimeUpdate(currentTimeSeconds: number) {
+    const frameIndex = findNearestReferenceFrameIndex(selectedTechnique?.proLandmarks, currentTimeSeconds * 1000);
+    if (frameIndex === null) {
+      return;
+    }
+
+    setSelectedReferenceFrameIndex((current) => (current === frameIndex ? current : frameIndex));
+  }
 
   function handleVisualLandmarkSelect(landmark: LandmarkName) {
     setHoveredVisualLandmark(landmark);
@@ -1798,6 +2118,7 @@ export default function App() {
       const nextPointId = createDraftId();
       setSelectedFocusPointId(nextPointId);
       setSelectedAngleCheckId(null);
+      setSelectedTrajectoryCheckId(null);
       setSelectedKeyEventId(null);
       setTemplateTechniqueForm((current) => {
         if (current.biomechanics.focusPoints.some((point) => point.landmark === landmark)) {
@@ -1828,6 +2149,7 @@ export default function App() {
     if (visualEditorMode === "angles") {
       setSelectedFocusPointId(null);
       setSelectedAngleCheckId(null);
+      setSelectedTrajectoryCheckId(null);
       setSelectedKeyEventId(null);
       setPendingAngleLandmarks((current) => {
         if (current.length >= 3) {
@@ -1850,8 +2172,11 @@ export default function App() {
     }
 
     const nextAngleId = createDraftId();
+    const defaultTargetMinDeg = selectedReferenceAnglePreview !== null ? clampNumber(selectedReferenceAnglePreview - 10, 0, 360).toFixed(0) : "";
+    const defaultTargetMaxDeg = selectedReferenceAnglePreview !== null ? clampNumber(selectedReferenceAnglePreview + 10, 0, 360).toFixed(0) : "";
     setSelectedFocusPointId(null);
     setSelectedAngleCheckId(nextAngleId);
+    setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(null);
     setTemplateTechniqueForm((current) => ({
       ...current,
@@ -1871,8 +2196,8 @@ export default function App() {
             windowStartEventId: "",
             windowEndEventId: "",
             sampleMode: "AT_EVENT",
-            targetMinDeg: "",
-            targetMaxDeg: "",
+            targetMinDeg: defaultTargetMinDeg,
+            targetMaxDeg: defaultTargetMaxDeg,
             phase: "",
             notes: selectedReferenceAnglePreview ? `Preview visual: ${selectedReferenceAnglePreview}°` : "",
           },
@@ -1890,6 +2215,7 @@ export default function App() {
     const nextEventId = createDraftId();
     setSelectedFocusPointId(null);
     setSelectedAngleCheckId(null);
+    setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(nextEventId);
     const nextFrameHint = buildFrameHint(selectedReferenceFrameIndex, selectedReferenceFrame.timestampMs);
     setTemplateTechniqueForm((current) => ({
@@ -1915,6 +2241,7 @@ export default function App() {
     setVisualEditorMode("points");
     setSelectedFocusPointId(pointId);
     setSelectedAngleCheckId(null);
+    setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(null);
     setHoveredVisualLandmark(landmark);
   }
@@ -1923,18 +2250,41 @@ export default function App() {
     setVisualEditorMode("angles");
     setSelectedFocusPointId(null);
     setSelectedAngleCheckId(angleId);
+    setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(null);
     setPendingAngleLandmarks([]);
     setHoveredVisualLandmark(null);
+  }
+
+  function handleTrajectoryCheckSelect(trajectoryId: string) {
+    const trajectoryCheck = templateTechniqueForm.biomechanics.trajectoryChecks.find((trajectory) => trajectory.id === trajectoryId) ?? null;
+    const startFrame = trajectoryCheck?.windowStartEventId
+      ? referenceEventMarkers.find((event) => event.id === trajectoryCheck.windowStartEventId)?.frameIndex ?? null
+      : null;
+
+    pauseReferenceVideo();
+    setVisualEditorMode("inspect");
+    setSelectedFocusPointId(null);
+    setSelectedAngleCheckId(null);
+    setSelectedTrajectoryCheckId(trajectoryId);
+    setSelectedKeyEventId(null);
+    setPendingAngleLandmarks([]);
+    setHoveredVisualLandmark(trajectoryCheck?.landmark ?? null);
+
+    if (startFrame !== null) {
+      setSelectedReferenceFrameIndex(startFrame);
+    }
   }
 
   function handleKeyEventSelect(eventId: string, eventType: TechniqueBiomechanicsEventType, frameIndex: number | null) {
     setVisualEditorMode("events");
     setSelectedFocusPointId(null);
     setSelectedAngleCheckId(null);
+    setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(eventId);
     setPendingEventType(eventType);
     if (frameIndex !== null) {
+      pauseReferenceVideo();
       setSelectedReferenceFrameIndex(frameIndex);
     }
   }
@@ -5975,9 +6325,11 @@ export default function App() {
                   connectionSegments={referenceConnectionSegments}
                   landmarkNodes={referenceLandmarkNodes}
                   markers={referenceTimelineMarkers}
+                  angleOverlay={selectedAngleOverlay}
+                  trajectoryOverlay={selectedTrajectoryOverlay}
                   focusPointChips={focusPointChips}
                   angleSelectionLabels={angleSelectionLabels}
-                  anglePreviewLabel={selectedReferenceAnglePreview ? `Preview: ${selectedReferenceAnglePreview}°` : "Preview: pendiente"}
+                  anglePreviewLabel={anglePreviewLabel}
                   canCreateAngle={pendingAngleLandmarks.length === 3}
                   canClearAngleSelection={pendingAngleLandmarks.length > 0}
                   eventTypeOptions={biomechanicsEventTypeOptions.map((option) => ({ value: option, label: formatBiomechanicsEventLabel(option) }))}
@@ -5989,11 +6341,14 @@ export default function App() {
                     event.currentTarget.currentTime = selectedReferenceFrame.timestampMs / 1000;
                     event.currentTarget.pause();
                   }}
+                  onVideoPlay={handleReferenceVideoPlay}
+                  onVideoPause={handleReferenceVideoPause}
+                  onVideoTimeUpdate={handleReferenceVideoTimeUpdate}
                   onLandmarkHover={(landmark) => setHoveredVisualLandmark(landmark as LandmarkName | null)}
                   onLandmarkSelect={(landmark) => handleVisualLandmarkSelect(landmark as LandmarkName)}
-                  onPreviousFrame={() => setSelectedReferenceFrameIndex((current) => clampNumber(current - 1, 0, Math.max(selectedReferenceFrameCount - 1, 0)))}
-                  onNextFrame={() => setSelectedReferenceFrameIndex((current) => clampNumber(current + 1, 0, Math.max(selectedReferenceFrameCount - 1, 0)))}
-                  onFrameChange={setSelectedReferenceFrameIndex}
+                  onPreviousFrame={handlePreviousReferenceFrame}
+                  onNextFrame={handleNextReferenceFrame}
+                  onFrameChange={handleReferenceFrameChange}
                   onMarkerSelect={handleTimelineMarkerSelect}
                   onFocusPointChipSelect={(pointId, landmark) => handleFocusPointSelect(pointId, landmark as LandmarkName)}
                   onCreateAngle={() => void handleCreateAngleFromPendingSelection()}
@@ -6730,7 +7085,12 @@ export default function App() {
                   </div>
                   {templateTechniqueForm.biomechanics.trajectoryChecks.length ? (
                     templateTechniqueForm.biomechanics.trajectoryChecks.map((trajectoryCheck, index) => (
-                      <article key={trajectoryCheck.id} className="detail-card program-card">
+                      <article
+                        key={trajectoryCheck.id}
+                        className={`detail-card program-card${selectedTrajectoryCheckId === trajectoryCheck.id ? " highlight-card" : ""}`}
+                        onClick={() => handleTrajectoryCheckSelect(trajectoryCheck.id)}
+                        onFocusCapture={() => handleTrajectoryCheckSelect(trajectoryCheck.id)}
+                      >
                         <div className="form-grid-3">
                           <label>
                             Nombre de la trayectoria

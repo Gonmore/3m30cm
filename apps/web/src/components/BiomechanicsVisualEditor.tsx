@@ -1,10 +1,12 @@
 import type { RefObject, SyntheticEvent } from "react";
 
 import {
+  type BiomechanicsAngleOverlay,
   BiomechanicsStage,
   type BiomechanicsConnectionSegment,
   type BiomechanicsLandmarkNode,
   type BiomechanicsTimelineMarker,
+  type BiomechanicsTrajectoryOverlay,
 } from "./BiomechanicsStage";
 
 type VisualMode = "inspect" | "points" | "angles" | "events";
@@ -46,6 +48,8 @@ interface BiomechanicsVisualEditorProps {
   connectionSegments: BiomechanicsConnectionSegment[];
   landmarkNodes: BiomechanicsLandmarkNode[];
   markers: BiomechanicsTimelineMarker[];
+  angleOverlay: BiomechanicsAngleOverlay | null;
+  trajectoryOverlay: BiomechanicsTrajectoryOverlay | null;
   focusPointChips: FocusPointChip[];
   angleSelectionLabels: string[];
   anglePreviewLabel: string;
@@ -57,6 +61,9 @@ interface BiomechanicsVisualEditorProps {
   inspectSummaryChips: string[];
   onModeChange: (mode: VisualMode) => void;
   onVideoLoadedMetadata: (event: SyntheticEvent<HTMLVideoElement>) => void;
+  onVideoPlay: () => void;
+  onVideoPause: () => void;
+  onVideoTimeUpdate: (currentTimeSeconds: number) => void;
   onLandmarkHover: (landmark: string | null) => void;
   onLandmarkSelect: (landmark: string) => void;
   onPreviousFrame: () => void;
@@ -85,6 +92,8 @@ export function BiomechanicsVisualEditor({
   connectionSegments,
   landmarkNodes,
   markers,
+  angleOverlay,
+  trajectoryOverlay,
   focusPointChips,
   angleSelectionLabels,
   anglePreviewLabel,
@@ -96,6 +105,9 @@ export function BiomechanicsVisualEditor({
   inspectSummaryChips,
   onModeChange,
   onVideoLoadedMetadata,
+  onVideoPlay,
+  onVideoPause,
+  onVideoTimeUpdate,
   onLandmarkHover,
   onLandmarkSelect,
   onPreviousFrame,
@@ -141,7 +153,12 @@ export function BiomechanicsVisualEditor({
           connectionSegments={connectionSegments}
           landmarkNodes={landmarkNodes}
           markers={markers}
+          angleOverlay={angleOverlay}
+          trajectoryOverlay={trajectoryOverlay}
           onVideoLoadedMetadata={onVideoLoadedMetadata}
+          onVideoPlay={onVideoPlay}
+          onVideoPause={onVideoPause}
+          onVideoTimeUpdate={onVideoTimeUpdate}
           onLandmarkHover={onLandmarkHover}
           onLandmarkSelect={onLandmarkSelect}
           onPreviousFrame={onPreviousFrame}
