@@ -24,6 +24,27 @@ export const dayTypes = [
 export type PlatformRole = (typeof platformRoles)[number];
 export type DayType = (typeof dayTypes)[number];
 
+export const biomechanicsEventTypes = [
+  "SETUP",
+  "DIP",
+  "ANTEPENULTIMATE_CONTACT",
+  "PENULTIMATE_CONTACT",
+  "LAST_CONTACT",
+  "TAKE_OFF",
+  "TOE_OFF",
+  "FLIGHT",
+  "APEX",
+  "LANDING",
+  "OTHER",
+] as const;
+
+export const biomechanicsDetectedEventSources = ["AUTO", "MANUAL", "HYBRID"] as const;
+export const biomechanicsEventDetectors = ["HIP_FOOT_HEURISTIC_V1"] as const;
+
+export type BiomechanicsEventType = (typeof biomechanicsEventTypes)[number];
+export type BiomechanicsDetectedEventSource = (typeof biomechanicsDetectedEventSources)[number];
+export type BiomechanicsEventDetector = (typeof biomechanicsEventDetectors)[number];
+
 export type BiomechanicsLandmarkAxis = "X" | "Y";
 export type BiomechanicsReferenceMode = "ABSOLUTE" | "DELTA_FROM_START";
 export type BiomechanicsMeasuredCheckStatus = "PENDING" | "OK" | "OUT_OF_RANGE" | "MISSING_EVENT" | "MISSING_LANDMARK";
@@ -50,11 +71,12 @@ export interface AthleteBiomechanicsPoseSequence {
 export interface AthleteBiomechanicsDetectedEvent {
   id: string;
   label: string;
-  eventType: string;
+  eventType: BiomechanicsEventType;
   frameIndex: number | null;
   timestampMs: number | null;
   confidence: number | null;
-  source: "AUTO" | "MANUAL" | "HYBRID";
+  source: BiomechanicsDetectedEventSource;
+  detector: BiomechanicsEventDetector | null;
   matchedReferenceEventId: string | null;
 }
 

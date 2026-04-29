@@ -139,13 +139,27 @@ const poseLandmarkNames = [
   "LEFT_FOOT_INDEX",
   "RIGHT_FOOT_INDEX",
 ] as const;
-const techniqueBiomechanicsEventTypes = ["SETUP", "DIP", "PENULTIMATE_CONTACT", "LAST_CONTACT", "TAKE_OFF", "TOE_OFF", "FLIGHT", "LANDING", "OTHER"] as const;
+const techniqueBiomechanicsEventTypes = [
+  "SETUP",
+  "DIP",
+  "ANTEPENULTIMATE_CONTACT",
+  "PENULTIMATE_CONTACT",
+  "LAST_CONTACT",
+  "TAKE_OFF",
+  "TOE_OFF",
+  "FLIGHT",
+  "APEX",
+  "LANDING",
+  "OTHER",
+] as const;
 const techniqueBiomechanicsAngleSampleModes = ["AT_EVENT", "WINDOW_MIN", "WINDOW_MAX", "WINDOW_AVERAGE"] as const;
 const techniqueBiomechanicsTrajectoryMetrics = ["DISPLACEMENT", "RANGE", "STABILITY"] as const;
 const techniqueBiomechanicsTrajectoryAxes = ["X", "Y"] as const;
 const techniqueBiomechanicsTrajectoryReferenceModes = ["ABSOLUTE", "DELTA_FROM_START"] as const;
 const techniqueBiomechanicsPreferredDirections = ["ANY", "LEFT_TO_RIGHT", "RIGHT_TO_LEFT"] as const;
 const techniqueBiomechanicsNormalizationModes = ["AUTO", "MANUAL_ONLY"] as const;
+const techniqueBiomechanicsEventSources = ["AUTO", "MANUAL", "HYBRID"] as const;
+const techniqueBiomechanicsEventDetectors = ["HIP_FOOT_HEURISTIC_V1"] as const;
 
 const techniqueBiomechanicsFocusPointSchema = z.object({
   id: z.string().trim().min(1).max(80),
@@ -278,6 +292,9 @@ const techniqueBiomechanicsKeyEventSchema = z.object({
   eventType: z.enum(techniqueBiomechanicsEventTypes),
   frameIndex: z.number().int().min(0).nullable().optional(),
   frameHint: z.string().trim().nullable().optional(),
+  source: z.enum(techniqueBiomechanicsEventSources).default("MANUAL"),
+  confidence: z.number().finite().min(0).max(1).nullable().optional(),
+  detector: z.enum(techniqueBiomechanicsEventDetectors).nullable().optional(),
   notes: z.string().trim().nullable().optional(),
 });
 

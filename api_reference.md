@@ -188,6 +188,7 @@ Incluye:
 - recursos asociados por tecnica (video, imagen o GIF)
 - referencia biomecanica profesional opcional por tecnica (`proVideoUrl`, `proLandmarks`)
 - metadata biomecanica persistida por tecnica en `biomechanicsConfig`, incluyendo `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `pointChecks`, `angleChecks`, `trajectoryChecks`, `keyEvents`, `orientationPolicy` y `coachNotes`
+- `keyEvents` ahora admite los tipos `ANTEPENULTIMATE_CONTACT` y `APEX`, además de `source`, `confidence` y `detector` para convivir con la autodetección asistida del admin
 - `pointChecks` agrega comparaciones puntuales o por ventana sobre un landmark y un eje, por ejemplo altura de cadera en `Y` durante último apoyo o delta vertical entre penúltimo apoyo y despegue
 - en `keyEvents`, el admin ya puede persistir `frameIndex` explicito ademas de `frameHint` para volver al frame exacto en el editor visual del portal web
 - `angleChecks` soporta anclaje a evento/ventana para que el JSON administrativo ya exprese dónde debe evaluarse cada ángulo

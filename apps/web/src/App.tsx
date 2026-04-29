@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { detectTechniqueKeyEvents, type AutoDetectedTechniqueKeyEvent } from "./biomechanicsEventDetection";
 import { BiomechanicsVisualEditor } from "./components/BiomechanicsVisualEditor";
 import { extractTechniquePoseSequence, type TechniquePoseFrame, type TechniqueProLandmarks } from "./techniquePoseExtraction";
 
@@ -46,7 +47,9 @@ const poseLandmarkOptions = [
   { value: "LEFT_FOOT_INDEX", label: "Punta pie izq." },
   { value: "RIGHT_FOOT_INDEX", label: "Punta pie der." },
 ] as const;
-const biomechanicsEventTypeOptions = ["SETUP", "DIP", "PENULTIMATE_CONTACT", "LAST_CONTACT", "TAKE_OFF", "TOE_OFF", "FLIGHT", "LANDING", "OTHER"] as const;
+const biomechanicsEventTypeOptions = ["SETUP", "DIP", "ANTEPENULTIMATE_CONTACT", "PENULTIMATE_CONTACT", "LAST_CONTACT", "TAKE_OFF", "TOE_OFF", "FLIGHT", "APEX", "LANDING", "OTHER"] as const;
+const biomechanicsEventSourceOptions = ["AUTO", "MANUAL", "HYBRID"] as const;
+const biomechanicsEventDetectorOptions = ["HIP_FOOT_HEURISTIC_V1"] as const;
 const biomechanicsAngleSampleModeOptions = ["AT_EVENT", "WINDOW_MIN", "WINDOW_MAX", "WINDOW_AVERAGE"] as const;
 const biomechanicsTrajectoryMetricOptions = ["DISPLACEMENT", "RANGE", "STABILITY"] as const;
 const biomechanicsTrajectoryAxisOptions = ["X", "Y"] as const;
@@ -103,6 +106,8 @@ type SeriesProtocol = (typeof seriesProtocolOptions)[number];
 type AdminView = "home" | "users" | "training" | "templates" | "technique";
 type LandmarkName = (typeof poseLandmarkOptions)[number]["value"];
 type TechniqueBiomechanicsEventType = (typeof biomechanicsEventTypeOptions)[number];
+type TechniqueBiomechanicsEventSource = (typeof biomechanicsEventSourceOptions)[number];
+type TechniqueBiomechanicsEventDetector = (typeof biomechanicsEventDetectorOptions)[number];
 type TechniqueBiomechanicsAngleSampleMode = (typeof biomechanicsAngleSampleModeOptions)[number];
 type TechniqueBiomechanicsTrajectoryMetric = (typeof biomechanicsTrajectoryMetricOptions)[number];
 type TechniqueBiomechanicsTrajectoryAxis = (typeof biomechanicsTrajectoryAxisOptions)[number];
@@ -609,6 +614,9 @@ interface TechniqueBiomechanicsKeyEventRecord {
   eventType: TechniqueBiomechanicsEventType;
   frameIndex: number | null;
   frameHint: string | null;
+  source: TechniqueBiomechanicsEventSource;
+  confidence: number | null;
+  detector: TechniqueBiomechanicsEventDetector | null;
   notes: string | null;
 }
 
@@ -731,6 +739,9 @@ interface TechniqueBiomechanicsKeyEventDraft {
   eventType: TechniqueBiomechanicsEventType;
   frameIndex: string;
   frameHint: string;
+  source: TechniqueBiomechanicsEventSource;
+  confidence: string;
+  detector: TechniqueBiomechanicsEventDetector | "";
   notes: string;
 }
 
@@ -1097,6 +1108,113 @@ function createDraftId() {
   return `draft-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function buildFrameHintFromLandmarks(landmarks: TechniqueProLandmarks | null | undefined, frameIndex: number) {
+  const frame = landmarks?.frames[frameIndex] ?? null;
+  if (!frame) {
+    return `Frame ${frameIndex + 1}`;
+  }
+
+  return buildFrameHint(frameIndex, frame.timestampMs);
+}
+
+function getManualOverrideSource(source: TechniqueBiomechanicsEventSource): TechniqueBiomechanicsEventSource {
+  return source === "AUTO" ? "HYBRID" : "MANUAL";
+}
+
+function mergeAutoDetectedKeyEventRecords(
+  currentEvents: TechniqueBiomechanicsKeyEventRecord[],
+  detectedEvents: AutoDetectedTechniqueKeyEvent[],
+  landmarks: TechniqueProLandmarks,
+): TechniqueBiomechanicsKeyEventRecord[] {
+  const detectedByType = new Map<TechniqueBiomechanicsEventType, AutoDetectedTechniqueKeyEvent>(
+    detectedEvents.map((event) => [event.eventType as TechniqueBiomechanicsEventType, event]),
+  );
+  const nextEvents: TechniqueBiomechanicsKeyEventRecord[] = currentEvents.map((event) => {
+    const detectedEvent = detectedByType.get(event.eventType);
+    if (!detectedEvent || event.source !== "AUTO") {
+      return event;
+    }
+
+    return {
+      ...event,
+      label: event.label.trim() || formatBiomechanicsEventLabel(detectedEvent.eventType),
+      frameIndex: detectedEvent.frameIndex,
+      frameHint: buildFrameHintFromLandmarks(landmarks, detectedEvent.frameIndex),
+      source: "AUTO" as const,
+      confidence: detectedEvent.confidence,
+      detector: detectedEvent.detector,
+    };
+  });
+
+  const existingTypes = new Set(nextEvents.map((event) => event.eventType));
+  detectedEvents.forEach((event) => {
+    if (existingTypes.has(event.eventType)) {
+      return;
+    }
+
+    nextEvents.push({
+      id: createDraftId(),
+      label: formatBiomechanicsEventLabel(event.eventType),
+      eventType: event.eventType as TechniqueBiomechanicsEventType,
+      frameIndex: event.frameIndex,
+      frameHint: buildFrameHintFromLandmarks(landmarks, event.frameIndex),
+      source: "AUTO" as const,
+      confidence: event.confidence,
+      detector: event.detector,
+      notes: null,
+    });
+  });
+
+  return nextEvents;
+}
+
+function mergeAutoDetectedKeyEventDrafts(
+  currentEvents: TechniqueBiomechanicsKeyEventDraft[],
+  detectedEvents: AutoDetectedTechniqueKeyEvent[],
+  landmarks: TechniqueProLandmarks,
+): TechniqueBiomechanicsKeyEventDraft[] {
+  const detectedByType = new Map<TechniqueBiomechanicsEventType, AutoDetectedTechniqueKeyEvent>(
+    detectedEvents.map((event) => [event.eventType as TechniqueBiomechanicsEventType, event]),
+  );
+  const nextEvents: TechniqueBiomechanicsKeyEventDraft[] = currentEvents.map((event) => {
+    const detectedEvent = detectedByType.get(event.eventType);
+    if (!detectedEvent || event.source !== "AUTO") {
+      return event;
+    }
+
+    return {
+      ...event,
+      label: event.label.trim() || formatBiomechanicsEventLabel(detectedEvent.eventType),
+      frameIndex: detectedEvent.frameIndex.toString(),
+      frameHint: buildFrameHintFromLandmarks(landmarks, detectedEvent.frameIndex),
+      source: "AUTO" as const,
+      confidence: detectedEvent.confidence.toFixed(2),
+      detector: detectedEvent.detector,
+    };
+  });
+
+  const existingTypes = new Set(nextEvents.map((event) => event.eventType));
+  detectedEvents.forEach((event) => {
+    if (existingTypes.has(event.eventType)) {
+      return;
+    }
+
+    nextEvents.push({
+      id: createDraftId(),
+      label: formatBiomechanicsEventLabel(event.eventType),
+      eventType: event.eventType as TechniqueBiomechanicsEventType,
+      frameIndex: event.frameIndex.toString(),
+      frameHint: buildFrameHintFromLandmarks(landmarks, event.frameIndex),
+      source: "AUTO" as const,
+      confidence: event.confidence.toFixed(2),
+      detector: event.detector,
+      notes: "",
+    });
+  });
+
+  return nextEvents;
+}
+
 function normalizeTechniqueBiomechanicsConfig(
   config: TechniqueBiomechanicsConfig | null | undefined,
 ): TechniqueBiomechanicsConfig {
@@ -1165,6 +1283,9 @@ function normalizeTechniqueBiomechanicsConfig(
         ? Math.max(0, Math.trunc(entry.frameIndex))
         : parseFrameIndexFromHint(entry.frameHint),
       frameHint: entry.frameHint ?? null,
+      source: entry.source ?? "MANUAL",
+      confidence: typeof entry.confidence === "number" ? entry.confidence : null,
+      detector: entry.detector ?? null,
       notes: entry.notes ?? null,
     })),
     orientationPolicy: {
@@ -1243,6 +1364,9 @@ function mapTechniqueBiomechanicsConfigToForm(
       eventType: entry.eventType,
       frameIndex: entry.frameIndex?.toString() ?? "",
       frameHint: entry.frameHint ?? "",
+      source: entry.source,
+      confidence: typeof entry.confidence === "number" ? entry.confidence.toFixed(2) : "",
+      detector: entry.detector ?? "",
       notes: entry.notes ?? "",
     })),
     orientationPolicy: {
@@ -1334,6 +1458,9 @@ function serializeTechniqueBiomechanicsForm(
           eventType: entry.eventType,
           frameIndex: parsedFrameIndex,
           frameHint: entry.frameHint.trim() || null,
+          source: entry.source,
+          confidence: parseOptionalNumberInput(entry.confidence),
+          detector: entry.detector || null,
           notes: entry.notes.trim() || null,
         };
       }),
@@ -1372,6 +1499,8 @@ function formatBiomechanicsEventLabel(eventType: TechniqueBiomechanicsEventType)
       return "Setup";
     case "DIP":
       return "Dip";
+    case "ANTEPENULTIMATE_CONTACT":
+      return "Antepenúltimo apoyo";
     case "PENULTIMATE_CONTACT":
       return "Penúltimo apoyo";
     case "LAST_CONTACT":
@@ -1382,10 +1511,23 @@ function formatBiomechanicsEventLabel(eventType: TechniqueBiomechanicsEventType)
       return "Salida de punta";
     case "FLIGHT":
       return "Vuelo";
+    case "APEX":
+      return "Altura máxima";
     case "LANDING":
       return "Aterrizaje";
     default:
       return "Otro";
+  }
+}
+
+function formatBiomechanicsEventSourceLabel(source: TechniqueBiomechanicsEventSource) {
+  switch (source) {
+    case "AUTO":
+      return "Auto";
+    case "HYBRID":
+      return "Auto + ajuste manual";
+    default:
+      return "Manual";
   }
 }
 
@@ -2330,11 +2472,38 @@ export default function App() {
             eventType: pendingEventType,
             frameIndex: selectedReferenceFrameIndex.toString(),
             frameHint: nextFrameHint,
+            source: "MANUAL",
+            confidence: "",
+            detector: "",
             notes: "",
           },
         ],
       },
     }));
+  }
+
+  function handleAutoDetectReferenceEvents() {
+    const referenceLandmarks = selectedTechnique?.proLandmarks;
+    if (!referenceLandmarks) {
+      setError("Primero sube una referencia profesional con landmarks para sugerir eventos.");
+      return;
+    }
+
+    const detectedEvents = detectTechniqueKeyEvents(referenceLandmarks);
+    if (!detectedEvents.length) {
+      setError("No se pudieron sugerir eventos automáticamente con la heurística actual.");
+      return;
+    }
+
+    setError("");
+    setTemplateTechniqueForm((current) => ({
+      ...current,
+      biomechanics: {
+        ...current.biomechanics,
+        keyEvents: mergeAutoDetectedKeyEventDrafts(current.biomechanics.keyEvents, detectedEvents, referenceLandmarks),
+      },
+    }));
+    setMessage(`${detectedEvents.length} evento(s) sugeridos automáticamente sobre la referencia profesional.`);
   }
 
   function handleFocusPointSelect(pointId: string, landmark: LandmarkName) {
@@ -3261,6 +3430,8 @@ export default function App() {
               });
             },
           });
+          const detectedEvents = detectTechniqueKeyEvents(poseSequence);
+          const normalizedConfig = normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig);
 
           await requestJson(
             `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${selectedTechniqueId}`,
@@ -3270,10 +3441,11 @@ export default function App() {
                 proVideoUrl: uploadResponse.mediaAsset.url,
                 proLandmarks: poseSequence,
                 biomechanicsConfig: {
-                  ...normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig),
+                  ...normalizedConfig,
                   schemaVersion: 1,
                   referenceMediaAssetId: uploadResponse.mediaAsset.id,
                   referenceMotionProfile: techniqueUploadState.referenceMotionProfile,
+                  keyEvents: mergeAutoDetectedKeyEventRecords(normalizedConfig.keyEvents, detectedEvents, poseSequence),
                 },
               }),
             },
@@ -3281,7 +3453,7 @@ export default function App() {
           );
 
           setTechniquePoseProcessing(emptyTechniquePoseProcessingState());
-          nextMessage = `Recurso subido y referencia biomecánica generada (${poseSequence.frameCount} frame(s)).`;
+          nextMessage = `Recurso subido y referencia biomecánica generada (${poseSequence.frameCount} frame(s), ${detectedEvents.length} evento(s) sugerido(s)).`;
         } catch (processingError) {
           setTechniquePoseProcessing({
             status: "error",
@@ -6531,6 +6703,14 @@ export default function App() {
                     <button
                       type="button"
                       className="ghost-button"
+                      disabled={!selectedTechnique?.proLandmarks}
+                      onClick={() => handleAutoDetectReferenceEvents()}
+                    >
+                      Autodetectar eventos
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
                       onClick={() =>
                         setTemplateTechniqueForm((current) => ({
                           ...current,
@@ -7387,6 +7567,9 @@ export default function App() {
                                 eventType: "TAKE_OFF",
                                 frameIndex: "",
                                 frameHint: "",
+                                source: "MANUAL",
+                                confidence: "",
+                                detector: "",
                                 notes: "",
                               },
                             ],
@@ -7406,6 +7589,11 @@ export default function App() {
                         onFocusCapture={() => handleKeyEventSelect(keyEvent.id, keyEvent.eventType, parseFrameIndexInput(keyEvent.frameIndex) ?? parseFrameIndexFromHint(keyEvent.frameHint))}
                       >
                         <div className="form-grid">
+                          <div className="chip-row" style={{ gridColumn: "1 / -1" }}>
+                            <span className="soft-chip">Origen: {formatBiomechanicsEventSourceLabel(keyEvent.source)}</span>
+                            {keyEvent.confidence ? <span className="soft-chip">Confianza: {(Number(keyEvent.confidence) * 100).toFixed(0)}%</span> : null}
+                            {keyEvent.detector ? <span className="soft-chip">Detector: {keyEvent.detector}</span> : null}
+                          </div>
                           <label>
                             Nombre del evento
                             <input
@@ -7434,7 +7622,13 @@ export default function App() {
                                   biomechanics: {
                                     ...current.biomechanics,
                                     keyEvents: current.biomechanics.keyEvents.map((entry, entryIndex) =>
-                                      entryIndex === index ? { ...entry, eventType: event.target.value as TechniqueBiomechanicsEventType } : entry,
+                                      entryIndex === index
+                                        ? {
+                                            ...entry,
+                                            eventType: event.target.value as TechniqueBiomechanicsEventType,
+                                            source: getManualOverrideSource(entry.source),
+                                          }
+                                        : entry,
                                     ),
                                   },
                                 }))
@@ -7457,9 +7651,21 @@ export default function App() {
                                   ...current,
                                   biomechanics: {
                                     ...current.biomechanics,
-                                    keyEvents: current.biomechanics.keyEvents.map((entry, entryIndex) =>
-                                      entryIndex === index ? { ...entry, frameIndex: event.target.value } : entry,
-                                    ),
+                                    keyEvents: current.biomechanics.keyEvents.map((entry, entryIndex) => {
+                                      if (entryIndex !== index) {
+                                        return entry;
+                                      }
+
+                                      const parsedFrameIndex = parseFrameIndexInput(event.target.value);
+                                      return {
+                                        ...entry,
+                                        frameIndex: event.target.value,
+                                        frameHint: parsedFrameIndex !== null
+                                          ? buildFrameHintFromLandmarks(selectedTechnique?.proLandmarks, parsedFrameIndex)
+                                          : entry.frameHint,
+                                        source: getManualOverrideSource(entry.source),
+                                      };
+                                    }),
                                   },
                                 }))
                               }
@@ -7476,7 +7682,9 @@ export default function App() {
                                   biomechanics: {
                                     ...current.biomechanics,
                                     keyEvents: current.biomechanics.keyEvents.map((entry, entryIndex) =>
-                                      entryIndex === index ? { ...entry, frameHint: event.target.value } : entry,
+                                      entryIndex === index
+                                        ? { ...entry, frameHint: event.target.value, source: getManualOverrideSource(entry.source) }
+                                        : entry,
                                     ),
                                   },
                                 }))
