@@ -155,6 +155,43 @@ const techniqueBiomechanicsFocusPointSchema = z.object({
   notes: z.string().trim().nullable().optional(),
 });
 
+const techniqueBiomechanicsPointCheckSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  landmark: z.enum(poseLandmarkNames),
+  axis: z.enum(techniqueBiomechanicsTrajectoryAxes),
+  referenceMode: z.enum(techniqueBiomechanicsTrajectoryReferenceModes),
+  anchorEventId: z.string().trim().min(1).max(80).nullable().optional(),
+  anchorEventType: z.enum(techniqueBiomechanicsEventTypes).nullable().optional(),
+  windowStartEventId: z.string().trim().min(1).max(80).nullable().optional(),
+  windowEndEventId: z.string().trim().min(1).max(80).nullable().optional(),
+  sampleMode: z.enum(techniqueBiomechanicsAngleSampleModes).nullable().optional(),
+  targetMin: z.number().finite().nullable().optional(),
+  targetMax: z.number().finite().nullable().optional(),
+  phase: z.string().trim().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+}).superRefine((value, context) => {
+  if (
+    typeof value.targetMin === "number"
+    && typeof value.targetMax === "number"
+    && value.targetMin > value.targetMax
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "targetMin must be lower than targetMax",
+      path: ["targetMin"],
+    });
+  }
+
+  if ((value.windowStartEventId && !value.windowEndEventId) || (!value.windowStartEventId && value.windowEndEventId)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "windowStartEventId and windowEndEventId must be provided together",
+      path: ["windowStartEventId"],
+    });
+  }
+});
+
 const techniqueBiomechanicsAngleCheckSchema = z.object({
   id: z.string().trim().min(1).max(80),
   label: z.string().trim().min(1).max(120),
@@ -256,6 +293,7 @@ const techniqueBiomechanicsConfigSchema = z.object({
   referenceMediaAssetId: z.string().trim().min(1).nullable().optional(),
   referenceMotionProfile: z.enum(["REAL_TIME", "SLOW_MOTION"]).nullable().optional(),
   focusPoints: z.array(techniqueBiomechanicsFocusPointSchema).max(12).default([]),
+  pointChecks: z.array(techniqueBiomechanicsPointCheckSchema).max(12).default([]),
   angleChecks: z.array(techniqueBiomechanicsAngleCheckSchema).max(12).default([]),
   trajectoryChecks: z.array(techniqueBiomechanicsTrajectoryCheckSchema).max(12).default([]),
   keyEvents: z.array(techniqueBiomechanicsKeyEventSchema).max(12).default([]),

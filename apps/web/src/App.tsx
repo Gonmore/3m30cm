@@ -547,6 +547,23 @@ interface TechniqueBiomechanicsFocusPointRecord {
   notes: string | null;
 }
 
+interface TechniqueBiomechanicsPointCheckRecord {
+  id: string;
+  label: string;
+  landmark: LandmarkName;
+  axis: TechniqueBiomechanicsTrajectoryAxis;
+  referenceMode: TechniqueBiomechanicsTrajectoryReferenceMode;
+  anchorEventId: string | null;
+  anchorEventType: TechniqueBiomechanicsEventType | null;
+  windowStartEventId: string | null;
+  windowEndEventId: string | null;
+  sampleMode: TechniqueBiomechanicsAngleSampleMode | null;
+  targetMin: number | null;
+  targetMax: number | null;
+  phase: string | null;
+  notes: string | null;
+}
+
 interface TechniqueBiomechanicsAngleCheckRecord {
   id: string;
   label: string;
@@ -600,6 +617,7 @@ interface TechniqueBiomechanicsConfig {
   referenceMediaAssetId: string | null;
   referenceMotionProfile: TechniqueReferenceMotionProfile | null;
   focusPoints: TechniqueBiomechanicsFocusPointRecord[];
+  pointChecks: TechniqueBiomechanicsPointCheckRecord[];
   angleChecks: TechniqueBiomechanicsAngleCheckRecord[];
   trajectoryChecks: TechniqueBiomechanicsTrajectoryCheckRecord[];
   keyEvents: TechniqueBiomechanicsKeyEventRecord[];
@@ -648,6 +666,23 @@ interface TechniqueBiomechanicsFocusPointDraft {
   label: string;
   landmark: LandmarkName;
   cue: string;
+  notes: string;
+}
+
+interface TechniqueBiomechanicsPointCheckDraft {
+  id: string;
+  label: string;
+  landmark: LandmarkName;
+  axis: TechniqueBiomechanicsTrajectoryAxis;
+  referenceMode: TechniqueBiomechanicsTrajectoryReferenceMode;
+  anchorEventId: string;
+  anchorEventType: TechniqueBiomechanicsEventType | "";
+  windowStartEventId: string;
+  windowEndEventId: string;
+  sampleMode: TechniqueBiomechanicsAngleSampleMode | "";
+  targetMin: string;
+  targetMax: string;
+  phase: string;
   notes: string;
 }
 
@@ -702,6 +737,7 @@ interface TechniqueBiomechanicsKeyEventDraft {
 interface TechniqueBiomechanicsFormState {
   referenceMotionProfile: TechniqueReferenceMotionProfile;
   focusPoints: TechniqueBiomechanicsFocusPointDraft[];
+  pointChecks: TechniqueBiomechanicsPointCheckDraft[];
   angleChecks: TechniqueBiomechanicsAngleCheckDraft[];
   trajectoryChecks: TechniqueBiomechanicsTrajectoryCheckDraft[];
   keyEvents: TechniqueBiomechanicsKeyEventDraft[];
@@ -803,6 +839,7 @@ const emptyTechniqueForm = (): TechniqueFormState => ({
   biomechanics: {
     referenceMotionProfile: "REAL_TIME",
     focusPoints: [],
+    pointChecks: [],
     angleChecks: [],
     trajectoryChecks: [],
     keyEvents: [],
@@ -1074,6 +1111,22 @@ function normalizeTechniqueBiomechanicsConfig(
       cue: entry.cue ?? null,
       notes: entry.notes ?? null,
     })),
+    pointChecks: (config?.pointChecks ?? []).map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      landmark: entry.landmark,
+      axis: entry.axis,
+      referenceMode: entry.referenceMode,
+      anchorEventId: entry.anchorEventId ?? null,
+      anchorEventType: entry.anchorEventType ?? null,
+      windowStartEventId: entry.windowStartEventId ?? null,
+      windowEndEventId: entry.windowEndEventId ?? null,
+      sampleMode: entry.sampleMode ?? null,
+      targetMin: typeof entry.targetMin === "number" ? entry.targetMin : null,
+      targetMax: typeof entry.targetMax === "number" ? entry.targetMax : null,
+      phase: entry.phase ?? null,
+      notes: entry.notes ?? null,
+    })),
     angleChecks: (config?.angleChecks ?? []).map((entry) => ({
       id: entry.id,
       label: entry.label,
@@ -1136,6 +1189,22 @@ function mapTechniqueBiomechanicsConfigToForm(
       label: entry.label,
       landmark: entry.landmark,
       cue: entry.cue ?? "",
+      notes: entry.notes ?? "",
+    })),
+    pointChecks: normalized.pointChecks.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      landmark: entry.landmark,
+      axis: entry.axis,
+      referenceMode: entry.referenceMode,
+      anchorEventId: entry.anchorEventId ?? "",
+      anchorEventType: entry.anchorEventType ?? "",
+      windowStartEventId: entry.windowStartEventId ?? "",
+      windowEndEventId: entry.windowEndEventId ?? "",
+      sampleMode: entry.sampleMode ?? "",
+      targetMin: entry.targetMin?.toString() ?? "",
+      targetMax: entry.targetMax?.toString() ?? "",
+      phase: entry.phase ?? "",
       notes: entry.notes ?? "",
     })),
     angleChecks: normalized.angleChecks.map((entry) => ({
@@ -1201,6 +1270,24 @@ function serializeTechniqueBiomechanicsForm(
         label: entry.label.trim(),
         landmark: entry.landmark,
         cue: entry.cue.trim() || null,
+        notes: entry.notes.trim() || null,
+      })),
+    pointChecks: form.pointChecks
+      .filter((entry) => entry.label.trim())
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.label.trim(),
+        landmark: entry.landmark,
+        axis: entry.axis,
+        referenceMode: entry.referenceMode,
+        anchorEventId: entry.anchorEventId.trim() || null,
+        anchorEventType: entry.anchorEventType || null,
+        windowStartEventId: entry.windowStartEventId.trim() || null,
+        windowEndEventId: entry.windowEndEventId.trim() || null,
+        sampleMode: entry.sampleMode || null,
+        targetMin: entry.targetMin.trim() ? Number(entry.targetMin) : null,
+        targetMax: entry.targetMax.trim() ? Number(entry.targetMax) : null,
+        phase: entry.phase.trim() || null,
         notes: entry.notes.trim() || null,
       })),
     angleChecks: form.angleChecks
@@ -1681,6 +1768,7 @@ export default function App() {
   const [pendingAngleLandmarks, setPendingAngleLandmarks] = useState<LandmarkName[]>([]);
   const [pendingEventType, setPendingEventType] = useState<TechniqueBiomechanicsEventType>("TAKE_OFF");
   const [selectedFocusPointId, setSelectedFocusPointId] = useState<string | null>(null);
+  const [selectedPointCheckId, setSelectedPointCheckId] = useState<string | null>(null);
   const [selectedAngleCheckId, setSelectedAngleCheckId] = useState<string | null>(null);
   const [selectedTrajectoryCheckId, setSelectedTrajectoryCheckId] = useState<string | null>(null);
   const [selectedKeyEventId, setSelectedKeyEventId] = useState<string | null>(null);
@@ -1772,6 +1860,11 @@ export default function App() {
   const selectedFocusPoint = useMemo(
     () => templateTechniqueForm.biomechanics.focusPoints.find((point) => point.id === selectedFocusPointId) ?? null,
     [selectedFocusPointId, templateTechniqueForm.biomechanics.focusPoints],
+  );
+
+  const selectedPointCheck = useMemo(
+    () => templateTechniqueForm.biomechanics.pointChecks.find((pointCheck) => pointCheck.id === selectedPointCheckId) ?? null,
+    [selectedPointCheckId, templateTechniqueForm.biomechanics.pointChecks],
   );
 
   const selectedAngleCheck = useMemo(
@@ -1941,6 +2034,7 @@ export default function App() {
       isFocused: focusPointLandmarkSet.has(point.landmark),
       isPending: pendingAngleLandmarks.includes(point.landmark),
       isSelected: point.landmark === selectedFocusPoint?.landmark
+        || point.landmark === selectedPointCheck?.landmark
         || selectedAngleLandmarks.includes(point.landmark)
         || point.landmark === selectedTrajectoryCheck?.landmark,
       isHovered: hoveredVisualLandmark === point.landmark,
@@ -1951,6 +2045,7 @@ export default function App() {
       pendingAngleLandmarks,
       selectedAngleLandmarks,
       selectedFocusPoint?.landmark,
+      selectedPointCheck?.landmark,
       selectedReferenceFramePoints,
       selectedTrajectoryCheck?.landmark,
     ],
@@ -2042,6 +2137,7 @@ export default function App() {
     setPendingAngleLandmarks([]);
     setPendingEventType("TAKE_OFF");
     setSelectedFocusPointId(null);
+    setSelectedPointCheckId(null);
     setSelectedAngleCheckId(null);
     setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(null);
@@ -2117,6 +2213,7 @@ export default function App() {
     if (visualEditorMode === "points") {
       const nextPointId = createDraftId();
       setSelectedFocusPointId(nextPointId);
+      setSelectedPointCheckId(null);
       setSelectedAngleCheckId(null);
       setSelectedTrajectoryCheckId(null);
       setSelectedKeyEventId(null);
@@ -2148,6 +2245,7 @@ export default function App() {
 
     if (visualEditorMode === "angles") {
       setSelectedFocusPointId(null);
+      setSelectedPointCheckId(null);
       setSelectedAngleCheckId(null);
       setSelectedTrajectoryCheckId(null);
       setSelectedKeyEventId(null);
@@ -2175,6 +2273,7 @@ export default function App() {
     const defaultTargetMinDeg = selectedReferenceAnglePreview !== null ? clampNumber(selectedReferenceAnglePreview - 10, 0, 360).toFixed(0) : "";
     const defaultTargetMaxDeg = selectedReferenceAnglePreview !== null ? clampNumber(selectedReferenceAnglePreview + 10, 0, 360).toFixed(0) : "";
     setSelectedFocusPointId(null);
+    setSelectedPointCheckId(null);
     setSelectedAngleCheckId(nextAngleId);
     setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(null);
@@ -2214,6 +2313,7 @@ export default function App() {
 
     const nextEventId = createDraftId();
     setSelectedFocusPointId(null);
+    setSelectedPointCheckId(null);
     setSelectedAngleCheckId(null);
     setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(nextEventId);
@@ -2240,15 +2340,38 @@ export default function App() {
   function handleFocusPointSelect(pointId: string, landmark: LandmarkName) {
     setVisualEditorMode("points");
     setSelectedFocusPointId(pointId);
+    setSelectedPointCheckId(null);
     setSelectedAngleCheckId(null);
     setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(null);
     setHoveredVisualLandmark(landmark);
   }
 
+  function handlePointCheckSelect(pointCheckId: string) {
+    const pointCheck = templateTechniqueForm.biomechanics.pointChecks.find((entry) => entry.id === pointCheckId) ?? null;
+    const anchorFrame = pointCheck?.anchorEventId
+      ? referenceEventMarkers.find((event) => event.id === pointCheck.anchorEventId)?.frameIndex ?? null
+      : null;
+
+    pauseReferenceVideo();
+    setVisualEditorMode("inspect");
+    setSelectedFocusPointId(null);
+    setSelectedPointCheckId(pointCheckId);
+    setSelectedAngleCheckId(null);
+    setSelectedTrajectoryCheckId(null);
+    setSelectedKeyEventId(null);
+    setPendingAngleLandmarks([]);
+    setHoveredVisualLandmark(pointCheck?.landmark ?? null);
+
+    if (anchorFrame !== null) {
+      setSelectedReferenceFrameIndex(anchorFrame);
+    }
+  }
+
   function handleAngleCheckSelect(angleId: string) {
     setVisualEditorMode("angles");
     setSelectedFocusPointId(null);
+    setSelectedPointCheckId(null);
     setSelectedAngleCheckId(angleId);
     setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(null);
@@ -2265,6 +2388,7 @@ export default function App() {
     pauseReferenceVideo();
     setVisualEditorMode("inspect");
     setSelectedFocusPointId(null);
+    setSelectedPointCheckId(null);
     setSelectedAngleCheckId(null);
     setSelectedTrajectoryCheckId(trajectoryId);
     setSelectedKeyEventId(null);
@@ -2279,6 +2403,7 @@ export default function App() {
   function handleKeyEventSelect(eventId: string, eventType: TechniqueBiomechanicsEventType, frameIndex: number | null) {
     setVisualEditorMode("events");
     setSelectedFocusPointId(null);
+    setSelectedPointCheckId(null);
     setSelectedAngleCheckId(null);
     setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(eventId);
@@ -6281,7 +6406,7 @@ export default function App() {
                     {`Modo: ${formatReferenceMotionProfile(normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMotionProfile)}`}
                   </span>
                   <span className="biomechanics-badge">
-                    {`${templateTechniqueForm.biomechanics.focusPoints.length} punto(s) · ${templateTechniqueForm.biomechanics.angleChecks.length} ángulo(s) · ${templateTechniqueForm.biomechanics.trajectoryChecks.length} trayectoria(s) · ${templateTechniqueForm.biomechanics.keyEvents.length} evento(s)`}
+                    {`${templateTechniqueForm.biomechanics.focusPoints.length} punto(s) · ${templateTechniqueForm.biomechanics.pointChecks.length} point-check(s) · ${templateTechniqueForm.biomechanics.angleChecks.length} ángulo(s) · ${templateTechniqueForm.biomechanics.trajectoryChecks.length} trayectoria(s) · ${templateTechniqueForm.biomechanics.keyEvents.length} evento(s)`}
                   </span>
                 </div>
                 {techniquePoseProcessing.status === "processing" ? (
@@ -6368,14 +6493,31 @@ export default function App() {
                 <div className="section-header compact-header">
                   <div>
                     <p className="eyebrow">Biomecánica</p>
-                    <h3>Puntos, ángulos, trayectorias y eventos clave</h3>
+                    <h3>Puntos, posiciones, ángulos, trayectorias y eventos clave</h3>
+                  </div>
+                </div>
+
+                <div className="technique-save-bar">
+                  <div>
+                    <strong>Persistencia del editor biomecánico</strong>
+                    <p>Los cambios de puntos, point-checks, ángulos y eventos se guardan solo al pulsar este botón.</p>
+                  </div>
+                  <div className="chip-row technique-save-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={loading || !templateTechniqueForm.title.trim()}
+                      onClick={() => void handleTechniqueSave()}
+                    >
+                      Guardar técnica
+                    </button>
                   </div>
                 </div>
 
                 <div className="workflow-note">
                   <strong>Qué define esta configuración</strong>
                   <p>
-                    Aquí decides qué landmarks mirar, qué ángulos comparar, qué trayectorias seguir y
+                    Aquí decides qué landmarks mirar, qué posiciones y ángulos comparar, qué trayectorias seguir y
                     en qué momentos o ventanas del gesto debe fijarse el análisis sobre la referencia profesional ya subida.
                   </p>
                 </div>
@@ -6518,6 +6660,346 @@ export default function App() {
                     ))
                   ) : (
                     <p className="helper-text">Define los landmarks que deben seguirse de forma explícita sobre el gesto profesional.</p>
+                  )}
+                </div>
+
+                <div className="detail-card program-card biomechanics-card">
+                  <div className="section-header compact-header">
+                    <div>
+                      <p className="eyebrow">Puntos comparables</p>
+                      <h3>Point checks por evento o ventana</h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() =>
+                        setTemplateTechniqueForm((current) => ({
+                          ...current,
+                          biomechanics: {
+                            ...current.biomechanics,
+                            pointChecks: [
+                              ...current.biomechanics.pointChecks,
+                              {
+                                id: createDraftId(),
+                                label: "",
+                                landmark: "RIGHT_HIP",
+                                axis: "Y",
+                                referenceMode: "ABSOLUTE",
+                                anchorEventId: "",
+                                anchorEventType: "",
+                                windowStartEventId: "",
+                                windowEndEventId: "",
+                                sampleMode: "AT_EVENT",
+                                targetMin: "",
+                                targetMax: "",
+                                phase: "",
+                                notes: "",
+                              },
+                            ],
+                          },
+                        }))
+                      }
+                    >
+                      + Point check
+                    </button>
+                  </div>
+                  {templateTechniqueForm.biomechanics.pointChecks.length ? (
+                    templateTechniqueForm.biomechanics.pointChecks.map((pointCheck, index) => (
+                      <article
+                        key={pointCheck.id}
+                        className={`detail-card program-card${selectedPointCheckId === pointCheck.id ? " highlight-card" : ""}`}
+                        onClick={() => handlePointCheckSelect(pointCheck.id)}
+                        onFocusCapture={() => handlePointCheckSelect(pointCheck.id)}
+                      >
+                        <div className="form-grid-3">
+                          <label>
+                            Nombre del point check
+                            <input
+                              value={pointCheck.label}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, label: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="ej. Altura de cadera en último apoyo"
+                            />
+                          </label>
+                          <label>
+                            Landmark
+                            <select
+                              value={pointCheck.landmark}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, landmark: event.target.value as LandmarkName } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {poseLandmarkOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Eje
+                            <select
+                              value={pointCheck.axis}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, axis: event.target.value as TechniqueBiomechanicsTrajectoryAxis } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {biomechanicsTrajectoryAxisOptions.map((option) => (
+                                <option key={option} value={option}>{formatTrajectoryAxisLabel(option)}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Referencia
+                            <select
+                              value={pointCheck.referenceMode}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, referenceMode: event.target.value as TechniqueBiomechanicsTrajectoryReferenceMode } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {biomechanicsTrajectoryReferenceModeOptions.map((option) => (
+                                <option key={option} value={option}>{formatTrajectoryReferenceModeLabel(option)}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Evento ancla
+                            <select
+                              value={pointCheck.anchorEventId}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, anchorEventId: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              <option value="">Sin evento fijo</option>
+                              {biomechanicsEventReferenceOptions.map((event) => (
+                                <option key={event.id} value={event.id}>{event.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Tipo de evento ancla
+                            <select
+                              value={pointCheck.anchorEventType}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, anchorEventType: event.target.value as TechniqueBiomechanicsEventType | "" } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              <option value="">Sin tipo fijo</option>
+                              {biomechanicsEventTypeOptions.map((option) => (
+                                <option key={option} value={option}>{formatBiomechanicsEventLabel(option)}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Inicio de ventana
+                            <select
+                              value={pointCheck.windowStartEventId}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, windowStartEventId: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              <option value="">Sin ventana</option>
+                              {biomechanicsEventReferenceOptions.map((event) => (
+                                <option key={event.id} value={event.id}>{event.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Fin de ventana
+                            <select
+                              value={pointCheck.windowEndEventId}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, windowEndEventId: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              <option value="">Sin ventana</option>
+                              {biomechanicsEventReferenceOptions.map((event) => (
+                                <option key={event.id} value={event.id}>{event.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Modo de muestreo
+                            <select
+                              value={pointCheck.sampleMode}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, sampleMode: event.target.value as TechniqueBiomechanicsAngleSampleMode | "" } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              <option value="">Usar valor por defecto</option>
+                              {biomechanicsAngleSampleModeOptions.map((option) => (
+                                <option key={option} value={option}>{formatAngleSampleModeLabel(option)}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Fase
+                            <input
+                              value={pointCheck.phase}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, phase: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="ej. Descenso penúltimo apoyo"
+                            />
+                          </label>
+                          <label>
+                            Mínimo objetivo
+                            <input
+                              type="number"
+                              value={pointCheck.targetMin}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, targetMin: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="0.42"
+                            />
+                          </label>
+                          <label>
+                            Máximo objetivo
+                            <input
+                              type="number"
+                              value={pointCheck.targetMax}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, targetMax: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="0.57"
+                            />
+                          </label>
+                          <label style={{ gridColumn: "1 / -1" }}>
+                            Notas
+                            <textarea
+                              value={pointCheck.notes}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    pointChecks: current.biomechanics.pointChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, notes: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              rows={3}
+                              placeholder="ej. Controlar que la cadera del atleta descienda progresivamente en Y frente a la referencia."
+                            />
+                          </label>
+                        </div>
+                        <div className="chip-row">
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() =>
+                              setTemplateTechniqueForm((current) => ({
+                                ...current,
+                                biomechanics: {
+                                  ...current.biomechanics,
+                                  pointChecks: current.biomechanics.pointChecks.filter((_, entryIndex) => entryIndex !== index),
+                                },
+                              }))
+                            }
+                          >
+                            Eliminar point check
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="helper-text">Agrega point checks para comparar la posición de landmarks como la cadera en eventos concretos o ventanas del gesto.</p>
                   )}
                 </div>
 
@@ -7431,6 +7913,23 @@ export default function App() {
                     placeholder="Resume qué debe priorizar el análisis biomecánico en esta técnica."
                   />
                 </label>
+
+                <div className="technique-save-bar bottom-save-bar">
+                  <div>
+                    <strong>Guardar antes de salir</strong>
+                    <p>Esta acción persiste `biomechanicsConfig` completo, incluyendo point checks, ángulos, eventos y notas.</p>
+                  </div>
+                  <div className="chip-row technique-save-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={loading || !templateTechniqueForm.title.trim()}
+                      onClick={() => void handleTechniqueSave()}
+                    >
+                      Guardar técnica
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="program-list">

@@ -20,11 +20,12 @@ Se cerro una nueva iteracion del flujo biomecanico del portal admin web sobre `P
 
 - la referencia profesional sigue subiéndose desde `apps/web`, no desde mobile
 - el backend valida y persiste `proVideoUrl`, `proLandmarks` y `biomechanicsConfig`
-- `biomechanicsConfig` ya guarda `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `angleChecks`, `trajectoryChecks`, `keyEvents`, `orientationPolicy` y `coachNotes`
-- `angleChecks` ya puede anclarse a un evento concreto o a una ventana entre eventos, y `trajectoryChecks` expresa recorridos biomecanicos como la cadera entre penúltimo apoyo y despegue
+- `biomechanicsConfig` ya guarda `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `pointChecks`, `angleChecks`, `trajectoryChecks`, `keyEvents`, `orientationPolicy` y `coachNotes`
+- `angleChecks` ya puede anclarse a un evento concreto o a una ventana entre eventos, `pointChecks` agrega comparaciones por landmark y eje, y `trajectoryChecks` expresa recorridos biomecanicos como la cadera entre penúltimo apoyo y despegue
 - los `keyEvents` ahora persisten `frameIndex` explicito ademas de `frameHint`
 - el portal admin ya tiene un editor visual funcional con video sincronizado por frame, overlay SVG, scrubber, timeline con markers, creacion visual de puntos, alta visual de angulos y marcado visual de eventos
-- los formularios inferiores del admin ahora exponen tambien anclajes por evento/ventana, trayectorias y politica de orientacion para dejar listo el contrato canónico atleta-vs-pro
+- los formularios inferiores del admin ahora exponen tambien anclajes por evento/ventana, point checks, trayectorias y politica de orientacion para dejar listo el contrato canónico atleta-vs-pro
+- el bloque biomecanico ahora deja un guardado sticky visible dentro del editor para evitar perder cambios locales antes de persistir la técnica
 - los formularios estructurados inferiores siguen presentes como respaldo de edicion fina, pero ahora tambien resaltan la seleccion activa en overlay y timeline
 - el bloque visual se extrajo de `App.tsx` a componentes propios para reducir acoplamiento y facilitar iteraciones futuras
 

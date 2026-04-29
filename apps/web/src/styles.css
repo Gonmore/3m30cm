@@ -758,6 +758,37 @@ textarea { resize: vertical; }
   position: sticky;
   top: 16px;
 }
+.technique-save-bar {
+  position: sticky;
+  bottom: 16px;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(42, 157, 143, 0.18);
+  background: rgba(255, 253, 248, 0.96);
+  box-shadow: 0 10px 24px rgba(20, 33, 61, 0.12);
+  backdrop-filter: blur(10px);
+}
+.technique-save-bar strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+.technique-save-bar p {
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.technique-save-actions {
+  min-width: 220px;
+}
+.bottom-save-bar {
+  margin-top: 6px;
+}
 .biomechanics-chip-grid {
   display: flex;
   flex-wrap: wrap;
