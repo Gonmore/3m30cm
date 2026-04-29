@@ -47,7 +47,7 @@ const poseLandmarkOptions = [
   { value: "LEFT_FOOT_INDEX", label: "Punta pie izq." },
   { value: "RIGHT_FOOT_INDEX", label: "Punta pie der." },
 ] as const;
-const biomechanicsEventTypeOptions = ["SETUP", "DIP", "ANTEPENULTIMATE_CONTACT", "PENULTIMATE_CONTACT", "LAST_CONTACT", "TAKE_OFF", "TOE_OFF", "FLIGHT", "APEX", "LANDING", "OTHER"] as const;
+const biomechanicsEventTypeOptions = ["SETUP", "DIP", "ANTEPENULTIMATE_CONTACT", "PRE_PENULTIMATE_FLIGHT", "PENULTIMATE_CONTACT", "LAST_CONTACT", "TAKE_OFF", "TOE_OFF", "FLIGHT", "APEX", "LANDING", "OTHER"] as const;
 const biomechanicsEventSourceOptions = ["AUTO", "MANUAL", "HYBRID"] as const;
 const biomechanicsEventDetectorOptions = ["HIP_FOOT_HEURISTIC_V1"] as const;
 const biomechanicsAngleSampleModeOptions = ["AT_EVENT", "WINDOW_MIN", "WINDOW_MAX", "WINDOW_AVERAGE"] as const;
@@ -1121,6 +1121,14 @@ function getManualOverrideSource(source: TechniqueBiomechanicsEventSource): Tech
   return source === "AUTO" ? "HYBRID" : "MANUAL";
 }
 
+function buildAutoDetectedEventNotes(eventType: TechniqueBiomechanicsEventType) {
+  if (eventType === "PRE_PENULTIMATE_FLIGHT") {
+    return "Buscar el gesto aéreo previo al penúltimo apoyo: idealmente alrededor de 2 frames antes del contacto a 15 fps, con pierna trasera cerca de 90° en rodilla, brazos atrás estirados con muñecas cerca de la altura del hombro, tronco vertical y pierna delantera larga en un ángulo aproximado de 100° a 130° respecto al tronco.";
+  }
+
+  return null;
+}
+
 function mergeAutoDetectedKeyEventRecords(
   currentEvents: TechniqueBiomechanicsKeyEventRecord[],
   detectedEvents: AutoDetectedTechniqueKeyEvent[],
@@ -1143,6 +1151,7 @@ function mergeAutoDetectedKeyEventRecords(
       source: "AUTO" as const,
       confidence: detectedEvent.confidence,
       detector: detectedEvent.detector,
+      notes: event.notes ?? buildAutoDetectedEventNotes(detectedEvent.eventType),
     };
   });
 
@@ -1161,7 +1170,7 @@ function mergeAutoDetectedKeyEventRecords(
       source: "AUTO" as const,
       confidence: event.confidence,
       detector: event.detector,
-      notes: null,
+      notes: buildAutoDetectedEventNotes(event.eventType),
     });
   });
 
@@ -1190,6 +1199,7 @@ function mergeAutoDetectedKeyEventDrafts(
       source: "AUTO" as const,
       confidence: detectedEvent.confidence.toFixed(2),
       detector: detectedEvent.detector,
+      notes: event.notes.trim() || buildAutoDetectedEventNotes(detectedEvent.eventType) || "",
     };
   });
 
@@ -1208,7 +1218,7 @@ function mergeAutoDetectedKeyEventDrafts(
       source: "AUTO" as const,
       confidence: event.confidence.toFixed(2),
       detector: event.detector,
-      notes: "",
+      notes: buildAutoDetectedEventNotes(event.eventType) ?? "",
     });
   });
 
@@ -1501,6 +1511,8 @@ function formatBiomechanicsEventLabel(eventType: TechniqueBiomechanicsEventType)
       return "Dip";
     case "ANTEPENULTIMATE_CONTACT":
       return "Antepenúltimo apoyo";
+    case "PRE_PENULTIMATE_FLIGHT":
+      return "Gesto aéreo pre-penúltimo";
     case "PENULTIMATE_CONTACT":
       return "Penúltimo apoyo";
     case "LAST_CONTACT":

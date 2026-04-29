@@ -21,7 +21,7 @@ Se cerro una nueva iteracion del flujo biomecanico del portal admin web sobre `P
 - la referencia profesional sigue subiéndose desde `apps/web`, no desde mobile
 - el backend valida y persiste `proVideoUrl`, `proLandmarks` y `biomechanicsConfig`
 - `biomechanicsConfig` ya guarda `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `pointChecks`, `angleChecks`, `trajectoryChecks`, `keyEvents`, `orientationPolicy` y `coachNotes`
-- `keyEvents` ya admite `ANTEPENULTIMATE_CONTACT`, `APEX`, `source`, `confidence` y `detector` para soportar sugerencias automáticas sin perder override manual
+- `keyEvents` ya admite `ANTEPENULTIMATE_CONTACT`, `PRE_PENULTIMATE_FLIGHT`, `APEX`, `source`, `confidence` y `detector` para soportar sugerencias automáticas sin perder override manual
 - `angleChecks` ya puede anclarse a un evento concreto o a una ventana entre eventos, `pointChecks` agrega comparaciones por landmark y eje, y `trajectoryChecks` expresa recorridos biomecanicos como la cadera entre penúltimo apoyo y despegue
 - los `keyEvents` ahora persisten `frameIndex` explicito ademas de `frameHint`
 - el portal admin ya tiene un editor visual funcional con video sincronizado por frame, overlay SVG, scrubber, timeline con markers, creacion visual de puntos, alta visual de angulos y marcado visual de eventos

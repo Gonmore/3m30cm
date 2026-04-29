@@ -143,6 +143,7 @@ const techniqueBiomechanicsEventTypes = [
   "SETUP",
   "DIP",
   "ANTEPENULTIMATE_CONTACT",
+  "PRE_PENULTIMATE_FLIGHT",
   "PENULTIMATE_CONTACT",
   "LAST_CONTACT",
   "TAKE_OFF",
