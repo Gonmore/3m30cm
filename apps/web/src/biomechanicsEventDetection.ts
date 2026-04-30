@@ -685,6 +685,32 @@ function selectAlternatingSupportPeaks(peaks: SupportPeak[]) {
   };
 }
 
+function selectAlternatingSupportRuns(runs: SupportRun[]) {
+  const selectedRuns: SupportRun[] = [];
+
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index];
+    if (!run) {
+      continue;
+    }
+
+    const previousSelectedRun = selectedRuns[selectedRuns.length - 1];
+    if (!previousSelectedRun || previousSelectedRun.side !== run.side) {
+      selectedRuns.push(run);
+    }
+
+    if (selectedRuns.length >= 3) {
+      break;
+    }
+  }
+
+  return {
+    last: selectedRuns[0] ?? null,
+    penultimate: selectedRuns[1] ?? null,
+    antepenultimate: selectedRuns[2] ?? null,
+  };
+}
+
 export function detectTechniqueKeyEventsWithDebug(
   landmarks: TechniqueProLandmarks | null | undefined,
 ): AutoDetectedTechniqueDetectionResult {
@@ -768,10 +794,11 @@ export function detectTechniqueKeyEventsWithDebug(
   const supportRuns = collectSupportRuns(supportLabels, 0, toeOffIndex, contactRunMinLength);
   const airborneRuns = collectRuns(anyGroundedFlags, false, 0, toeOffIndex, 1);
   const fallbackSupportPeaks = collectSupportPeaks(leftContactScoreSeries, rightContactScoreSeries, leftGround, rightGround, toeOffIndex, contactRunMinLength);
+  const alternatingSupportRuns = selectAlternatingSupportRuns(supportRuns);
   const alternatingFallbackPeaks = selectAlternatingSupportPeaks(fallbackSupportPeaks);
-  const lastSupportRun = supportRuns[supportRuns.length - 1] ?? null;
-  const penultimateSupportRun = supportRuns[supportRuns.length - 2] ?? null;
-  const antepenultimateSupportRun = supportRuns[supportRuns.length - 3] ?? null;
+  const lastSupportRun = alternatingSupportRuns.last;
+  const penultimateSupportRun = alternatingSupportRuns.penultimate;
+  const antepenultimateSupportRun = alternatingSupportRuns.antepenultimate;
   const fallbackLastPeak = alternatingFallbackPeaks.last;
   const fallbackPenultimatePeak = alternatingFallbackPeaks.penultimate;
   const fallbackAntepenultimatePeak = alternatingFallbackPeaks.antepenultimate;
