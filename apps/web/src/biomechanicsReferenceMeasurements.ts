@@ -1,6 +1,7 @@
 import type { TechniqueProLandmarks } from "./techniquePoseExtraction";
 
 const gravityMetersPerSecondSquared = 9.81;
+const slowMotionPlaybackCandidates = [0.5, 0.25] as const;
 
 const landmarkIndex = {
   NOSE: 0,
@@ -49,7 +50,7 @@ export interface ReferenceJumpHeightMeasurementConfig {
   subjectHeightCm: number | null;
   playbackSpeedRatio: number | null;
   flightTimeMethodEnabled: boolean;
-  geometricHipRiseMethodEnabled: boolean;
+  heelRiseMethodEnabled: boolean;
   consensusToleranceCm: number | null;
 }
 
@@ -75,10 +76,11 @@ export interface ReferenceHipProgressionCheckPreview {
 }
 
 export interface ReferenceJumpHeightMethodPreview {
-  method: "FLIGHT_TIME" | "GEOMETRIC_HIP_RISE";
+  method: "FLIGHT_TIME" | "HEEL_RISE";
   status: MeasurementStatus;
   valueCm: number | null;
   confidence: number | null;
+  playbackSpeedRatio: number | null;
   notes: string | null;
 }
 
@@ -149,6 +151,13 @@ function getHipCenterY(landmarks: TechniqueProLandmarks, frameIndex: number) {
   ]);
 }
 
+function getHeelCenterY(landmarks: TechniqueProLandmarks, frameIndex: number) {
+  return average([
+    getLandmarkY(landmarks, frameIndex, landmarkIndex.LEFT_HEEL),
+    getLandmarkY(landmarks, frameIndex, landmarkIndex.RIGHT_HEEL),
+  ]);
+}
+
 function getTopVisibleBodyPointY(landmarks: TechniqueProLandmarks, frameIndex: number) {
   const frame = getFrame(landmarks, frameIndex);
   if (!frame) {
@@ -164,6 +173,30 @@ function getTopVisibleBodyPointY(landmarks: TechniqueProLandmarks, frameIndex: n
   }
 
   return Math.min(...visibleValues);
+}
+
+function calculateVisibleBodyHeight(landmarks: TechniqueProLandmarks, frameIndex: number) {
+  const groundReferenceY = getGroundReferenceY(landmarks, frameIndex);
+  const topVisibleBodyPointY = getTopVisibleBodyPointY(landmarks, frameIndex);
+  if (groundReferenceY === null || topVisibleBodyPointY === null) {
+    return null;
+  }
+
+  return groundReferenceY - topVisibleBodyPointY;
+}
+
+function getMaxVisibleBodyHeightBeforeFrame(landmarks: TechniqueProLandmarks, lastFrameIndex: number) {
+  const upperBound = Math.max(Math.min(lastFrameIndex, landmarks.frames.length - 1), 0);
+  const visibleHeights = landmarks.frames
+    .slice(0, upperBound + 1)
+    .map((_, frameIndex) => calculateVisibleBodyHeight(landmarks, frameIndex))
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+
+  if (!visibleHeights.length) {
+    return null;
+  }
+
+  return Math.max(...visibleHeights);
 }
 
 function getTimestampSeconds(landmarks: TechniqueProLandmarks, frameIndex: number) {
@@ -321,57 +354,13 @@ function buildHipProgressionCheckPreview(
   };
 }
 
-function buildFlightTimeMethodPreview(
-  config: ReferenceJumpHeightMeasurementConfig,
+function buildFlightTimeCandidatePreview(
   landmarks: TechniqueProLandmarks,
-  eventsByType: Map<string, ReferenceMeasurementEventMarker>,
-  motionProfile: "REAL_TIME" | "SLOW_MOTION" | null,
-): ReferenceJumpHeightMethodPreview {
-  if (!config.flightTimeMethodEnabled) {
-    return {
-      method: "FLIGHT_TIME",
-      status: "PENDING",
-      valueCm: null,
-      confidence: null,
-      notes: "Método desactivado en la configuración.",
-    };
-  }
-
-  const toeOffEvent = eventsByType.get("TOE_OFF") ?? eventsByType.get("TAKE_OFF") ?? null;
-  const apexEvent = eventsByType.get("APEX") ?? null;
-  const landingEvent = eventsByType.get("LANDING") ?? null;
-
-  if (!toeOffEvent || (!apexEvent && !landingEvent)) {
-    return {
-      method: "FLIGHT_TIME",
-      status: "MISSING_EVENT",
-      valueCm: null,
-      confidence: null,
-      notes: "Se necesita al menos TOE_OFF y APEX o LANDING para estimar la altura por tiempo.",
-    };
-  }
-
-  if (motionProfile === "SLOW_MOTION" && typeof config.playbackSpeedRatio !== "number") {
-    return {
-      method: "FLIGHT_TIME",
-      status: "INVALID_MOTION_PROFILE",
-      valueCm: null,
-      confidence: null,
-      notes: "En cámara lenta hace falta playbackSpeedRatio para corregir el tiempo de vuelo.",
-    };
-  }
-
-  const playbackFactor = motionProfile === "SLOW_MOTION" ? (config.playbackSpeedRatio ?? null) : 1;
-  if (playbackFactor === null) {
-    return {
-      method: "FLIGHT_TIME",
-      status: "INVALID_MOTION_PROFILE",
-      valueCm: null,
-      confidence: null,
-      notes: "No se pudo reconstruir el factor temporal del video analizado.",
-    };
-  }
-
+  toeOffEvent: ReferenceMeasurementEventMarker,
+  apexEvent: ReferenceMeasurementEventMarker | null,
+  landingEvent: ReferenceMeasurementEventMarker | null,
+  playbackFactor: number,
+): ReferenceJumpHeightMethodPreview & { internalDisagreementCm: number | null } {
   const toeOffTimeSeconds = getTimestampSeconds(landmarks, toeOffEvent.frameIndex);
   const apexTimeSeconds = apexEvent ? getTimestampSeconds(landmarks, apexEvent.frameIndex) : null;
   const landingTimeSeconds = landingEvent ? getTimestampSeconds(landmarks, landingEvent.frameIndex) : null;
@@ -400,19 +389,24 @@ function buildFlightTimeMethodPreview(
       status: "MISSING_EVENT",
       valueCm: null,
       confidence: null,
+      playbackSpeedRatio: roundTo(playbackFactor, 3),
+      internalDisagreementCm: null,
       notes: "No se pudo reconstruir un tiempo de vuelo válido para medir la altura.",
     };
   }
 
+  const internalDisagreementCm = typeof ascentHeightCm === "number" && typeof totalFlightHeightCm === "number"
+    ? Math.abs(ascentHeightCm - totalFlightHeightCm)
+    : null;
+
   let confidence = 0.88;
   let notes = "Altura estimada a partir del tiempo entre TOE_OFF y APEX.";
-  if (typeof ascentHeightCm === "number" && typeof totalFlightHeightCm === "number") {
-    const disagreementCm = Math.abs(ascentHeightCm - totalFlightHeightCm);
-    if (disagreementCm > 8) {
+  if (typeof internalDisagreementCm === "number") {
+    if (internalDisagreementCm > 8) {
       confidence = 0.7;
-      notes = `Tiempo de ascenso y tiempo total difieren ${roundTo(disagreementCm)} cm; revisar postura de aterrizaje o eventos.`;
+      notes = `Tiempo de ascenso y tiempo total difieren ${roundTo(internalDisagreementCm)} cm; revisar postura de aterrizaje o eventos.`;
     } else {
-      notes = `Tiempo de ascenso y tiempo total coinciden dentro de ${roundTo(disagreementCm)} cm.`;
+      notes = `Tiempo de ascenso y tiempo total coinciden dentro de ${roundTo(internalDisagreementCm)} cm.`;
     }
   }
 
@@ -421,87 +415,217 @@ function buildFlightTimeMethodPreview(
     status: "OK",
     valueCm: roundTo(valueCm),
     confidence: roundTo(confidence),
+    playbackSpeedRatio: roundTo(playbackFactor, 3),
+    internalDisagreementCm: typeof internalDisagreementCm === "number" ? roundTo(internalDisagreementCm) : null,
     notes,
   };
 }
 
-function buildGeometricHipRiseMethodPreview(
+function buildFlightTimeMethodPreview(
+  config: ReferenceJumpHeightMeasurementConfig,
+  landmarks: TechniqueProLandmarks,
+  eventsByType: Map<string, ReferenceMeasurementEventMarker>,
+  motionProfile: "REAL_TIME" | "SLOW_MOTION" | null,
+  heelRiseReferenceCm: number | null,
+): ReferenceJumpHeightMethodPreview {
+  if (!config.flightTimeMethodEnabled) {
+    return {
+      method: "FLIGHT_TIME",
+      status: "PENDING",
+      valueCm: null,
+      confidence: null,
+      playbackSpeedRatio: null,
+      notes: "Método desactivado en la configuración.",
+    };
+  }
+
+  const toeOffEvent = eventsByType.get("TOE_OFF") ?? eventsByType.get("TAKE_OFF") ?? null;
+  const apexEvent = eventsByType.get("APEX") ?? null;
+  const landingEvent = eventsByType.get("LANDING") ?? null;
+
+  if (!toeOffEvent || (!apexEvent && !landingEvent)) {
+    return {
+      method: "FLIGHT_TIME",
+      status: "MISSING_EVENT",
+      valueCm: null,
+      confidence: null,
+      playbackSpeedRatio: null,
+      notes: "Se necesita al menos TOE_OFF y APEX o LANDING para estimar la altura por tiempo.",
+    };
+  }
+
+  if (
+    motionProfile === "SLOW_MOTION"
+    && typeof config.playbackSpeedRatio !== "number"
+    && typeof heelRiseReferenceCm !== "number"
+  ) {
+    return {
+      method: "FLIGHT_TIME",
+      status: "INVALID_MOTION_PROFILE",
+      valueCm: null,
+      confidence: null,
+      playbackSpeedRatio: null,
+      notes: "En cámara lenta hace falta un playbackSpeedRatio explícito o una medición por talones válida para inferirlo.",
+    };
+  }
+
+  const playbackCandidates = motionProfile === "SLOW_MOTION"
+    ? Array.from(new Set([
+      config.playbackSpeedRatio,
+      ...slowMotionPlaybackCandidates,
+    ].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1)))
+    : [1];
+
+  const validCandidates = playbackCandidates
+    .map((candidate) => buildFlightTimeCandidatePreview(landmarks, toeOffEvent, apexEvent, landingEvent, candidate))
+    .filter((candidate) => candidate.status === "OK" && typeof candidate.valueCm === "number");
+
+  if (!validCandidates.length) {
+    return {
+      method: "FLIGHT_TIME",
+      status: "MISSING_EVENT",
+      valueCm: null,
+      confidence: null,
+      playbackSpeedRatio: null,
+      notes: "No se pudo reconstruir un tiempo de vuelo válido para medir la altura.",
+    };
+  }
+
+  const selectedCandidate = validCandidates.slice().sort((left, right) => {
+    const leftReferenceGap = typeof heelRiseReferenceCm === "number"
+      ? Math.abs((left.valueCm ?? 0) - heelRiseReferenceCm)
+      : Number.POSITIVE_INFINITY;
+    const rightReferenceGap = typeof heelRiseReferenceCm === "number"
+      ? Math.abs((right.valueCm ?? 0) - heelRiseReferenceCm)
+      : Number.POSITIVE_INFINITY;
+
+    if (leftReferenceGap !== rightReferenceGap) {
+      return leftReferenceGap - rightReferenceGap;
+    }
+
+    const leftInternalGap = left.internalDisagreementCm ?? Number.POSITIVE_INFINITY;
+    const rightInternalGap = right.internalDisagreementCm ?? Number.POSITIVE_INFINITY;
+    if (leftInternalGap !== rightInternalGap) {
+      return leftInternalGap - rightInternalGap;
+    }
+
+    if (typeof config.playbackSpeedRatio === "number") {
+      const leftMatchesConfigured = Math.abs((left.playbackSpeedRatio ?? 0) - config.playbackSpeedRatio) < 0.0001 ? 0 : 1;
+      const rightMatchesConfigured = Math.abs((right.playbackSpeedRatio ?? 0) - config.playbackSpeedRatio) < 0.0001 ? 0 : 1;
+      if (leftMatchesConfigured !== rightMatchesConfigured) {
+        return leftMatchesConfigured - rightMatchesConfigured;
+      }
+    }
+
+    return (left.playbackSpeedRatio ?? 0) - (right.playbackSpeedRatio ?? 0);
+  })[0] ?? validCandidates[0]!;
+
+  const disagreementFromHeel = typeof heelRiseReferenceCm === "number"
+    ? Math.abs((selectedCandidate.valueCm ?? 0) - heelRiseReferenceCm)
+    : null;
+  const selectedRatioText = selectedCandidate.playbackSpeedRatio?.toString() ?? "desconocido";
+
+  let confidence = selectedCandidate.confidence ?? 0.88;
+  let notes = selectedCandidate.notes ?? "Altura estimada a partir del tiempo de vuelo.";
+  if (motionProfile === "SLOW_MOTION") {
+    if (typeof heelRiseReferenceCm === "number" && typeof disagreementFromHeel === "number") {
+      if (disagreementFromHeel <= (config.consensusToleranceCm ?? 6)) {
+        confidence = Math.min(confidence + 0.04, 0.94);
+      } else {
+        confidence = Math.max(confidence - 0.12, 0.55);
+      }
+
+      notes = `${notes} Ratio temporal ${selectedRatioText} seleccionado por mejor acuerdo con talones (${roundTo(disagreementFromHeel)} cm de diferencia).`;
+    } else if (typeof config.playbackSpeedRatio === "number") {
+      notes = `${notes} Ratio temporal explícito ${selectedRatioText}.`;
+    }
+  }
+
+  return {
+    method: "FLIGHT_TIME",
+    status: selectedCandidate.status,
+    valueCm: selectedCandidate.valueCm,
+    confidence: roundTo(confidence),
+    playbackSpeedRatio: selectedCandidate.playbackSpeedRatio,
+    notes,
+  };
+}
+
+function buildHeelRiseMethodPreview(
   config: ReferenceJumpHeightMeasurementConfig,
   landmarks: TechniqueProLandmarks,
   eventsByType: Map<string, ReferenceMeasurementEventMarker>,
 ): ReferenceJumpHeightMethodPreview {
-  if (!config.geometricHipRiseMethodEnabled) {
+  if (!config.heelRiseMethodEnabled) {
     return {
-      method: "GEOMETRIC_HIP_RISE",
+      method: "HEEL_RISE",
       status: "PENDING",
       valueCm: null,
       confidence: null,
+      playbackSpeedRatio: null,
       notes: "Método desactivado en la configuración.",
     };
   }
 
   if (typeof config.subjectHeightCm !== "number") {
     return {
-      method: "GEOMETRIC_HIP_RISE",
+      method: "HEEL_RISE",
       status: "PENDING",
       valueCm: null,
       confidence: null,
-      notes: "Configura la altura del sujeto para calibrar la estimación geométrica en centímetros.",
+      playbackSpeedRatio: null,
+      notes: "Configura la altura del sujeto para escalar la medición de talones en centímetros.",
     };
   }
 
   const toeOffEvent = eventsByType.get("TOE_OFF") ?? eventsByType.get("TAKE_OFF") ?? null;
   const apexEvent = eventsByType.get("APEX") ?? null;
-  const setupEvent = eventsByType.get("SETUP") ?? toeOffEvent;
-  if (!toeOffEvent || !apexEvent || !setupEvent) {
+  if (!toeOffEvent || !apexEvent) {
     return {
-      method: "GEOMETRIC_HIP_RISE",
+      method: "HEEL_RISE",
       status: "MISSING_EVENT",
       valueCm: null,
       confidence: null,
-      notes: "Se necesitan SETUP, TOE_OFF y APEX para la estimación geométrica de cadera.",
+      playbackSpeedRatio: null,
+      notes: "Se necesitan TOE_OFF y APEX para medir la elevación máxima de los talones.",
     };
   }
 
   const globalGroundReferenceY = getGlobalGroundReferenceY(landmarks);
-  const calibrationTopY = getTopVisibleBodyPointY(landmarks, setupEvent.frameIndex);
-  const toeOffHipY = getHipCenterY(landmarks, toeOffEvent.frameIndex);
-  const apexHipY = getHipCenterY(landmarks, apexEvent.frameIndex);
+  const calibrationBodyHeight = getMaxVisibleBodyHeightBeforeFrame(landmarks, toeOffEvent.frameIndex);
+  const apexHeelY = getHeelCenterY(landmarks, apexEvent.frameIndex);
 
-  if (
-    globalGroundReferenceY === null
-    || calibrationTopY === null
-    || toeOffHipY === null
-    || apexHipY === null
-  ) {
+  if (globalGroundReferenceY === null || calibrationBodyHeight === null || apexHeelY === null) {
     return {
-      method: "GEOMETRIC_HIP_RISE",
+      method: "HEEL_RISE",
       status: "MISSING_LANDMARK",
       valueCm: null,
       confidence: null,
-      notes: "No se pudieron reconstruir landmarks suficientes para calibrar la elevación geométrica de la cadera.",
+      playbackSpeedRatio: null,
+      notes: "No se pudieron reconstruir landmarks suficientes para calibrar la elevación de los talones respecto al suelo.",
     };
   }
 
-  const visibleBodyHeight = globalGroundReferenceY - calibrationTopY;
-  const hipRiseNormalized = toeOffHipY - apexHipY;
-  if (visibleBodyHeight <= 0 || hipRiseNormalized <= 0) {
+  const heelClearanceNormalized = globalGroundReferenceY - apexHeelY;
+  if (calibrationBodyHeight <= 0 || heelClearanceNormalized <= 0) {
     return {
-      method: "GEOMETRIC_HIP_RISE",
+      method: "HEEL_RISE",
       status: "LOW_CONFIDENCE",
       valueCm: null,
       confidence: null,
-      notes: "La escala geométrica no es fiable con los landmarks actuales del video.",
+      playbackSpeedRatio: null,
+      notes: "La escala por talones no es fiable con los landmarks actuales del video.",
     };
   }
 
-  const valueCm = (hipRiseNormalized / visibleBodyHeight) * config.subjectHeightCm;
+  const valueCm = (heelClearanceNormalized / calibrationBodyHeight) * config.subjectHeightCm;
   return {
-    method: "GEOMETRIC_HIP_RISE",
+    method: "HEEL_RISE",
     status: "OK",
     valueCm: roundTo(valueCm),
-    confidence: 0.58,
-    notes: "Estimación geométrica basada en la elevación del centro de cadera y la altura visible del sujeto en setup.",
+    confidence: 0.64,
+    playbackSpeedRatio: null,
+    notes: "Estimación geométrica basada en la elevación media de ambos talones en APEX respecto al suelo y la mayor altura visible antes del despegue.",
   };
 }
 
@@ -516,21 +640,41 @@ function buildJumpHeightPreview(
   }
 
   const eventsByType = buildEventsByType(eventMarkers);
-  const methods = [
-    buildFlightTimeMethodPreview(config, landmarks, eventsByType, motionProfile),
-    buildGeometricHipRiseMethodPreview(config, landmarks, eventsByType),
-  ];
+  const heelRiseMethod = buildHeelRiseMethodPreview(config, landmarks, eventsByType);
+  const flightTimeMethod = buildFlightTimeMethodPreview(
+    config,
+    landmarks,
+    eventsByType,
+    motionProfile,
+    heelRiseMethod.status === "OK" ? heelRiseMethod.valueCm : null,
+  );
+  const methods = [flightTimeMethod, heelRiseMethod];
 
   const okMethods = methods.filter((method) => method.status === "OK" && typeof method.valueCm === "number");
+  const resolvedPlaybackSpeedRatio = flightTimeMethod.playbackSpeedRatio
+    ?? (motionProfile === "REAL_TIME" && config.flightTimeMethodEnabled ? 1 : config.playbackSpeedRatio);
+
   if (!okMethods.length) {
     return {
       motionProfile,
-      playbackSpeedRatio: config.playbackSpeedRatio,
+      playbackSpeedRatio: resolvedPlaybackSpeedRatio ?? null,
       methods,
       consensusValueCm: null,
       disagreementCm: null,
       status: methods.some((method) => method.status === "INVALID_MOTION_PROFILE") ? "INVALID_MOTION_PROFILE" : "PENDING",
       notes: "Todavía no hay dos mediciones válidas para consolidar la altura del salto.",
+    };
+  }
+
+  if (okMethods.length < 2) {
+    return {
+      motionProfile,
+      playbackSpeedRatio: resolvedPlaybackSpeedRatio ?? null,
+      methods,
+      consensusValueCm: roundTo(okMethods[0]?.valueCm ?? 0),
+      disagreementCm: null,
+      status: "PENDING",
+      notes: "Solo hay una medición válida; falta la corroboración cruzada para consolidar la altura del salto.",
     };
   }
 
@@ -543,7 +687,7 @@ function buildJumpHeightPreview(
 
   return {
     motionProfile,
-    playbackSpeedRatio: config.playbackSpeedRatio,
+    playbackSpeedRatio: resolvedPlaybackSpeedRatio ?? null,
     methods,
     consensusValueCm: roundTo(consensusValueCm),
     disagreementCm: okMethods.length >= 2 ? roundTo(disagreementCm) : null,

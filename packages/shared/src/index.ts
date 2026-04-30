@@ -52,7 +52,7 @@ export type BiomechanicsMeasuredCheckStatus = "PENDING" | "OK" | "OUT_OF_RANGE" 
 export const biomechanicsDerivedLandmarks = ["HIP_CENTER"] as const;
 export const biomechanicsGroundReferenceModes = ["LOWEST_FOOT"] as const;
 export const biomechanicsProgressionNormalizationModes = ["PERCENT_OF_TOTAL_DROP"] as const;
-export const biomechanicsJumpHeightMeasurementMethods = ["FLIGHT_TIME", "GEOMETRIC_HIP_RISE"] as const;
+export const biomechanicsJumpHeightMeasurementMethods = ["FLIGHT_TIME", "HEEL_RISE"] as const;
 export const biomechanicsJumpHeightMeasurementStatuses = [
   "PENDING",
   "OK",
@@ -156,7 +156,7 @@ export interface BiomechanicsJumpHeightMeasurementConfig {
   subjectHeightCm: number | null;
   playbackSpeedRatio: number | null;
   flightTimeMethodEnabled: boolean;
-  geometricHipRiseMethodEnabled: boolean;
+  heelRiseMethodEnabled: boolean;
   consensusToleranceCm: number | null;
   notes: string | null;
 }

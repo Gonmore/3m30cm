@@ -382,7 +382,8 @@ const techniqueBiomechanicsJumpHeightMeasurementSchema = z.object({
   subjectHeightCm: z.number().finite().positive().max(300).nullable().optional(),
   playbackSpeedRatio: z.number().finite().positive().max(1).nullable().optional(),
   flightTimeMethodEnabled: z.boolean().default(true),
-  geometricHipRiseMethodEnabled: z.boolean().default(true),
+  heelRiseMethodEnabled: z.boolean().optional(),
+  geometricHipRiseMethodEnabled: z.boolean().optional(),
   consensusToleranceCm: z.number().finite().positive().max(200).nullable().optional(),
   notes: z.string().trim().nullable().optional(),
 }).superRefine((value, context) => {
@@ -390,11 +391,13 @@ const techniqueBiomechanicsJumpHeightMeasurementSchema = z.object({
     return;
   }
 
-  if (!value.flightTimeMethodEnabled && !value.geometricHipRiseMethodEnabled) {
+  const heelRiseMethodEnabled = value.heelRiseMethodEnabled ?? value.geometricHipRiseMethodEnabled ?? true;
+
+  if (!value.flightTimeMethodEnabled && !heelRiseMethodEnabled) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       message: "At least one jump height method must be enabled",
-      path: ["flightTimeMethodEnabled"],
+      path: ["heelRiseMethodEnabled"],
     });
   }
 });
@@ -433,7 +436,7 @@ const techniqueBiomechanicsConfigSchema = z.object({
     subjectHeightCm: null,
     playbackSpeedRatio: null,
     flightTimeMethodEnabled: true,
-    geometricHipRiseMethodEnabled: true,
+    heelRiseMethodEnabled: true,
     consensusToleranceCm: 6,
     notes: null,
   }),
@@ -445,15 +448,20 @@ const techniqueBiomechanicsConfigSchema = z.object({
   }),
   coachNotes: z.string().trim().nullable().optional(),
 }).superRefine((value, context) => {
+  const heelRiseMethodEnabled = value.jumpHeightMeasurement.heelRiseMethodEnabled
+    ?? value.jumpHeightMeasurement.geometricHipRiseMethodEnabled
+    ?? true;
+
   if (
     value.referenceMotionProfile === "SLOW_MOTION"
     && value.jumpHeightMeasurement.enabled
     && value.jumpHeightMeasurement.flightTimeMethodEnabled
     && typeof value.jumpHeightMeasurement.playbackSpeedRatio !== "number"
+    && (!heelRiseMethodEnabled || typeof value.jumpHeightMeasurement.subjectHeightCm !== "number")
   ) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Slow motion jump height measurement requires playbackSpeedRatio for the flight-time method",
+      message: "Slow motion jump height measurement requires playbackSpeedRatio unless heel-rise corroboration can infer it",
       path: ["jumpHeightMeasurement", "playbackSpeedRatio"],
     });
   }

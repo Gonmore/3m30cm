@@ -643,7 +643,7 @@ interface TechniqueBiomechanicsJumpHeightMeasurementRecord {
   subjectHeightCm: number | null;
   playbackSpeedRatio: number | null;
   flightTimeMethodEnabled: boolean;
-  geometricHipRiseMethodEnabled: boolean;
+  heelRiseMethodEnabled: boolean;
   consensusToleranceCm: number | null;
   notes: string | null;
 }
@@ -798,7 +798,7 @@ interface TechniqueBiomechanicsJumpHeightMeasurementDraft {
   subjectHeightCm: string;
   playbackSpeedRatio: string;
   flightTimeMethodEnabled: boolean;
-  geometricHipRiseMethodEnabled: boolean;
+  heelRiseMethodEnabled: boolean;
   consensusToleranceCm: string;
   notes: string;
 }
@@ -955,9 +955,9 @@ function createDefaultJumpHeightMeasurementDraft(): TechniqueBiomechanicsJumpHei
     subjectHeightCm: "",
     playbackSpeedRatio: "",
     flightTimeMethodEnabled: true,
-    geometricHipRiseMethodEnabled: true,
+    heelRiseMethodEnabled: true,
     consensusToleranceCm: "6",
-    notes: "Corroborar la altura del salto con tiempo de vuelo y elevación geométrica de la cadera.",
+    notes: "Corroborar la altura del salto con tiempo de vuelo y elevación de talones.",
   };
 }
 
@@ -1382,6 +1382,10 @@ function mergeAutoDetectedKeyEventDrafts(
 function normalizeTechniqueBiomechanicsConfig(
   config: TechniqueBiomechanicsConfig | null | undefined,
 ): TechniqueBiomechanicsConfig {
+  const legacyJumpHeightMeasurement = config?.jumpHeightMeasurement as
+    | (TechniqueBiomechanicsJumpHeightMeasurementRecord & { geometricHipRiseMethodEnabled?: boolean | null })
+    | undefined;
+
   return {
     schemaVersion: 1,
     referenceMediaAssetId: config?.referenceMediaAssetId ?? null,
@@ -1480,7 +1484,9 @@ function normalizeTechniqueBiomechanicsConfig(
         ? config.jumpHeightMeasurement.playbackSpeedRatio
         : null,
       flightTimeMethodEnabled: config?.jumpHeightMeasurement?.flightTimeMethodEnabled ?? true,
-      geometricHipRiseMethodEnabled: config?.jumpHeightMeasurement?.geometricHipRiseMethodEnabled ?? true,
+      heelRiseMethodEnabled: config?.jumpHeightMeasurement?.heelRiseMethodEnabled
+        ?? legacyJumpHeightMeasurement?.geometricHipRiseMethodEnabled
+        ?? true,
       consensusToleranceCm: typeof config?.jumpHeightMeasurement?.consensusToleranceCm === "number"
         ? config.jumpHeightMeasurement.consensusToleranceCm
         : 6,
@@ -1587,7 +1593,7 @@ function mapTechniqueBiomechanicsConfigToForm(
       subjectHeightCm: normalized.jumpHeightMeasurement.subjectHeightCm?.toString() ?? "",
       playbackSpeedRatio: normalized.jumpHeightMeasurement.playbackSpeedRatio?.toString() ?? "",
       flightTimeMethodEnabled: normalized.jumpHeightMeasurement.flightTimeMethodEnabled,
-      geometricHipRiseMethodEnabled: normalized.jumpHeightMeasurement.geometricHipRiseMethodEnabled,
+      heelRiseMethodEnabled: normalized.jumpHeightMeasurement.heelRiseMethodEnabled,
       consensusToleranceCm: normalized.jumpHeightMeasurement.consensusToleranceCm?.toString() ?? "",
       notes: normalized.jumpHeightMeasurement.notes ?? "",
     },
@@ -1716,7 +1722,7 @@ function serializeTechniqueBiomechanicsForm(
         ? Number(form.jumpHeightMeasurement.playbackSpeedRatio)
         : null,
       flightTimeMethodEnabled: form.jumpHeightMeasurement.flightTimeMethodEnabled,
-      geometricHipRiseMethodEnabled: form.jumpHeightMeasurement.geometricHipRiseMethodEnabled,
+      heelRiseMethodEnabled: form.jumpHeightMeasurement.heelRiseMethodEnabled,
       consensusToleranceCm: form.jumpHeightMeasurement.consensusToleranceCm.trim()
         ? Number(form.jumpHeightMeasurement.consensusToleranceCm)
         : null,
@@ -8882,7 +8888,7 @@ export default function App() {
                     <label className="checkbox-label">
                       <input
                         type="checkbox"
-                        checked={templateTechniqueForm.biomechanics.jumpHeightMeasurement.geometricHipRiseMethodEnabled}
+                        checked={templateTechniqueForm.biomechanics.jumpHeightMeasurement.heelRiseMethodEnabled}
                         onChange={(event) =>
                           setTemplateTechniqueForm((current) => ({
                             ...current,
@@ -8890,16 +8896,16 @@ export default function App() {
                               ...current.biomechanics,
                               jumpHeightMeasurement: {
                                 ...current.biomechanics.jumpHeightMeasurement,
-                                geometricHipRiseMethodEnabled: event.target.checked,
+                                heelRiseMethodEnabled: event.target.checked,
                               },
                             },
                           }))
                         }
                       />
-                      Método por elevación geométrica de cadera
+                      Método por elevación de talones
                     </label>
                     <label>
-                      Altura del sujeto (cm)
+                      Altura del sujeto (cm, para escalar talones)
                       <input
                         type="number"
                         min="0"
@@ -8986,11 +8992,11 @@ export default function App() {
                           }))
                         }
                         rows={3}
-                        placeholder="ej. Si el video es slow motion, exigir playbackSpeedRatio para validar el método por tiempo de vuelo."
+                        placeholder="ej. Si el video es slow motion, dejar playbackSpeedRatio vacío para que se prueben 0.5 y 0.25 contra la medición de talones."
                       />
                     </label>
                   </div>
-                  <p className="helper-text">Cuando el perfil del video sea `SLOW_MOTION`, el método por tiempo de vuelo debe llevar `playbackSpeedRatio` explícito. El método geométrico usará la elevación de la cadera como segunda verificación.</p>
+                  <p className="helper-text">Cuando el perfil del video sea `SLOW_MOTION`, el método por tiempo de vuelo puede usar `playbackSpeedRatio` explícito o inferirlo probando `0.5` y `0.25` contra la elevación de talones. La altura del sujeto sigue sirviendo para escalar esa segunda medición a centímetros.</p>
                 </div>
 
                 <div className="detail-card program-card biomechanics-card">
@@ -9039,6 +9045,9 @@ export default function App() {
                           <div className="biomechanics-preview-badge-row">
                             <strong>Altura del salto</strong>
                             <span className="biomechanics-badge biomechanics-preview-status">{formatMeasurementStatusLabel(referenceBiomechanicsPreview.jumpHeight.status)}</span>
+                            {typeof referenceBiomechanicsPreview.jumpHeight.playbackSpeedRatio === "number" ? (
+                              <span className="biomechanics-badge">Ratio temporal: {referenceBiomechanicsPreview.jumpHeight.playbackSpeedRatio.toFixed(2)}</span>
+                            ) : null}
                             {typeof referenceBiomechanicsPreview.jumpHeight.consensusValueCm === "number" ? (
                               <span className="biomechanics-badge">Consenso: {referenceBiomechanicsPreview.jumpHeight.consensusValueCm.toFixed(1)} cm</span>
                             ) : null}
@@ -9049,10 +9058,11 @@ export default function App() {
                           <div className="biomechanics-debug-list">
                             {referenceBiomechanicsPreview.jumpHeight.methods.length ? referenceBiomechanicsPreview.jumpHeight.methods.map((method) => (
                               <p key={method.method}>
-                                <strong>{method.method === "FLIGHT_TIME" ? "Tiempo de vuelo" : "Elevación geométrica de cadera"}:</strong>{" "}
+                                <strong>{method.method === "FLIGHT_TIME" ? "Tiempo de vuelo" : "Elevación de talones"}:</strong>{" "}
                                 {formatMeasurementStatusLabel(method.status)}
                                 {typeof method.valueCm === "number" ? ` · ${method.valueCm.toFixed(1)} cm` : ""}
                                 {typeof method.confidence === "number" ? ` · confianza ${method.confidence.toFixed(2)}` : ""}
+                                {typeof method.playbackSpeedRatio === "number" ? ` · ratio ${method.playbackSpeedRatio.toFixed(2)}` : ""}
                               </p>
                             )) : <p>No hay métodos activos para esta medición.</p>}
                           </div>
