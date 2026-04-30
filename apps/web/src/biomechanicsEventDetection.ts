@@ -46,6 +46,18 @@ interface Point2D {
   y: number;
 }
 
+type SupportSide = "LEFT" | "RIGHT";
+
+interface IndexedRun {
+  start: number;
+  end: number;
+  length: number;
+}
+
+interface SupportRun extends IndexedRun {
+  side: SupportSide;
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -119,7 +131,7 @@ function findFirstRun(flags: boolean[], startIndex: number, runLength: number) {
 }
 
 function collectRuns(flags: boolean[], expectedValue: boolean, startIndex: number, endIndex: number, minLength = 1) {
-  const runs: Array<{ start: number; end: number; length: number }> = [];
+  const runs: IndexedRun[] = [];
   let runStart: number | null = null;
 
   for (let index = startIndex; index <= endIndex; index += 1) {
@@ -145,6 +157,42 @@ function collectRuns(flags: boolean[], expectedValue: boolean, startIndex: numbe
     const length = endIndex - runStart + 1;
     if (length >= minLength) {
       runs.push({ start: runStart, end: endIndex, length });
+    }
+  }
+
+  return runs;
+}
+
+function collectSupportRuns(labels: Array<SupportSide | null>, startIndex: number, endIndex: number, minLength = 1) {
+  const runs: SupportRun[] = [];
+  let runStart: number | null = null;
+  let runSide: SupportSide | null = null;
+
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const label = labels[index] ?? null;
+    if (label && label === runSide) {
+      if (runStart === null) {
+        runStart = index;
+      }
+      continue;
+    }
+
+    if (runStart !== null && runSide) {
+      const end = index - 1;
+      const length = end - runStart + 1;
+      if (length >= minLength) {
+        runs.push({ side: runSide, start: runStart, end, length });
+      }
+    }
+
+    runStart = label ? index : null;
+    runSide = label;
+  }
+
+  if (runStart !== null && runSide) {
+    const length = endIndex - runStart + 1;
+    if (length >= minLength) {
+      runs.push({ side: runSide, start: runStart, end: endIndex, length });
     }
   }
 
@@ -344,6 +392,59 @@ function buildGroundedFlags(series: number[]) {
   };
 }
 
+function buildSupportLabels(
+  leftGround: ReturnType<typeof buildGroundedFlags>,
+  rightGround: ReturnType<typeof buildGroundedFlags>,
+  leftSeries: number[],
+  rightSeries: number[],
+) {
+  const labels: Array<SupportSide | null> = [];
+  let previousSide: SupportSide | null = null;
+
+  for (let index = 0; index < Math.max(leftSeries.length, rightSeries.length); index += 1) {
+    const leftActive = Boolean(leftGround.flags[index]);
+    const rightActive = Boolean(rightGround.flags[index]);
+
+    if (leftActive && !rightActive) {
+      labels.push("LEFT");
+      previousSide = "LEFT";
+      continue;
+    }
+
+    if (rightActive && !leftActive) {
+      labels.push("RIGHT");
+      previousSide = "RIGHT";
+      continue;
+    }
+
+    if (!leftActive && !rightActive) {
+      labels.push(null);
+      previousSide = null;
+      continue;
+    }
+
+    const leftSupportStrength = getSeriesValue(leftSeries, index) - (leftGround.groundBaseline - leftGround.tolerance);
+    const rightSupportStrength = getSeriesValue(rightSeries, index) - (rightGround.groundBaseline - rightGround.tolerance);
+    const supportDifference = leftSupportStrength - rightSupportStrength;
+
+    if (Math.abs(supportDifference) < Math.max(leftGround.tolerance, rightGround.tolerance) * 0.35 && previousSide) {
+      labels.push(previousSide);
+      continue;
+    }
+
+    if (supportDifference >= 0) {
+      labels.push("LEFT");
+      previousSide = "LEFT";
+      continue;
+    }
+
+    labels.push("RIGHT");
+    previousSide = "RIGHT";
+  }
+
+  return labels;
+}
+
 function detectSetupIndex(hipX: number[], hipY: number[], dipIndex: number) {
   const lastCandidateIndex = Math.max(dipIndex - 1, 0);
   if (lastCandidateIndex === 0) {
@@ -411,6 +512,7 @@ export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null
   const leftGround = buildGroundedFlags(leftContactSeries);
   const rightGround = buildGroundedFlags(rightContactSeries);
   const anyGroundedFlags = frames.map((_, index) => Boolean(leftGround.flags[index] || rightGround.flags[index]));
+  const supportLabels = buildSupportLabels(leftGround, rightGround, leftContactSeries, rightContactSeries);
 
   const firstAirborneIndex = findFirstRun(anyGroundedFlags.map((isGrounded) => !isGrounded), Math.min(dipIndex + 1, frames.length - 1), 2)
     ?? Math.max(Math.min(apexIndex - 1, frames.length - 2), dipIndex + 1);
@@ -421,16 +523,16 @@ export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null
     ?? Math.min(frames.length - 1, apexIndex + 2);
   const flightIndex = Math.min(Math.max(firstAirborneIndex, takeOffIndex + 1), apexIndex);
   const contactRunMinLength = (referenceLandmarks.fps ?? 15) <= 20 ? 1 : 2;
-  const groundedRuns = collectRuns(anyGroundedFlags, true, 0, toeOffIndex, contactRunMinLength);
+  const supportRuns = collectSupportRuns(supportLabels, 0, toeOffIndex, contactRunMinLength);
   const airborneRuns = collectRuns(anyGroundedFlags, false, 0, toeOffIndex, 1);
-  const lastGroundedRun = groundedRuns[groundedRuns.length - 1] ?? { start: takeOffIndex, end: toeOffIndex, length: Math.max(toeOffIndex - takeOffIndex + 1, 1) };
-  const penultimateGroundedRun = groundedRuns[groundedRuns.length - 2] ?? null;
-  const antepenultimateGroundedRun = groundedRuns[groundedRuns.length - 3] ?? null;
-  const lastContactIndex = lastGroundedRun.start;
-  const penultimateContactIndex = penultimateGroundedRun?.start ?? null;
-  const antepenultimateContactIndex = antepenultimateGroundedRun?.start ?? null;
-  const prePenultimateFlightRun = antepenultimateGroundedRun && penultimateGroundedRun
-    ? airborneRuns.find((run) => run.start > antepenultimateGroundedRun.end && run.end < penultimateGroundedRun.start) ?? null
+  const lastSupportRun = supportRuns[supportRuns.length - 1] ?? null;
+  const penultimateSupportRun = supportRuns[supportRuns.length - 2] ?? null;
+  const antepenultimateSupportRun = supportRuns[supportRuns.length - 3] ?? null;
+  const lastContactIndex = lastSupportRun?.start ?? takeOffIndex;
+  const penultimateContactIndex = penultimateSupportRun?.start ?? null;
+  const antepenultimateContactIndex = antepenultimateSupportRun?.start ?? null;
+  const prePenultimateFlightRun = antepenultimateSupportRun && penultimateSupportRun
+    ? airborneRuns.find((run) => run.start > antepenultimateSupportRun.end && run.end < penultimateSupportRun.start) ?? null
     : null;
   const targetFramesBeforePenultimate = Math.max(1, Math.round((referenceLandmarks.fps ?? 15) / 7.5));
   const targetPrePenultimateFrameIndex = penultimateContactIndex !== null
