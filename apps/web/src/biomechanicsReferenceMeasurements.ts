@@ -5,6 +5,8 @@ const slowMotionPlaybackCandidates = [0.5, 0.25] as const;
 
 const landmarkIndex = {
   NOSE: 0,
+  LEFT_SHOULDER: 11,
+  RIGHT_SHOULDER: 12,
   LEFT_HIP: 23,
   RIGHT_HIP: 24,
   LEFT_ANKLE: 27,
@@ -50,7 +52,7 @@ export interface ReferenceJumpHeightMeasurementConfig {
   subjectHeightCm: number | null;
   playbackSpeedRatio: number | null;
   flightTimeMethodEnabled: boolean;
-  heelRiseMethodEnabled: boolean;
+  centerOfMassMethodEnabled: boolean;
   consensusToleranceCm: number | null;
 }
 
@@ -76,7 +78,7 @@ export interface ReferenceHipProgressionCheckPreview {
 }
 
 export interface ReferenceJumpHeightMethodPreview {
-  method: "FLIGHT_TIME" | "HEEL_RISE";
+  method: "FLIGHT_TIME" | "CENTER_OF_MASS";
   status: MeasurementStatus;
   valueCm: number | null;
   confidence: number | null;
@@ -151,10 +153,12 @@ function getHipCenterY(landmarks: TechniqueProLandmarks, frameIndex: number) {
   ]);
 }
 
-function getHeelCenterY(landmarks: TechniqueProLandmarks, frameIndex: number) {
+function getApproximateCenterOfMassY(landmarks: TechniqueProLandmarks, frameIndex: number) {
   return average([
-    getLandmarkY(landmarks, frameIndex, landmarkIndex.LEFT_HEEL),
-    getLandmarkY(landmarks, frameIndex, landmarkIndex.RIGHT_HEEL),
+    getLandmarkY(landmarks, frameIndex, landmarkIndex.LEFT_HIP),
+    getLandmarkY(landmarks, frameIndex, landmarkIndex.RIGHT_HIP),
+    getLandmarkY(landmarks, frameIndex, landmarkIndex.LEFT_SHOULDER),
+    getLandmarkY(landmarks, frameIndex, landmarkIndex.RIGHT_SHOULDER),
   ]);
 }
 
@@ -206,6 +210,54 @@ function getTimestampSeconds(landmarks: TechniqueProLandmarks, frameIndex: numbe
   }
 
   return frame.timestampMs / 1000;
+}
+
+function interpolateGroundReferenceY(
+  landmarks: TechniqueProLandmarks,
+  targetFrameIndex: number,
+  startFrameIndex: number | null,
+  endFrameIndex: number | null,
+) {
+  const startGroundReferenceY = typeof startFrameIndex === "number"
+    ? getGroundReferenceY(landmarks, startFrameIndex)
+    : null;
+  const endGroundReferenceY = typeof endFrameIndex === "number"
+    ? getGroundReferenceY(landmarks, endFrameIndex)
+    : null;
+
+  if (
+    typeof startFrameIndex === "number"
+    && typeof endFrameIndex === "number"
+    && typeof startGroundReferenceY === "number"
+    && typeof endGroundReferenceY === "number"
+    && endFrameIndex !== startFrameIndex
+  ) {
+    const ratio = (targetFrameIndex - startFrameIndex) / (endFrameIndex - startFrameIndex);
+    return startGroundReferenceY + ((endGroundReferenceY - startGroundReferenceY) * ratio);
+  }
+
+  if (typeof startGroundReferenceY === "number") {
+    return startGroundReferenceY;
+  }
+
+  if (typeof endGroundReferenceY === "number") {
+    return endGroundReferenceY;
+  }
+
+  return getGlobalGroundReferenceY(landmarks);
+}
+
+function calculateCenterOfMassHeightFromGround(
+  landmarks: TechniqueProLandmarks,
+  frameIndex: number,
+  groundReferenceY: number | null,
+) {
+  const centerOfMassY = getApproximateCenterOfMassY(landmarks, frameIndex);
+  if (groundReferenceY === null || centerOfMassY === null) {
+    return null;
+  }
+
+  return groundReferenceY - centerOfMassY;
 }
 
 function buildEventsByType(eventMarkers: ReferenceMeasurementEventMarker[]) {
@@ -426,7 +478,7 @@ function buildFlightTimeMethodPreview(
   landmarks: TechniqueProLandmarks,
   eventsByType: Map<string, ReferenceMeasurementEventMarker>,
   motionProfile: "REAL_TIME" | "SLOW_MOTION" | null,
-  heelRiseReferenceCm: number | null,
+  centerOfMassReferenceCm: number | null,
 ): ReferenceJumpHeightMethodPreview {
   if (!config.flightTimeMethodEnabled) {
     return {
@@ -457,7 +509,7 @@ function buildFlightTimeMethodPreview(
   if (
     motionProfile === "SLOW_MOTION"
     && typeof config.playbackSpeedRatio !== "number"
-    && typeof heelRiseReferenceCm !== "number"
+    && typeof centerOfMassReferenceCm !== "number"
   ) {
     return {
       method: "FLIGHT_TIME",
@@ -465,7 +517,7 @@ function buildFlightTimeMethodPreview(
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: "En cámara lenta hace falta un playbackSpeedRatio explícito o una medición por talones válida para inferirlo.",
+      notes: "En cámara lenta hace falta un playbackSpeedRatio explícito o una medición por centro de masas válida para inferirlo.",
     };
   }
 
@@ -492,11 +544,11 @@ function buildFlightTimeMethodPreview(
   }
 
   const selectedCandidate = validCandidates.slice().sort((left, right) => {
-    const leftReferenceGap = typeof heelRiseReferenceCm === "number"
-      ? Math.abs((left.valueCm ?? 0) - heelRiseReferenceCm)
+    const leftReferenceGap = typeof centerOfMassReferenceCm === "number"
+      ? Math.abs((left.valueCm ?? 0) - centerOfMassReferenceCm)
       : Number.POSITIVE_INFINITY;
-    const rightReferenceGap = typeof heelRiseReferenceCm === "number"
-      ? Math.abs((right.valueCm ?? 0) - heelRiseReferenceCm)
+    const rightReferenceGap = typeof centerOfMassReferenceCm === "number"
+      ? Math.abs((right.valueCm ?? 0) - centerOfMassReferenceCm)
       : Number.POSITIVE_INFINITY;
 
     if (leftReferenceGap !== rightReferenceGap) {
@@ -520,22 +572,22 @@ function buildFlightTimeMethodPreview(
     return (left.playbackSpeedRatio ?? 0) - (right.playbackSpeedRatio ?? 0);
   })[0] ?? validCandidates[0]!;
 
-  const disagreementFromHeel = typeof heelRiseReferenceCm === "number"
-    ? Math.abs((selectedCandidate.valueCm ?? 0) - heelRiseReferenceCm)
+  const disagreementFromCenterOfMass = typeof centerOfMassReferenceCm === "number"
+    ? Math.abs((selectedCandidate.valueCm ?? 0) - centerOfMassReferenceCm)
     : null;
   const selectedRatioText = selectedCandidate.playbackSpeedRatio?.toString() ?? "desconocido";
 
   let confidence = selectedCandidate.confidence ?? 0.88;
   let notes = selectedCandidate.notes ?? "Altura estimada a partir del tiempo de vuelo.";
   if (motionProfile === "SLOW_MOTION") {
-    if (typeof heelRiseReferenceCm === "number" && typeof disagreementFromHeel === "number") {
-      if (disagreementFromHeel <= (config.consensusToleranceCm ?? 6)) {
+    if (typeof centerOfMassReferenceCm === "number" && typeof disagreementFromCenterOfMass === "number") {
+      if (disagreementFromCenterOfMass <= (config.consensusToleranceCm ?? 6)) {
         confidence = Math.min(confidence + 0.04, 0.94);
       } else {
         confidence = Math.max(confidence - 0.12, 0.55);
       }
 
-      notes = `${notes} Ratio temporal ${selectedRatioText} seleccionado por mejor acuerdo con talones (${roundTo(disagreementFromHeel)} cm de diferencia).`;
+      notes = `${notes} Ratio temporal ${selectedRatioText} seleccionado por mejor acuerdo con el centro de masas (${roundTo(disagreementFromCenterOfMass)} cm de diferencia).`;
     } else if (typeof config.playbackSpeedRatio === "number") {
       notes = `${notes} Ratio temporal explícito ${selectedRatioText}.`;
     }
@@ -551,14 +603,14 @@ function buildFlightTimeMethodPreview(
   };
 }
 
-function buildHeelRiseMethodPreview(
+function buildCenterOfMassMethodPreview(
   config: ReferenceJumpHeightMeasurementConfig,
   landmarks: TechniqueProLandmarks,
   eventsByType: Map<string, ReferenceMeasurementEventMarker>,
 ): ReferenceJumpHeightMethodPreview {
-  if (!config.heelRiseMethodEnabled) {
+  if (!config.centerOfMassMethodEnabled) {
     return {
-      method: "HEEL_RISE",
+      method: "CENTER_OF_MASS",
       status: "PENDING",
       valueCm: null,
       confidence: null,
@@ -569,63 +621,92 @@ function buildHeelRiseMethodPreview(
 
   if (typeof config.subjectHeightCm !== "number") {
     return {
-      method: "HEEL_RISE",
+      method: "CENTER_OF_MASS",
       status: "PENDING",
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: "Configura la altura del sujeto para escalar la medición de talones en centímetros.",
+      notes: "Configura la altura del sujeto para escalar la medición del centro de masas en centímetros.",
     };
   }
 
-  const toeOffEvent = eventsByType.get("TOE_OFF") ?? eventsByType.get("TAKE_OFF") ?? null;
+  const setupEvent = eventsByType.get("SETUP") ?? null;
   const apexEvent = eventsByType.get("APEX") ?? null;
-  if (!toeOffEvent || !apexEvent) {
+  const toeOffEvent = eventsByType.get("TOE_OFF") ?? eventsByType.get("TAKE_OFF") ?? null;
+  const landingEvent = eventsByType.get("LANDING") ?? null;
+
+  if (!setupEvent || !apexEvent) {
     return {
-      method: "HEEL_RISE",
+      method: "CENTER_OF_MASS",
       status: "MISSING_EVENT",
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: "Se necesitan TOE_OFF y APEX para medir la elevación máxima de los talones.",
+      notes: "Se necesitan SETUP y APEX para medir el desplazamiento del centro de masas.",
     };
   }
 
-  const globalGroundReferenceY = getGlobalGroundReferenceY(landmarks);
-  const calibrationBodyHeight = getMaxVisibleBodyHeightBeforeFrame(landmarks, toeOffEvent.frameIndex);
-  const apexHeelY = getHeelCenterY(landmarks, apexEvent.frameIndex);
+  const setupGroundReferenceY = getGroundReferenceY(landmarks, setupEvent.frameIndex);
+  const apexGroundReferenceY = interpolateGroundReferenceY(
+    landmarks,
+    apexEvent.frameIndex,
+    toeOffEvent?.frameIndex ?? null,
+    landingEvent?.frameIndex ?? null,
+  );
+  const calibrationBodyHeight = getMaxVisibleBodyHeightBeforeFrame(
+    landmarks,
+    toeOffEvent?.frameIndex ?? setupEvent.frameIndex,
+  ) ?? calculateVisibleBodyHeight(landmarks, setupEvent.frameIndex);
+  const setupCenterOfMassHeight = calculateCenterOfMassHeightFromGround(
+    landmarks,
+    setupEvent.frameIndex,
+    setupGroundReferenceY,
+  );
+  const apexCenterOfMassHeight = calculateCenterOfMassHeightFromGround(
+    landmarks,
+    apexEvent.frameIndex,
+    apexGroundReferenceY,
+  );
 
-  if (globalGroundReferenceY === null || calibrationBodyHeight === null || apexHeelY === null) {
+  if (
+    calibrationBodyHeight === null
+    || setupCenterOfMassHeight === null
+    || apexCenterOfMassHeight === null
+  ) {
     return {
-      method: "HEEL_RISE",
+      method: "CENTER_OF_MASS",
       status: "MISSING_LANDMARK",
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: "No se pudieron reconstruir landmarks suficientes para calibrar la elevación de los talones respecto al suelo.",
+      notes: "No se pudieron reconstruir landmarks suficientes para medir el centro de masas respecto al suelo.",
     };
   }
 
-  const heelClearanceNormalized = globalGroundReferenceY - apexHeelY;
-  if (calibrationBodyHeight <= 0 || heelClearanceNormalized <= 0) {
+  const centerOfMassDeltaNormalized = apexCenterOfMassHeight - setupCenterOfMassHeight;
+  if (calibrationBodyHeight <= 0 || centerOfMassDeltaNormalized <= 0) {
     return {
-      method: "HEEL_RISE",
+      method: "CENTER_OF_MASS",
       status: "LOW_CONFIDENCE",
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: "La escala por talones no es fiable con los landmarks actuales del video.",
+      notes: "La medición del centro de masas no es fiable con los landmarks actuales del video.",
     };
   }
 
-  const valueCm = (heelClearanceNormalized / calibrationBodyHeight) * config.subjectHeightCm;
+  const valueCm = (centerOfMassDeltaNormalized / calibrationBodyHeight) * config.subjectHeightCm;
+  const interpolationNote = toeOffEvent && landingEvent
+    ? "El suelo durante el vuelo se interpoló entre despegue y aterrizaje para reducir el impacto de traslaciones verticales de cámara."
+    : "Se usó una referencia de suelo aproximada; si la cámara se desplaza durante el vuelo, la confianza baja.";
+
   return {
-    method: "HEEL_RISE",
+    method: "CENTER_OF_MASS",
     status: "OK",
     valueCm: roundTo(valueCm),
-    confidence: 0.64,
+    confidence: toeOffEvent && landingEvent ? 0.72 : 0.6,
     playbackSpeedRatio: null,
-    notes: "Estimación geométrica basada en la elevación media de ambos talones en APEX respecto al suelo y la mayor altura visible antes del despegue.",
+    notes: `Estimación basada en el CM aproximado ((caderas + hombros) / 4) medido respecto al suelo en SETUP y APEX. ${interpolationNote}`,
   };
 }
 
@@ -640,15 +721,15 @@ function buildJumpHeightPreview(
   }
 
   const eventsByType = buildEventsByType(eventMarkers);
-  const heelRiseMethod = buildHeelRiseMethodPreview(config, landmarks, eventsByType);
+  const centerOfMassMethod = buildCenterOfMassMethodPreview(config, landmarks, eventsByType);
   const flightTimeMethod = buildFlightTimeMethodPreview(
     config,
     landmarks,
     eventsByType,
     motionProfile,
-    heelRiseMethod.status === "OK" ? heelRiseMethod.valueCm : null,
+    centerOfMassMethod.status === "OK" ? centerOfMassMethod.valueCm : null,
   );
-  const methods = [flightTimeMethod, heelRiseMethod];
+  const methods = [flightTimeMethod, centerOfMassMethod];
 
   const okMethods = methods.filter((method) => method.status === "OK" && typeof method.valueCm === "number");
   const resolvedPlaybackSpeedRatio = flightTimeMethod.playbackSpeedRatio

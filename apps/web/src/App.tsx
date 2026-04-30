@@ -643,7 +643,7 @@ interface TechniqueBiomechanicsJumpHeightMeasurementRecord {
   subjectHeightCm: number | null;
   playbackSpeedRatio: number | null;
   flightTimeMethodEnabled: boolean;
-  heelRiseMethodEnabled: boolean;
+  centerOfMassMethodEnabled: boolean;
   consensusToleranceCm: number | null;
   notes: string | null;
 }
@@ -798,7 +798,7 @@ interface TechniqueBiomechanicsJumpHeightMeasurementDraft {
   subjectHeightCm: string;
   playbackSpeedRatio: string;
   flightTimeMethodEnabled: boolean;
-  heelRiseMethodEnabled: boolean;
+  centerOfMassMethodEnabled: boolean;
   consensusToleranceCm: string;
   notes: string;
 }
@@ -955,9 +955,9 @@ function createDefaultJumpHeightMeasurementDraft(): TechniqueBiomechanicsJumpHei
     subjectHeightCm: "",
     playbackSpeedRatio: "",
     flightTimeMethodEnabled: true,
-    heelRiseMethodEnabled: true,
+    centerOfMassMethodEnabled: true,
     consensusToleranceCm: "6",
-    notes: "Corroborar la altura del salto con tiempo de vuelo y elevación de talones.",
+    notes: "Corroborar la altura del salto con tiempo de vuelo y centro de masas relativo al suelo.",
   };
 }
 
@@ -1383,7 +1383,10 @@ function normalizeTechniqueBiomechanicsConfig(
   config: TechniqueBiomechanicsConfig | null | undefined,
 ): TechniqueBiomechanicsConfig {
   const legacyJumpHeightMeasurement = config?.jumpHeightMeasurement as
-    | (TechniqueBiomechanicsJumpHeightMeasurementRecord & { geometricHipRiseMethodEnabled?: boolean | null })
+    | (TechniqueBiomechanicsJumpHeightMeasurementRecord & {
+      heelRiseMethodEnabled?: boolean | null;
+      geometricHipRiseMethodEnabled?: boolean | null;
+    })
     | undefined;
 
   return {
@@ -1484,7 +1487,8 @@ function normalizeTechniqueBiomechanicsConfig(
         ? config.jumpHeightMeasurement.playbackSpeedRatio
         : null,
       flightTimeMethodEnabled: config?.jumpHeightMeasurement?.flightTimeMethodEnabled ?? true,
-      heelRiseMethodEnabled: config?.jumpHeightMeasurement?.heelRiseMethodEnabled
+      centerOfMassMethodEnabled: config?.jumpHeightMeasurement?.centerOfMassMethodEnabled
+        ?? legacyJumpHeightMeasurement?.heelRiseMethodEnabled
         ?? legacyJumpHeightMeasurement?.geometricHipRiseMethodEnabled
         ?? true,
       consensusToleranceCm: typeof config?.jumpHeightMeasurement?.consensusToleranceCm === "number"
@@ -1593,7 +1597,7 @@ function mapTechniqueBiomechanicsConfigToForm(
       subjectHeightCm: normalized.jumpHeightMeasurement.subjectHeightCm?.toString() ?? "",
       playbackSpeedRatio: normalized.jumpHeightMeasurement.playbackSpeedRatio?.toString() ?? "",
       flightTimeMethodEnabled: normalized.jumpHeightMeasurement.flightTimeMethodEnabled,
-      heelRiseMethodEnabled: normalized.jumpHeightMeasurement.heelRiseMethodEnabled,
+      centerOfMassMethodEnabled: normalized.jumpHeightMeasurement.centerOfMassMethodEnabled,
       consensusToleranceCm: normalized.jumpHeightMeasurement.consensusToleranceCm?.toString() ?? "",
       notes: normalized.jumpHeightMeasurement.notes ?? "",
     },
@@ -1722,7 +1726,7 @@ function serializeTechniqueBiomechanicsForm(
         ? Number(form.jumpHeightMeasurement.playbackSpeedRatio)
         : null,
       flightTimeMethodEnabled: form.jumpHeightMeasurement.flightTimeMethodEnabled,
-      heelRiseMethodEnabled: form.jumpHeightMeasurement.heelRiseMethodEnabled,
+      centerOfMassMethodEnabled: form.jumpHeightMeasurement.centerOfMassMethodEnabled,
       consensusToleranceCm: form.jumpHeightMeasurement.consensusToleranceCm.trim()
         ? Number(form.jumpHeightMeasurement.consensusToleranceCm)
         : null,
@@ -8888,7 +8892,7 @@ export default function App() {
                     <label className="checkbox-label">
                       <input
                         type="checkbox"
-                        checked={templateTechniqueForm.biomechanics.jumpHeightMeasurement.heelRiseMethodEnabled}
+                        checked={templateTechniqueForm.biomechanics.jumpHeightMeasurement.centerOfMassMethodEnabled}
                         onChange={(event) =>
                           setTemplateTechniqueForm((current) => ({
                             ...current,
@@ -8896,16 +8900,16 @@ export default function App() {
                               ...current.biomechanics,
                               jumpHeightMeasurement: {
                                 ...current.biomechanics.jumpHeightMeasurement,
-                                heelRiseMethodEnabled: event.target.checked,
+                                centerOfMassMethodEnabled: event.target.checked,
                               },
                             },
                           }))
                         }
                       />
-                      Método por elevación de talones
+                      Método por Centro de Masas
                     </label>
                     <label>
-                      Altura del sujeto (cm, para escalar talones)
+                      Altura del sujeto (cm, para escalar CM)
                       <input
                         type="number"
                         min="0"
@@ -8992,11 +8996,11 @@ export default function App() {
                           }))
                         }
                         rows={3}
-                        placeholder="ej. Si el video es slow motion, dejar playbackSpeedRatio vacío para que se prueben 0.5 y 0.25 contra la medición de talones."
+                        placeholder="ej. Si el video es slow motion, dejar playbackSpeedRatio vacío para que se prueben 0.5 y 0.25 contra la medición de centro de masas."
                       />
                     </label>
                   </div>
-                  <p className="helper-text">Cuando el perfil del video sea `SLOW_MOTION`, el método por tiempo de vuelo puede usar `playbackSpeedRatio` explícito o inferirlo probando `0.5` y `0.25` contra la elevación de talones. La altura del sujeto sigue sirviendo para escalar esa segunda medición a centímetros.</p>
+                  <p className="helper-text">Cuando el perfil del video sea `SLOW_MOTION`, el método por tiempo de vuelo puede usar `playbackSpeedRatio` explícito o inferirlo probando `0.5` y `0.25` contra el Centro de Masas relativo al suelo. Ese segundo método toma el CM aproximado en `SETUP` y en `APEX`, ambos respecto al suelo, y usa la altura del sujeto solo para escalar el resultado a centímetros.</p>
                 </div>
 
                 <div className="detail-card program-card biomechanics-card">
@@ -9058,7 +9062,7 @@ export default function App() {
                           <div className="biomechanics-debug-list">
                             {referenceBiomechanicsPreview.jumpHeight.methods.length ? referenceBiomechanicsPreview.jumpHeight.methods.map((method) => (
                               <p key={method.method}>
-                                <strong>{method.method === "FLIGHT_TIME" ? "Tiempo de vuelo" : "Elevación de talones"}:</strong>{" "}
+                                <strong>{method.method === "FLIGHT_TIME" ? "Tiempo de vuelo" : "Centro de Masas"}:</strong>{" "}
                                 {formatMeasurementStatusLabel(method.status)}
                                 {typeof method.valueCm === "number" ? ` · ${method.valueCm.toFixed(1)} cm` : ""}
                                 {typeof method.confidence === "number" ? ` · confianza ${method.confidence.toFixed(2)}` : ""}

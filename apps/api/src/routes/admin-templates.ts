@@ -382,6 +382,7 @@ const techniqueBiomechanicsJumpHeightMeasurementSchema = z.object({
   subjectHeightCm: z.number().finite().positive().max(300).nullable().optional(),
   playbackSpeedRatio: z.number().finite().positive().max(1).nullable().optional(),
   flightTimeMethodEnabled: z.boolean().default(true),
+  centerOfMassMethodEnabled: z.boolean().optional(),
   heelRiseMethodEnabled: z.boolean().optional(),
   geometricHipRiseMethodEnabled: z.boolean().optional(),
   consensusToleranceCm: z.number().finite().positive().max(200).nullable().optional(),
@@ -391,13 +392,16 @@ const techniqueBiomechanicsJumpHeightMeasurementSchema = z.object({
     return;
   }
 
-  const heelRiseMethodEnabled = value.heelRiseMethodEnabled ?? value.geometricHipRiseMethodEnabled ?? true;
+  const centerOfMassMethodEnabled = value.centerOfMassMethodEnabled
+    ?? value.heelRiseMethodEnabled
+    ?? value.geometricHipRiseMethodEnabled
+    ?? true;
 
-  if (!value.flightTimeMethodEnabled && !heelRiseMethodEnabled) {
+  if (!value.flightTimeMethodEnabled && !centerOfMassMethodEnabled) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       message: "At least one jump height method must be enabled",
-      path: ["heelRiseMethodEnabled"],
+      path: ["centerOfMassMethodEnabled"],
     });
   }
 });
@@ -436,7 +440,7 @@ const techniqueBiomechanicsConfigSchema = z.object({
     subjectHeightCm: null,
     playbackSpeedRatio: null,
     flightTimeMethodEnabled: true,
-    heelRiseMethodEnabled: true,
+    centerOfMassMethodEnabled: true,
     consensusToleranceCm: 6,
     notes: null,
   }),
@@ -448,7 +452,8 @@ const techniqueBiomechanicsConfigSchema = z.object({
   }),
   coachNotes: z.string().trim().nullable().optional(),
 }).superRefine((value, context) => {
-  const heelRiseMethodEnabled = value.jumpHeightMeasurement.heelRiseMethodEnabled
+  const centerOfMassMethodEnabled = value.jumpHeightMeasurement.centerOfMassMethodEnabled
+    ?? value.jumpHeightMeasurement.heelRiseMethodEnabled
     ?? value.jumpHeightMeasurement.geometricHipRiseMethodEnabled
     ?? true;
 
@@ -457,11 +462,11 @@ const techniqueBiomechanicsConfigSchema = z.object({
     && value.jumpHeightMeasurement.enabled
     && value.jumpHeightMeasurement.flightTimeMethodEnabled
     && typeof value.jumpHeightMeasurement.playbackSpeedRatio !== "number"
-    && (!heelRiseMethodEnabled || typeof value.jumpHeightMeasurement.subjectHeightCm !== "number")
+    && (!centerOfMassMethodEnabled || typeof value.jumpHeightMeasurement.subjectHeightCm !== "number")
   ) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Slow motion jump height measurement requires playbackSpeedRatio unless heel-rise corroboration can infer it",
+      message: "Slow motion jump height measurement requires playbackSpeedRatio unless center-of-mass corroboration can infer it",
       path: ["jumpHeightMeasurement", "playbackSpeedRatio"],
     });
   }
