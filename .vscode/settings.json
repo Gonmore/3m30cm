@@ -11,5 +11,7 @@
     "**/node_modules": true,
     "**/.expo": true,
     "**/dist": true
-  }
+  },
+  "java.configuration.updateBuildConfiguration": "interactive",
+  "java.compile.nullAnalysis.mode": "automatic"
 }
