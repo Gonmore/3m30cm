@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { detectTechniqueKeyEvents, type AutoDetectedTechniqueKeyEvent } from "./biomechanicsEventDetection";
+import {
+  detectTechniqueKeyEventsWithDebug,
+  type AutoDetectedTechniqueDebugData,
+  type AutoDetectedTechniqueKeyEvent,
+  type AutoDetectedTechniqueSupportLabel,
+} from "./biomechanicsEventDetection";
 import { BiomechanicsVisualEditor } from "./components/BiomechanicsVisualEditor";
 import { extractTechniquePoseSequence, type TechniquePoseFrame, type TechniqueProLandmarks } from "./techniquePoseExtraction";
 
@@ -773,6 +778,11 @@ interface TechniquePoseProcessingState {
   detail: string;
 }
 
+interface TechniqueEventDetectionDebugState {
+  eventCount: number;
+  debug: AutoDetectedTechniqueDebugData;
+}
+
 interface TechniqueUploadState {
   kind: MediaKind;
   title: string;
@@ -1127,6 +1137,38 @@ function buildAutoDetectedEventNotes(eventType: TechniqueBiomechanicsEventType) 
   }
 
   return null;
+}
+
+function formatSupportLabel(label: AutoDetectedTechniqueSupportLabel) {
+  if (label === "LEFT") {
+    return "Apoyo izquierdo";
+  }
+
+  if (label === "RIGHT") {
+    return "Apoyo derecho";
+  }
+
+  return "Aéreo";
+}
+
+function formatDetectionSelectionSource(source: TechniqueEventDetectionDebugState["debug"]["selections"][number]["source"]) {
+  if (source === "support-run") {
+    return "corrida de apoyo";
+  }
+
+  if (source === "alternating-peak") {
+    return "pico alternado";
+  }
+
+  if (source === "posture-choice") {
+    return "corrida aérea + postura";
+  }
+
+  if (source === "airborne-run") {
+    return "corrida aérea";
+  }
+
+  return "fallback temporal";
 }
 
 function mergeAutoDetectedKeyEventRecords(
@@ -1926,6 +1968,7 @@ export default function App() {
   const [selectedAngleCheckId, setSelectedAngleCheckId] = useState<string | null>(null);
   const [selectedTrajectoryCheckId, setSelectedTrajectoryCheckId] = useState<string | null>(null);
   const [selectedKeyEventId, setSelectedKeyEventId] = useState<string | null>(null);
+  const [referenceEventDetectionDebug, setReferenceEventDetectionDebug] = useState<TechniqueEventDetectionDebugState | null>(null);
   const referenceVideoRef = useRef<HTMLVideoElement | null>(null);
   const [isReferenceVideoPlaying, setIsReferenceVideoPlaying] = useState(false);
   const [exclusionsAthleteId, setExclusionsAthleteId] = useState<string>("");
@@ -2295,6 +2338,7 @@ export default function App() {
     setSelectedAngleCheckId(null);
     setSelectedTrajectoryCheckId(null);
     setSelectedKeyEventId(null);
+    setReferenceEventDetectionDebug(null);
     setIsReferenceVideoPlaying(false);
   }, [selectedTechniqueId]);
 
@@ -2501,7 +2545,13 @@ export default function App() {
       return;
     }
 
-    const detectedEvents = detectTechniqueKeyEvents(referenceLandmarks);
+    const detectionResult = detectTechniqueKeyEventsWithDebug(referenceLandmarks);
+    const detectedEvents = detectionResult.events;
+    setReferenceEventDetectionDebug({
+      eventCount: detectedEvents.length,
+      debug: detectionResult.debug,
+    });
+
     if (!detectedEvents.length) {
       setError("No se pudieron sugerir eventos automáticamente con la heurística actual.");
       return;
@@ -3442,8 +3492,14 @@ export default function App() {
               });
             },
           });
-          const detectedEvents = detectTechniqueKeyEvents(poseSequence);
+          const detectionResult = detectTechniqueKeyEventsWithDebug(poseSequence);
+          const detectedEvents = detectionResult.events;
           const normalizedConfig = normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig);
+
+          setReferenceEventDetectionDebug({
+            eventCount: detectedEvents.length,
+            debug: detectionResult.debug,
+          });
 
           await requestJson(
             `/api/v1/admin/program-templates/${selectedTemplateCode}/techniques/${selectedTechniqueId}`,
@@ -6705,6 +6761,119 @@ export default function App() {
                     en qué momentos o ventanas del gesto debe fijarse el análisis sobre la referencia profesional ya subida.
                   </p>
                 </div>
+
+                {referenceEventDetectionDebug ? (
+                  <div className="workflow-note biomechanics-debug-panel">
+                    <div className="biomechanics-debug-header">
+                      <div>
+                        <strong>Diagnóstico de autodetección</strong>
+                        <p>
+                          Muestra el apoyo dominante por frame, las corridas y los picos previos al despegue, y la ruta
+                          exacta con la que se eligieron antepenúltimo, penúltimo y último apoyo.
+                        </p>
+                      </div>
+                      <div className="biomechanics-debug-stat-row">
+                        <span className="biomechanics-badge">Eventos sugeridos: {referenceEventDetectionDebug.eventCount}</span>
+                        <span className="biomechanics-badge">Corridas: {referenceEventDetectionDebug.debug.supportRuns.length}</span>
+                        <span className="biomechanics-badge">Picos: {referenceEventDetectionDebug.debug.fallbackSupportPeaks.length}</span>
+                      </div>
+                    </div>
+
+                    {referenceEventDetectionDebug.debug.supportLabels.length ? (
+                      <div className="biomechanics-debug-timeline-shell">
+                        <div className="biomechanics-debug-timeline-labels">
+                          <span>Frame 1</span>
+                          <span>Frame {referenceEventDetectionDebug.debug.supportLabels.length}</span>
+                        </div>
+                        <div className="biomechanics-debug-timeline" role="list" aria-label="Apoyos detectados frame a frame">
+                          {referenceEventDetectionDebug.debug.supportLabels.map((label, index) => {
+                            const matchingSelections = referenceEventDetectionDebug.debug.selections.filter((selection) => selection.frameIndex === index);
+                            const isKeyFrame = matchingSelections.length > 0
+                              || index === referenceEventDetectionDebug.debug.takeOffIndex
+                              || index === referenceEventDetectionDebug.debug.toeOffIndex
+                              || index === referenceEventDetectionDebug.debug.firstAirborneIndex
+                              || index === referenceEventDetectionDebug.debug.apexIndex
+                              || index === referenceEventDetectionDebug.debug.landingIndex;
+
+                            return (
+                              <button
+                                key={`support-frame-${index}`}
+                                type="button"
+                                role="listitem"
+                                className={`biomechanics-debug-frame biomechanics-debug-frame-${label.toLowerCase()}${selectedReferenceFrameIndex === index ? " is-selected" : ""}${isKeyFrame ? " is-key" : ""}`}
+                                onClick={() => handleReferenceFrameChange(index)}
+                                title={[
+                                  `Frame ${index + 1}`,
+                                  formatSupportLabel(label),
+                                  ...matchingSelections.map((selection) => `${formatBiomechanicsEventLabel(selection.eventType)} · ${formatDetectionSelectionSource(selection.source)}`),
+                                ].join(" · ")}
+                                aria-label={`Frame ${index + 1}: ${formatSupportLabel(label)}`}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="biomechanics-debug-grid">
+                      <article className="detail-card program-card biomechanics-debug-card">
+                        <p className="eyebrow">Eventos elegidos</p>
+                        <div className="biomechanics-debug-list">
+                          {referenceEventDetectionDebug.debug.selections.map((selection) => (
+                            <p key={selection.eventType}>
+                              <strong>{formatBiomechanicsEventLabel(selection.eventType)}:</strong>{" "}
+                              {selection.frameIndex !== null ? `frame ${selection.frameIndex + 1}` : "sin frame"}
+                              {selection.side ? ` · ${formatSupportLabel(selection.side)}` : ""}
+                              {` · ${formatDetectionSelectionSource(selection.source)}`}
+                            </p>
+                          ))}
+                        </div>
+                      </article>
+
+                      <article className="detail-card program-card biomechanics-debug-card">
+                        <p className="eyebrow">Corridas detectadas</p>
+                        <div className="biomechanics-debug-list">
+                          {referenceEventDetectionDebug.debug.supportRuns.length ? referenceEventDetectionDebug.debug.supportRuns.map((run, index) => (
+                            <p key={`${run.side}-${run.start}-${run.end}-${index}`}>
+                              <strong>{formatSupportLabel(run.side)}:</strong> frames {run.start + 1}-{run.end + 1} · duración {run.length}
+                            </p>
+                          )) : <p>Sin corridas de apoyo antes del despegue.</p>}
+                        </div>
+                      </article>
+
+                      <article className="detail-card program-card biomechanics-debug-card">
+                        <p className="eyebrow">Picos alternados</p>
+                        <div className="biomechanics-debug-list">
+                          {referenceEventDetectionDebug.debug.fallbackSupportPeaks.length ? referenceEventDetectionDebug.debug.fallbackSupportPeaks.map((peak) => {
+                            const wasSelected = referenceEventDetectionDebug.debug.selectedSupportPeaks.some(
+                              (selectedPeak) => selectedPeak.frameIndex === peak.frameIndex && selectedPeak.side === peak.side,
+                            );
+
+                            return (
+                              <p key={`${peak.side}-${peak.frameIndex}`} className={wasSelected ? "biomechanics-debug-selected-line" : undefined}>
+                                <strong>{formatSupportLabel(peak.side)}:</strong> frame {peak.frameIndex + 1} · score {peak.score.toFixed(2)}
+                                {wasSelected ? " · usado" : ""}
+                              </p>
+                            );
+                          }) : <p>Sin picos de fallback antes del despegue.</p>}
+                        </div>
+                      </article>
+
+                      <article className="detail-card program-card biomechanics-debug-card">
+                        <p className="eyebrow">Frames clave</p>
+                        <div className="biomechanics-debug-list">
+                          <p><strong>Setup:</strong> frame {referenceEventDetectionDebug.debug.setupIndex + 1}</p>
+                          <p><strong>Dip:</strong> frame {referenceEventDetectionDebug.debug.dipIndex + 1}</p>
+                          <p><strong>Primer aéreo:</strong> frame {referenceEventDetectionDebug.debug.firstAirborneIndex + 1}</p>
+                          <p><strong>Take off:</strong> frame {referenceEventDetectionDebug.debug.takeOffIndex + 1}</p>
+                          <p><strong>Toe off:</strong> frame {referenceEventDetectionDebug.debug.toeOffIndex + 1}</p>
+                          <p><strong>Apex:</strong> frame {referenceEventDetectionDebug.debug.apexIndex + 1}</p>
+                          <p><strong>Landing:</strong> frame {referenceEventDetectionDebug.debug.landingIndex + 1}</p>
+                        </div>
+                      </article>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="detail-card program-card biomechanics-card">
                   <div className="section-header compact-header">

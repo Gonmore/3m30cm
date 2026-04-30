@@ -22,6 +22,50 @@ export interface AutoDetectedTechniqueKeyEvent {
   detector: typeof autoDetectedTechniqueEventDetector;
 }
 
+export type AutoDetectedTechniqueSupportSide = "LEFT" | "RIGHT";
+export type AutoDetectedTechniqueSupportLabel = AutoDetectedTechniqueSupportSide | "AIRBORNE";
+
+export interface AutoDetectedTechniqueDebugRun {
+  start: number;
+  end: number;
+  length: number;
+  side: AutoDetectedTechniqueSupportLabel;
+}
+
+export interface AutoDetectedTechniqueDebugPeak {
+  frameIndex: number;
+  side: AutoDetectedTechniqueSupportSide;
+  score: number;
+}
+
+export interface AutoDetectedTechniqueDebugSelection {
+  eventType: AutoDetectedTechniqueEventType;
+  frameIndex: number | null;
+  side: AutoDetectedTechniqueSupportSide | null;
+  source: "support-run" | "alternating-peak" | "timing-fallback" | "airborne-run" | "posture-choice";
+}
+
+export interface AutoDetectedTechniqueDebugData {
+  setupIndex: number;
+  dipIndex: number;
+  firstAirborneIndex: number;
+  takeOffIndex: number;
+  toeOffIndex: number;
+  apexIndex: number;
+  landingIndex: number;
+  supportLabels: AutoDetectedTechniqueSupportLabel[];
+  supportRuns: AutoDetectedTechniqueDebugRun[];
+  airborneRuns: AutoDetectedTechniqueDebugRun[];
+  fallbackSupportPeaks: AutoDetectedTechniqueDebugPeak[];
+  selectedSupportPeaks: AutoDetectedTechniqueDebugPeak[];
+  selections: AutoDetectedTechniqueDebugSelection[];
+}
+
+export interface AutoDetectedTechniqueDetectionResult {
+  events: AutoDetectedTechniqueKeyEvent[];
+  debug: AutoDetectedTechniqueDebugData;
+}
+
 const landmarkIndex = {
   LEFT_SHOULDER: 11,
   RIGHT_SHOULDER: 12,
@@ -46,7 +90,7 @@ interface Point2D {
   y: number;
 }
 
-type SupportSide = "LEFT" | "RIGHT";
+type SupportSide = AutoDetectedTechniqueSupportSide;
 
 interface IndexedRun {
   start: number;
@@ -61,6 +105,7 @@ interface SupportRun extends IndexedRun {
 interface SupportPeak {
   frameIndex: number;
   side: SupportSide;
+  score: number;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -555,10 +600,10 @@ function collectSupportPeaks(
   const rawPeaks: SupportPeak[] = [
     ...findLocalMaxima(leftSeries, 0, endIndex, minGap, prominence)
       .filter((frameIndex) => Boolean(leftGround.flags[frameIndex]))
-      .map((frameIndex) => ({ frameIndex, side: "LEFT" as const })),
+      .map((frameIndex) => ({ frameIndex, side: "LEFT" as const, score: getSeriesValue(leftSeries, frameIndex) })),
     ...findLocalMaxima(rightSeries, 0, endIndex, minGap, prominence)
       .filter((frameIndex) => Boolean(rightGround.flags[frameIndex]))
-      .map((frameIndex) => ({ frameIndex, side: "RIGHT" as const })),
+      .map((frameIndex) => ({ frameIndex, side: "RIGHT" as const, score: getSeriesValue(rightSeries, frameIndex) })),
   ].sort((left, right) => left.frameIndex - right.frameIndex);
 
   const collapsedPeaks: SupportPeak[] = [];
@@ -606,11 +651,30 @@ function selectAlternatingSupportPeaks(peaks: SupportPeak[]) {
   };
 }
 
-export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null | undefined): AutoDetectedTechniqueKeyEvent[] {
+export function detectTechniqueKeyEventsWithDebug(
+  landmarks: TechniqueProLandmarks | null | undefined,
+): AutoDetectedTechniqueDetectionResult {
   const referenceLandmarks = landmarks;
   const frames = referenceLandmarks?.frames ?? [];
   if (!referenceLandmarks || frames.length < 8) {
-    return [];
+    return {
+      events: [],
+      debug: {
+        setupIndex: 0,
+        dipIndex: 0,
+        firstAirborneIndex: 0,
+        takeOffIndex: 0,
+        toeOffIndex: 0,
+        apexIndex: 0,
+        landingIndex: 0,
+        supportLabels: [],
+        supportRuns: [],
+        airborneRuns: [],
+        fallbackSupportPeaks: [],
+        selectedSupportPeaks: [],
+        selections: [],
+      },
+    };
   }
 
   const hipYSeries = smoothSeries(frames.map((frame) => average([
@@ -775,8 +839,76 @@ export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null
     },
   ];
 
-  return events
+  const filteredEvents = events
     .filter((event): event is AutoDetectedTechniqueKeyEvent => Boolean(event))
     .filter((event, index, list) => list.findIndex((entry) => entry.eventType === event.eventType) === index)
     .filter((event) => event.frameIndex >= 0 && event.frameIndex < frames.length);
+
+  return {
+    events: filteredEvents,
+    debug: {
+      setupIndex,
+      dipIndex,
+      firstAirborneIndex,
+      takeOffIndex,
+      toeOffIndex,
+      apexIndex,
+      landingIndex,
+      supportLabels: supportLabels.map((label) => label ?? "AIRBORNE"),
+      supportRuns: supportRuns.map((run) => ({
+        start: run.start,
+        end: run.end,
+        length: run.length,
+        side: run.side,
+      })),
+      airborneRuns: airborneRuns.map((run) => ({
+        start: run.start,
+        end: run.end,
+        length: run.length,
+        side: "AIRBORNE",
+      })),
+      fallbackSupportPeaks: fallbackSupportPeaks.map((peak) => ({
+        frameIndex: peak.frameIndex,
+        side: peak.side,
+        score: Math.round(peak.score * 100) / 100,
+      })),
+      selectedSupportPeaks: [fallbackLastPeak, fallbackPenultimatePeak, fallbackAntepenultimatePeak]
+        .filter((peak): peak is SupportPeak => Boolean(peak))
+        .map((peak) => ({
+          frameIndex: peak.frameIndex,
+          side: peak.side,
+          score: Math.round(peak.score * 100) / 100,
+        })),
+      selections: [
+        {
+          eventType: "ANTEPENULTIMATE_CONTACT",
+          frameIndex: antepenultimateContactIndex,
+          side: antepenultimateSupportRun?.side ?? fallbackAntepenultimatePeak?.side ?? null,
+          source: antepenultimateSupportRun ? "support-run" : fallbackAntepenultimatePeak ? "alternating-peak" : "timing-fallback",
+        },
+        {
+          eventType: "PRE_PENULTIMATE_FLIGHT",
+          frameIndex: prePenultimateFlightIndex,
+          side: null,
+          source: prePenultimateFlightRun && prePenultimateFlightIndex !== null ? "posture-choice" : "airborne-run",
+        },
+        {
+          eventType: "PENULTIMATE_CONTACT",
+          frameIndex: penultimateContactIndex,
+          side: penultimateSupportRun?.side ?? fallbackPenultimatePeak?.side ?? null,
+          source: penultimateSupportRun ? "support-run" : fallbackPenultimatePeak ? "alternating-peak" : "timing-fallback",
+        },
+        {
+          eventType: "LAST_CONTACT",
+          frameIndex: lastContactIndex,
+          side: lastSupportRun?.side ?? fallbackLastPeak?.side ?? null,
+          source: lastSupportRun ? "support-run" : fallbackLastPeak ? "alternating-peak" : "timing-fallback",
+        },
+      ],
+    },
+  };
+}
+
+export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null | undefined): AutoDetectedTechniqueKeyEvent[] {
+  return detectTechniqueKeyEventsWithDebug(landmarks).events;
 }
