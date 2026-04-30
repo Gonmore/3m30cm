@@ -73,11 +73,26 @@ const analyzerHtml = String.raw`<!doctype html>
         video.preload = "auto";
         video.muted = true;
         video.playsInline = true;
+        video.setAttribute("webkit-playsinline", "true");
         video.crossOrigin = "anonymous";
+
+        const describeVideoError = () => {
+          const errorCode = video.error && typeof video.error.code === "number" ? video.error.code : "unknown";
+          const sourceValue = video.currentSrc || video.src || videoUri || "unknown";
+          const schemeMatch = /^([a-z0-9.+-]+):/i.exec(sourceValue);
+          const scheme = schemeMatch ? schemeMatch[1].toLowerCase() : "unknown";
+
+          return "No se pudo leer el video del atleta. "
+            + "code=" + errorCode
+            + ", networkState=" + video.networkState
+            + ", readyState=" + video.readyState
+            + ", scheme=" + scheme;
+        };
 
         const ready = new Promise((resolve, reject) => {
           const cleanup = () => {
             video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+            video.removeEventListener("loadeddata", handleLoadedMetadata);
             video.removeEventListener("error", handleError);
           };
 
@@ -88,14 +103,16 @@ const analyzerHtml = String.raw`<!doctype html>
 
           const handleError = () => {
             cleanup();
-            reject(new Error("No se pudo leer el video del atleta."));
+            reject(new Error(describeVideoError()));
           };
 
           video.addEventListener("loadedmetadata", handleLoadedMetadata);
+          video.addEventListener("loadeddata", handleLoadedMetadata);
           video.addEventListener("error", handleError);
         });
 
         video.src = videoUri;
+        video.load();
 
         return { video, ready };
       }
@@ -320,6 +337,7 @@ export default function TechniqueVideoPoseAnalyzer({
         originWhitelist={["*"]}
         javaScriptEnabled
         allowFileAccess
+        allowFileAccessFromFileURLs
         allowUniversalAccessFromFileURLs
         onMessage={handleMessage}
         mediaPlaybackRequiresUserAction={false}

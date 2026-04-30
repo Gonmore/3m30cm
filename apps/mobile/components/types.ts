@@ -66,7 +66,20 @@ export interface ActiveProgram {
   phase: string;
   status: string;
   startDate: string;
-  template: { id: string; code: string; name: string } | null;
+  template: {
+    id: string;
+    code: string;
+    name: string;
+    overviewTitle?: string | null;
+    overviewDescription?: string | null;
+    overviewMediaAsset?: {
+      id: string;
+      kind: "IMAGE" | "GIF" | "VIDEO";
+      url: string | null;
+      title: string | null;
+      isPrimary: boolean;
+    } | null;
+  } | null;
   sessions: Array<{ id: string; title: string; dayType: string; status: string; scheduledDate: string }>;
 }
 

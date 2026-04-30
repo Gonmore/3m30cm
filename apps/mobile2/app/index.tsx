@@ -252,6 +252,15 @@ interface AthleteProfileResponse {
       id: string;
       code: string;
       name: string;
+      overviewTitle?: string | null;
+      overviewDescription?: string | null;
+      overviewMediaAsset?: {
+        id: string;
+        kind: "IMAGE" | "GIF" | "VIDEO";
+        url: string | null;
+        title: string | null;
+        isPrimary: boolean;
+      } | null;
     } | null;
     sessions: Array<{
       id: string;

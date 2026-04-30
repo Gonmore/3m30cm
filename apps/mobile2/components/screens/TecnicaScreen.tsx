@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -215,6 +215,7 @@ export default function TecnicaScreen({
   const [notes, setNotes] = useState("");
   const [isBaseline, setIsBaseline] = useState(false);
   const [athleteVideoUri, setAthleteVideoUri] = useState<string | null>(null);
+  const [analysisVideoUri, setAnalysisVideoUri] = useState<string | null>(null);
   const [athleteVideoName, setAthleteVideoName] = useState<string | null>(null);
   const [analysisRequestId, setAnalysisRequestId] = useState(0);
   const [analysisBusy, setAnalysisBusy] = useState(false);
@@ -232,6 +233,7 @@ export default function TecnicaScreen({
 
   const availableUnits = selectedMeasurement ? parseAllowedUnits(selectedMeasurement.allowedUnits) : [];
   const comparisons = selectedTechnique ? buildMetricComparisons(selectedTechnique.metrics) : [];
+  const hasAutomaticAnalysisContract = Boolean(selectedTechnique?.biomechanicsConfig);
   const automaticJumpDefinition = useMemo(
     () => selectedTechnique ? findJumpMeasurementDefinition(selectedTechnique.measurementDefinitions) : null,
     [selectedTechnique],
@@ -290,6 +292,7 @@ export default function TecnicaScreen({
 
   useEffect(() => {
     setAthleteVideoUri(null);
+    setAnalysisVideoUri(null);
     setAthleteVideoName(null);
     setAnalysisRequestId(0);
     setAnalysisBusy(false);
@@ -324,6 +327,25 @@ export default function TecnicaScreen({
     setIsBaseline(false);
   }
 
+  async function prepareAthleteVideoAsset(asset: ImagePicker.ImagePickerAsset) {
+    if (!asset.uri) {
+      throw new Error("No se recibió un video válido para analizar.");
+    }
+
+    const targetPath = buildAnalysisVideoPath(asset.fileName, asset.uri);
+    await FileSystem.copyAsync({ from: asset.uri, to: targetPath });
+    const normalizedAnalysisUri = await normalizeAnalyzerVideoUri(targetPath);
+
+    setAthleteVideoUri(targetPath);
+    setAnalysisVideoUri(normalizedAnalysisUri);
+    setAthleteVideoName(asset.fileName ?? `video-${Date.now()}.mp4`);
+    setAnalysisProgress({ processed: 0, total: 0 });
+    setAutoAnalysis(null);
+    setShowAnalysisJson(false);
+    setAnalysisBusy(true);
+    setAnalysisRequestId((current) => current + 1);
+  }
+
   async function handlePickAthleteVideo() {
     if (!selectedTechnique) {
       return;
@@ -347,20 +369,52 @@ export default function TecnicaScreen({
         return;
       }
 
-      const asset = result.assets[0];
-      const targetPath = buildAnalysisVideoPath(asset.fileName, asset.uri);
-      await FileSystem.copyAsync({ from: asset.uri, to: targetPath });
-
-      setAthleteVideoUri(targetPath);
-      setAthleteVideoName(asset.fileName ?? `video-${Date.now()}.mp4`);
-      setAnalysisProgress({ processed: 0, total: 0 });
-      setAutoAnalysis(null);
-      setShowAnalysisJson(false);
-      setAnalysisBusy(true);
-      setAnalysisRequestId((current) => current + 1);
+      await prepareAthleteVideoAsset(result.assets[0]);
     } catch (error) {
       setAnalysisBusy(false);
       setAnalysisError(error instanceof Error ? error.message : "No se pudo preparar el video del atleta.");
+    }
+  }
+
+  async function handleCaptureAthleteVideo() {
+    if (!selectedTechnique) {
+      return;
+    }
+
+    try {
+      setAnalysisError("");
+
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error("Hace falta permiso de cámara para grabar el video del atleta.");
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (result.canceled || !result.assets[0]?.uri) {
+        return;
+      }
+
+      await prepareAthleteVideoAsset(result.assets[0]);
+    } catch (error) {
+      setAnalysisBusy(false);
+      setAnalysisError(error instanceof Error ? error.message : "No se pudo grabar el video del atleta.");
+    }
+  }
+
+  async function normalizeAnalyzerVideoUri(uri: string) {
+    if (Platform.OS !== "android" || !uri.startsWith("file://")) {
+      return uri;
+    }
+
+    try {
+      return await FileSystem.getContentUriAsync(uri);
+    } catch {
+      return uri;
     }
   }
 
@@ -432,7 +486,7 @@ export default function TecnicaScreen({
       <View style={styles.heroCard}>
         <Text style={styles.heroEyebrow}>Técnicas del programa</Text>
         <Text style={styles.heroTitle}>{technique.programName}</Text>
-        <Text style={styles.heroBody}>Elegí una técnica para ver su video, cómo medirla y el histórico de progreso.</Text>
+        <Text style={styles.heroBody}>Elegí una técnica para ver su referencia, subir tu video y revisar el histórico de progreso.</Text>
       </View>
 
       <View style={styles.sectionCard}>
@@ -506,46 +560,12 @@ export default function TecnicaScreen({
           <View style={styles.sectionCard}>
             <Text style={styles.sectionEyebrow}>Biomecánica automática</Text>
             <Text style={styles.sectionTitle}>Video del atleta y comparación</Text>
-            {selectedTechnique.comparisonEnabled && selectedTechnique.biomechanicsConfig ? (
+            {hasAutomaticAnalysisContract ? (
               <>
                 <Text style={styles.helperText}>
-                  El Centro de Masas es el método principal y usa tu altura de perfil para escalar el salto en centímetros. El tiempo de vuelo se usa como corroboración secundaria y prueba `1.0`, `0.5` y `0.25` cuando hace falta inferir la velocidad real del video.
+                  El contrato biomecánico de esta técnica ya está cargado. El Centro de Masas es el método principal y usa tu altura de perfil para escalar el salto en centímetros. El tiempo de vuelo se usa como corroboración secundaria y prueba `1.0`, `0.5` y `0.25` cuando hace falta inferir la velocidad real del video.
                 </Text>
-                <View style={styles.analysisButtonRow}>
-                  <Pressable style={styles.primaryButton} onPress={() => void handlePickAthleteVideo()}>
-                    <Text style={styles.primaryButtonText}>{athleteVideoUri ? "Cambiar video del atleta" : "Elegir video del atleta"}</Text>
-                  </Pressable>
-                  {typeof athleteHeightCm === "number" ? (
-                    <View style={styles.analysisInfoPill}>
-                      <Text style={styles.analysisInfoPillText}>Altura perfil: {athleteHeightCm} cm</Text>
-                    </View>
-                  ) : (
-                    <View style={styles.analysisInfoPill}>
-                      <Text style={styles.analysisInfoPillText}>Falta altura en el perfil</Text>
-                    </View>
-                  )}
-                </View>
-
-                {athleteVideoUri ? (
-                  <View style={styles.mediaCard}>
-                    <Text style={styles.mediaTitle}>{athleteVideoName || "Video del atleta"}</Text>
-                    <Video source={{ uri: athleteVideoUri }} style={styles.video} useNativeControls resizeMode={ResizeMode.CONTAIN} />
-                  </View>
-                ) : null}
-
-                {analysisBusy ? (
-                  <View style={styles.analysisStatusCard}>
-                    <ActivityIndicator color={C.amber} />
-                    <Text style={styles.metricLabel}>Analizando video del atleta...</Text>
-                    <Text style={styles.helperText}>
-                      {analysisProgress.total > 0
-                        ? `Frames procesados: ${analysisProgress.processed} / ${analysisProgress.total}`
-                        : "Preparando extracción de pose..."}
-                    </Text>
-                  </View>
-                ) : null}
-
-                {analysisError ? <Text style={styles.analysisErrorText}>{analysisError}</Text> : null}
+                {!autoAnalysis ? <Text style={styles.helperText}>Sube o graba un video en “Seguimiento técnico” para ejecutar la corrección automática.</Text> : null}
 
                 {autoAnalysis ? (
                   <>
@@ -628,76 +648,74 @@ export default function TecnicaScreen({
 
           <View style={styles.sectionCard}>
             <Text style={styles.sectionEyebrow}>Seguimiento técnico</Text>
-            <Text style={styles.sectionTitle}>Nueva medición</Text>
-            {selectedTechnique.measurementDefinitions.length ? (
+            <Text style={styles.sectionTitle}>Sube tu video para corregir la técnica</Text>
+            {hasAutomaticAnalysisContract ? (
               <>
-                <View style={styles.selectorWrap}>
-                  {selectedTechnique.measurementDefinitions.map((definition) => (
-                    <Pressable
-                      key={definition.id}
-                      style={[styles.selectorChip, selectedMeasurement?.id === definition.id ? styles.selectorChipActive : null]}
-                      onPress={() => {
-                        setSelectedMeasurementId(definition.id);
-                        setUnit(parseAllowedUnits(definition.allowedUnits)[0] ?? "");
-                      }}
-                    >
-                      <Text style={[styles.selectorChipText, selectedMeasurement?.id === definition.id ? styles.selectorChipTextActive : null]}>{definition.label}</Text>
-                    </Pressable>
-                  ))}
+                <Text style={styles.helperText}>
+                  Sube un video tuyo usando esta técnica, similar a los videos de referencia. A partir de ese video la app detecta eventos, estima la altura del salto, revisa los checks de referencia y genera correcciones automáticas.
+                </Text>
+                <View style={styles.tipBox}>
+                  <Text style={styles.tipTitle}>Velocidad normal vs cámara lenta</Text>
+                  <Text style={styles.tipBody}>Velocidad normal: conserva mejor el tiempo real del gesto, pero puede perder detalle en los apoyos muy rápidos.</Text>
+                  <Text style={styles.tipBody}>Cámara lenta: ayuda a ver mejor los eventos y ángulos, pero a veces obliga a inferir el ratio real de reproducción.</Text>
                 </View>
-                {selectedMeasurement?.instructions ? <Text style={styles.helperText}>{selectedMeasurement.instructions}</Text> : null}
+                <View style={styles.analysisButtonRow}>
+                  <Pressable
+                    style={styles.primaryButton}
+                    onPress={() => void handlePickAthleteVideo()}
+                    disabled={analysisBusy}
+                  >
+                    <Text style={styles.primaryButtonText}>{athleteVideoUri ? "Cambiar video desde galería" : "Elegir video de galería"}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.secondaryUploadButton}
+                    onPress={() => void handleCaptureAthleteVideo()}
+                    disabled={analysisBusy}
+                  >
+                    <Text style={styles.secondaryUploadButtonText}>Grabar ahora con cámara</Text>
+                  </Pressable>
+                </View>
+                {typeof athleteHeightCm === "number" ? (
+                  <View style={styles.analysisInfoPill}>
+                    <Text style={styles.analysisInfoPillText}>Altura perfil: {athleteHeightCm} cm</Text>
+                  </View>
+                ) : (
+                  <View style={styles.analysisInfoPill}>
+                    <Text style={styles.analysisInfoPillText}>Falta altura en el perfil para escalar el salto en cm</Text>
+                  </View>
+                )}
+
+                {athleteVideoUri ? (
+                  <View style={styles.mediaCard}>
+                    <Text style={styles.mediaTitle}>{athleteVideoName || "Video del atleta"}</Text>
+                    <Video source={{ uri: athleteVideoUri }} style={styles.video} useNativeControls resizeMode={ResizeMode.CONTAIN} />
+                  </View>
+                ) : null}
+
+                {analysisBusy ? (
+                  <View style={styles.analysisStatusCard}>
+                    <ActivityIndicator color={C.amber} />
+                    <Text style={styles.metricLabel}>Analizando video del atleta...</Text>
+                    <Text style={styles.helperText}>
+                      {analysisProgress.total > 0
+                        ? `Frames procesados: ${analysisProgress.processed} / ${analysisProgress.total}`
+                        : "Preparando extracción de pose..."}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {analysisError ? <Text style={styles.analysisErrorText}>{analysisError}</Text> : null}
+
+                {autoAnalysis ? (
+                  <View style={styles.tipBox}>
+                    <Text style={styles.tipTitle}>Análisis listo</Text>
+                    <Text style={styles.tipBody}>La corrección biomecánica ya se ejecutó. Revisa los hallazgos en el bloque superior y guarda la altura automática si el resultado es consistente.</Text>
+                  </View>
+                ) : null}
               </>
             ) : (
-              <Text style={styles.helperText}>Esta técnica todavía no tiene mediciones configuradas desde admin.</Text>
+              <Text style={styles.helperText}>Esta técnica todavía no tiene un contrato biomecánico listo para comparar tu video automáticamente.</Text>
             )}
-
-            <View style={styles.formGrid}>
-              <TextInput
-                style={styles.input}
-                value={value}
-                onChangeText={setValue}
-                keyboardType="decimal-pad"
-                placeholder="valor"
-                placeholderTextColor={C.textDisabled}
-              />
-              {availableUnits.length ? (
-                <View style={styles.selectorWrap}>
-                  {availableUnits.map((candidate) => (
-                    <Pressable
-                      key={candidate}
-                      style={[styles.selectorChip, unit === candidate ? styles.selectorChipActive : null]}
-                      onPress={() => setUnit(candidate)}
-                    >
-                      <Text style={[styles.selectorChipText, unit === candidate ? styles.selectorChipTextActive : null]}>{candidate}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : (
-                <TextInput
-                  style={styles.input}
-                  value={unit}
-                  onChangeText={setUnit}
-                  placeholder="unidad"
-                  placeholderTextColor={C.textDisabled}
-                />
-              )}
-              <TextInput
-                style={[styles.input, styles.notesInput]}
-                value={notes}
-                onChangeText={setNotes}
-                multiline
-                placeholder="nota opcional"
-                placeholderTextColor={C.textDisabled}
-              />
-            </View>
-
-            <Pressable style={[styles.toggleRow, isBaseline && styles.toggleRowActive]} onPress={() => setIsBaseline((current) => !current)}>
-              <Text style={styles.toggleText}>{isBaseline ? "Se guardará como línea base" : "Marcar como línea base inicial"}</Text>
-            </Pressable>
-
-            <Pressable style={styles.primaryButton} onPress={handleSubmit} disabled={submitting || !value.trim()}>
-              <Text style={styles.primaryButtonText}>{submitting ? "Guardando..." : "Guardar medición"}</Text>
-            </Pressable>
           </View>
 
           <View style={styles.sectionCard}>
@@ -744,10 +762,10 @@ export default function TecnicaScreen({
             )}
           </View>
 
-          {athleteVideoUri ? (
+          {analysisVideoUri ? (
             <TechniqueVideoPoseAnalyzer
               requestId={analysisRequestId}
-              videoUri={athleteVideoUri}
+              videoUri={analysisVideoUri}
               onProgress={(processedFrames, totalFrames) => setAnalysisProgress({ processed: processedFrames, total: totalFrames })}
               onResult={handlePoseAnalysisResult}
               onError={(message) => {
@@ -807,6 +825,8 @@ function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
     primaryButton: { backgroundColor: C.amber, borderRadius: R.full, paddingVertical: 14, alignItems: "center" },
     primaryButtonText: { color: C.bg, fontWeight: "800", fontSize: 15 },
     secondaryActionButton: { marginTop: S.sm },
+    secondaryUploadButton: { borderRadius: R.full, paddingVertical: 14, alignItems: "center", borderWidth: 1, borderColor: C.borderStrong, backgroundColor: C.surfaceRaise },
+    secondaryUploadButtonText: { color: C.text, fontWeight: "800", fontSize: 15 },
     ghostButton: { paddingHorizontal: S.md, paddingVertical: 10, borderRadius: R.full, borderWidth: 1, borderColor: C.borderStrong, backgroundColor: C.surfaceRaise },
     ghostButtonText: { color: C.textSub, fontWeight: "700", fontSize: 13 },
     analysisButtonRow: { gap: S.sm },

@@ -22,8 +22,11 @@ import {
   View,
 } from "react-native";
 import { useEffect, useRef, useState } from "react";
+import { Image as ExpoImage } from "expo-image";
+import { ResizeMode, Video } from "expo-av";
 import { R, S } from "@mobile/components/tokens";
 import { useTheme } from "@mobile/components/ThemeContext";
+import { rewriteLocalAssetUrl } from "@mobile/components/runtimeConfig";
 import type {
   ActiveProgram,
   AthleteProfile,
@@ -418,10 +421,14 @@ function GlowCard({
 
 function NoProgram({
   onGenerateProgram,
+  athleteSetup,
   loading,
+  onSetAthleteSetup,
 }: {
   onGenerateProgram: () => void;
+  athleteSetup: AthleteSetupState;
   loading: boolean;
+  onSetAthleteSetup: (updater: (prev: AthleteSetupState) => AthleteSetupState) => void;
 }) {
   const bounceAnim = useRef(new Animated.Value(0)).current;
   const [confirmVisible, setConfirmVisible] = useState(false);
@@ -477,6 +484,22 @@ function NoProgram({
               {" "}que realmente se entrena.{"\n\n"}
               Seran 3 meses de constancia y sacrificio que cambiaran tu vida.
             </Text>
+            <View style={styles.programSetupCard}>
+              <Text style={styles.programSetupLabel}>Fase de adecuación</Text>
+              <Pressable
+                style={[styles.programSetupToggle, athleteSetup.includePreparationPhase ? styles.programSetupToggleActive : null]}
+                onPress={() => onSetAthleteSetup((current) => ({ ...current, includePreparationPhase: !current.includePreparationPhase }))}
+              >
+                <Text style={styles.programSetupToggleText}>
+                  {athleteSetup.includePreparationPhase ? "Incluye 3 semanas de adecuación" : "Entrar directo al programa"}
+                </Text>
+              </Pressable>
+              <Text style={styles.programSetupHint}>
+                {athleteSetup.includePreparationPhase
+                  ? "Se recomienda dejar esta fase activa si vienes de una pausa, molestias o todavía no toleras bien los contactos y la fuerza." 
+                  : "Desactívala solo si ya toleras bien fuerza y aterrizajes y no necesitas una entrada progresiva."}
+              </Text>
+            </View>
             <View style={styles.modalActions}>
               <Pressable style={styles.modalBtnNo} onPress={() => setConfirmVisible(false)}>
                 <Text style={styles.modalBtnNoText}>Mas tarde</Text>
@@ -586,6 +609,10 @@ export default function HoyScreenV2({
   const motivationText = todayPrimarySession
     ? buildMotivationText(todayPrimarySession.dayType, streak)
     : "";
+  const programOverviewAsset = activeProgram?.template?.overviewMediaAsset ?? null;
+  const programOverviewUri = rewriteLocalAssetUrl(programOverviewAsset?.url ?? null);
+  const programOverviewTitle = activeProgram?.template?.overviewTitle ?? activeProgram?.name ?? "Objetivo del programa";
+  const programOverviewDescription = activeProgram?.template?.overviewDescription ?? "Este bloque te explica el objetivo del programa, cómo se va a trabajar y qué esperar durante las próximas semanas.";
 
   // ── Stagger-in entrance animation ───────────────────────────
   const entranceAnim = useRef(new Animated.Value(0)).current;
@@ -673,6 +700,25 @@ export default function HoyScreenV2({
           </View>
         </View>
       </Animated.View>
+
+      {hasProgram ? (
+        <Animated.View style={entranceStyle}>
+          <View style={styles.programOverviewCard}>
+            <Text style={styles.programOverviewEyebrow}>Programa activo</Text>
+            <Text style={styles.programOverviewTitle}>{programOverviewTitle}</Text>
+            <Text style={styles.programOverviewBody}>{programOverviewDescription}</Text>
+            {programOverviewUri ? (
+              programOverviewAsset?.kind === "VIDEO" ? (
+                <Video source={{ uri: programOverviewUri }} style={styles.programOverviewVideo} useNativeControls resizeMode={ResizeMode.CONTAIN} />
+              ) : (
+                <ExpoImage source={{ uri: programOverviewUri }} style={styles.programOverviewVideo} contentFit="contain" />
+              )
+            ) : (
+              <Text style={styles.programOverviewHint}>Todavía no hay un video descriptivo cargado para este programa.</Text>
+            )}
+          </View>
+        </Animated.View>
+      ) : null}
 
       {/* ╔══════════════════════════════════════════════╗
           ║  WEEKLY TIMELINE                             ║
@@ -815,7 +861,12 @@ export default function HoyScreenV2({
           <Text style={styles.restDaySub}>El descanso también es entrenamiento. Mañana va a haber sesión.</Text>
         </View>
       ) : (
-        <NoProgram onGenerateProgram={onGenerateProgram} loading={loading} />
+        <NoProgram
+          onGenerateProgram={onGenerateProgram}
+          athleteSetup={athleteSetup}
+          loading={loading}
+          onSetAthleteSetup={onSetAthleteSetup}
+        />
       )}
 
       {/* ╔══════════════════════════════════════════════╗
@@ -1098,6 +1149,43 @@ return StyleSheet.create({
     marginTop: S.xs,
   },
   noProgramCtaText: { color: C.bg, fontWeight: "800", fontSize: 17 },
+  programSetupCard: {
+    backgroundColor: C.surfaceRaise,
+    borderRadius: R.lg,
+    padding: S.md,
+    gap: S.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  programSetupLabel: { color: C.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 },
+  programSetupToggle: {
+    borderRadius: R.full,
+    paddingVertical: 12,
+    paddingHorizontal: S.md,
+    borderWidth: 1,
+    borderColor: C.borderStrong,
+    backgroundColor: C.surface,
+  },
+  programSetupToggleActive: {
+    borderColor: C.amberBorder,
+    backgroundColor: C.amberDim,
+  },
+  programSetupToggleText: { color: C.text, fontWeight: "800", fontSize: 14, textAlign: "center" },
+  programSetupHint: { color: C.textSub, fontSize: 13, lineHeight: 19 },
+
+  programOverviewCard: {
+    backgroundColor: C.surface,
+    borderRadius: R.xl,
+    padding: S.md,
+    gap: S.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  programOverviewEyebrow: { color: C.amber, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1 },
+  programOverviewTitle: { color: C.text, fontSize: 18, fontWeight: "800" },
+  programOverviewBody: { color: C.textSub, fontSize: 14, lineHeight: 21 },
+  programOverviewVideo: { width: "100%", height: 220, borderRadius: R.lg, backgroundColor: C.surfaceRaise },
+  programOverviewHint: { color: C.textMuted, fontSize: 13, lineHeight: 19 },
 
   // ── Feedback chip ────────────────────────────────────────────
   feedbackChip: {

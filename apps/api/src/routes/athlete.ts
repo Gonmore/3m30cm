@@ -693,6 +693,26 @@ athleteRouter.get("/me", async (req: AuthenticatedRequest, res: Response) => {
             id: true,
             code: true,
             name: true,
+            techniqueTitle: true,
+            techniqueDescription: true,
+            techniques: {
+              orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+              take: 1,
+              select: {
+                title: true,
+                description: true,
+                mediaAssets: {
+                  orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+                  select: {
+                    id: true,
+                    kind: true,
+                    url: true,
+                    title: true,
+                    isPrimary: true,
+                  },
+                },
+              },
+            },
           },
         },
         sessions: {
@@ -714,9 +734,32 @@ athleteRouter.get("/me", async (req: AuthenticatedRequest, res: Response) => {
       },
     });
 
+    const activeProgramResponse = activeProgram
+      ? (() => {
+          const primaryTechnique = activeProgram.template?.techniques[0] ?? null;
+          const overviewMediaAsset = primaryTechnique?.mediaAssets.find((asset) => asset.kind === "VIDEO")
+            ?? primaryTechnique?.mediaAssets[0]
+            ?? null;
+
+          return {
+            ...activeProgram,
+            template: activeProgram.template
+              ? {
+                  id: activeProgram.template.id,
+                  code: activeProgram.template.code,
+                  name: activeProgram.template.name,
+                  overviewTitle: primaryTechnique?.title ?? activeProgram.template.techniqueTitle ?? null,
+                  overviewDescription: primaryTechnique?.description ?? activeProgram.template.techniqueDescription ?? null,
+                  overviewMediaAsset,
+                }
+              : null,
+          };
+        })()
+      : null;
+
     res.json({
       athleteProfile,
-      activeProgram,
+      activeProgram: activeProgramResponse,
       planningRecommendation: buildAthleteSetupRecommendation({
         sport: athleteProfile.sport,
         trainsSport: athleteProfile.trainsSport,
