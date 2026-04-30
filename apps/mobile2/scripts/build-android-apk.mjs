@@ -85,7 +85,7 @@ if (!androidSdkPath) {
   process.exit(1);
 }
 
-const gradleCommand = process.platform === "win32" ? "gradlew.bat" : "./gradlew";
+const gradleCommand = process.platform === "win32" ? ".\\gradlew.bat" : "./gradlew";
 const requiredJvmFlags = "-Xmx3072m -XX:MaxMetaspaceSize=1024m";
 
 function appendJvmFlags(existingValue) {
@@ -162,6 +162,54 @@ const projectLockFiles = [
   path.join(androidDir, ".gradle", "buildOutputCleanup", "buildOutputCleanup.lock"),
 ];
 
+function readReactNativeKotlinVersion() {
+  const rnVersionsTomlPath = path.join(
+    workspaceRoot,
+    "node_modules",
+    "@react-native",
+    "gradle-plugin",
+    "gradle",
+    "libs.versions.toml",
+  );
+
+  if (!existsSync(rnVersionsTomlPath)) {
+    return null;
+  }
+
+  const content = readFileSync(rnVersionsTomlPath, "utf8");
+  return content.match(/^kotlin\s*=\s*"([^"]+)"/m)?.[1] ?? null;
+}
+
+function alignExpoDevLauncherKotlinVersion() {
+  const kotlinVersion = readReactNativeKotlinVersion();
+  if (!kotlinVersion) {
+    return;
+  }
+
+  const expoDevLauncherGradlePath = path.join(
+    workspaceRoot,
+    "node_modules",
+    "expo-dev-launcher",
+    "expo-dev-launcher-gradle-plugin",
+    "build.gradle.kts",
+  );
+
+  if (!existsSync(expoDevLauncherGradlePath)) {
+    return;
+  }
+
+  const original = readFileSync(expoDevLauncherGradlePath, "utf8");
+  const updated = original.replace(
+    /kotlin\("jvm"\) version "[^"]+"/,
+    `kotlin("jvm") version "${kotlinVersion}"`,
+  );
+
+  if (updated !== original) {
+    writeFileSync(expoDevLauncherGradlePath, updated, "utf8");
+    console.log(`Alineando expo-dev-launcher con Kotlin ${kotlinVersion} para evitar el choque con React Native Gradle Plugin.`);
+  }
+}
+
 function runGradle(args, options = {}) {
   return spawnSync(gradleCommand, args, {
     cwd: androidDir,
@@ -175,6 +223,7 @@ function runNodeProcess(args, options = {}) {
   return spawnSync(process.execPath, args, {
     cwd: options.cwd ?? projectRoot,
     env,
+    input: options.input,
     stdio: options.stdio ?? "inherit",
     shell: false,
   });
@@ -242,6 +291,20 @@ function stopProjectBackgroundProcesses() {
   stopProjectGradleJavaProcesses();
 }
 
+function cleanupProjectLockFiles() {
+  for (const lockFile of projectLockFiles) {
+    if (!existsSync(lockFile)) {
+      continue;
+    }
+
+    try {
+      rmSync(lockFile, { force: true, maxRetries: 5, retryDelay: 500 });
+    } catch {
+      // If another process still has the lock open, the next tool invocation will surface it.
+    }
+  }
+}
+
 function removeDirectoryIfPresent(targetDir) {
   if (!existsSync(targetDir)) {
     return;
@@ -277,6 +340,7 @@ function cleanAndroidLibraryBuildDirs() {
 function runExpoPrebuildWithRetry() {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     stopProjectBackgroundProcesses();
+    cleanupProjectLockFiles();
 
     console.log(`Ejecutando Expo prebuild para Android... (intento ${attempt}/2)`);
     const prebuildResult = runNodeProcess([
@@ -286,7 +350,9 @@ function runExpoPrebuildWithRetry() {
       "android",
       "--clean",
       "--no-install",
-    ]);
+    ], {
+      input: "y\n",
+    });
 
     if (typeof prebuildResult.status === "number" && prebuildResult.status === 0) {
       return;
@@ -307,17 +373,9 @@ runExpoPrebuildWithRetry();
 
 writeFileSync(localPropertiesPath, `sdk.dir=${normalizedAndroidSdkPath}\n`, "utf8");
 enforceGradleProperties();
+alignExpoDevLauncherKotlinVersion();
 cleanAndroidLibraryBuildDirs();
-
-for (const lockFile of projectLockFiles) {
-  if (existsSync(lockFile)) {
-    try {
-      rmSync(lockFile, { force: true });
-    } catch {
-      // If another process still has the lock open, Gradle will surface the next actionable error.
-    }
-  }
-}
+cleanupProjectLockFiles();
 
 const result = runGradle(["assembleRelease", "--no-daemon", "--max-workers=1", "--no-parallel"]);
 

@@ -1,7 +1,7 @@
 {
   "name": "@jump/mobile2",
   "private": true,
-  "version": "1.2.0",
+  "version": "2.0.0",
   "main": "index.js",
   "scripts": {
     "dev": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --dev-client --offline --port 8082 --clear",
@@ -28,7 +28,7 @@
     "expo-calendar": "~15.0.8",
     "expo-constants": "~18.0.10",
     "expo-crypto": "~15.0.8",
-    "expo-dev-client": "~5.0.20",
+    "expo-dev-client": "~6.0.20",
     "expo-device": "~8.0.10",
     "expo-file-system": "~19.0.21",
     "expo-image": "~3.0.11",

@@ -518,6 +518,33 @@ Todos los comandos pasaron después del cambio.
 - `npm --prefix apps/mobile2 run build`
 
 La validacion paso despues del refactor del cliente.
+
+---
+
+### 25. Analisis biomecanico automatico en mobile2 y release 2.0.0
+
+**Objetivo:** llevar a `apps/mobile2` la misma logica biomecanica ya cerrada en web/admin, dejando `CENTER_OF_MASS` como metodo principal de altura de salto y `FLIGHT_TIME` solo como corroboracion secundaria, y sacar una APK release `2.0.0`.
+
+**Cambios aplicados:**
+1. `apps/api/src/routes/athlete.ts` ahora devuelve `biomechanicsConfig` tambien en la respuesta refrescada de `POST /api/v1/athlete/technique/metrics`, para que la app no pierda el contrato biomecanico despues de guardar una medicion.
+2. `apps/web/src/biomechanicsReferenceMeasurements.ts` amplio la inferencia del ratio temporal y ahora considera tambien `1.0` cuando hay corroboracion por `CENTER_OF_MASS`.
+3. `apps/mobile2/components/technique/athleteTechniqueAnalysis.ts` reutiliza la deteccion de eventos y las mediciones del web admin para construir un analisis local del atleta a partir de landmarks.
+4. `apps/mobile2/components/technique/TechniqueVideoPoseAnalyzer.tsx` incorpora un `WebView` oculto que carga MediaPipe Pose JS, procesa el video del atleta y devuelve la secuencia de landmarks a React Native.
+5. `apps/mobile2/components/screens/TecnicaScreen.tsx` ahora permite elegir un video del atleta, correr el analisis automatico, mostrar eventos detectados, hallazgos, checks de referencia, JSON del analisis y guardar la altura de salto estimada como metrica.
+6. `apps/mobile2/app/index.tsx` propaga `heightCm`, `proVideoUrl`, `proLandmarks` y `biomechanicsConfig` hacia la pantalla de tecnica para poder escalar la medicion en centimetros.
+7. `apps/mobile2/package.json`, `apps/mobile2/app.json` y el arbol Android generado quedaron alineados en version `2.0.0` con `versionCode 200`.
+8. `apps/mobile2/scripts/build-android-apk.mjs` se endurecio para Windows: limpia locks de Gradle, alimenta automaticamente la confirmacion de `expo prebuild`, invoca `gradlew` con ruta explicita y alinea la version de Kotlin de `expo-dev-launcher` con la del plugin de React Native cuando hace falta.
+9. `apps/mobile2/package.json` y el lockfile raiz alinearon `expo-dev-client` a la serie `~6.0.20`, que es la compatible con Expo SDK 54 y evito el choque previo de Kotlin / dev-menu durante la release.
+10. `README.md` y `api_reference.md` quedaron actualizados con el flujo automatico de biomecanica en `mobile2`, el metodo principal por centro de masas y la release `2.0.0`.
+
+**Validacion ejecutada:**
+- `npm --prefix apps/mobile2 run build`
+- `echo y | npm --prefix apps/mobile2 run apk:prod`
+
+**Resultado:**
+- `apps/mobile2` quedo TypeScript-clean con el nuevo flujo de analisis.
+- La APK release local se genero correctamente en `apps/mobile2/android/app/build/outputs/apk/release/app-release.apk`.
+- La app ya puede analizar un video del atleta dentro de `Técnica` reutilizando el contrato biomecanico compartido en vez de duplicar logica en mobile.
 - `docker build -f apps/api/Dockerfile.prod .`
 
 **Resultado:**

@@ -528,6 +528,61 @@ interface TechniqueMeasurementDefinition {
   orderIndex: number;
 }
 
+interface TechniquePoseLandmark {
+  x: number;
+  y: number;
+  z: number;
+  visibility?: number;
+  presence?: number;
+}
+
+interface TechniquePoseFrame {
+  timestampMs: number;
+  landmarks: TechniquePoseLandmark[];
+}
+
+interface TechniqueProLandmarks {
+  schemaVersion: 1;
+  source: string;
+  keypointsModel: string;
+  normalization: string;
+  fps: number;
+  frameCount: number;
+  durationMs: number;
+  frames: TechniquePoseFrame[];
+}
+
+interface TechniqueBiomechanicsHipProgressionCheck {
+  id: string;
+  label: string;
+  requireMonotonic: boolean;
+  steps: Array<{
+    eventType: string;
+    targetCumulativeDropMinPercent: number | null;
+    targetCumulativeDropMaxPercent: number | null;
+  }>;
+  notes?: string | null;
+}
+
+interface TechniqueBiomechanicsJumpHeightMeasurement {
+  enabled: boolean;
+  subjectHeightCm: number | null;
+  playbackSpeedRatio: number | null;
+  flightTimeMethodEnabled: boolean;
+  centerOfMassMethodEnabled?: boolean | null;
+  heelRiseMethodEnabled?: boolean | null;
+  geometricHipRiseMethodEnabled?: boolean | null;
+  consensusToleranceCm: number | null;
+  notes?: string | null;
+}
+
+interface TechniqueBiomechanicsConfig {
+  referenceMotionProfile?: "REAL_TIME" | "SLOW_MOTION" | null;
+  hipProgressionChecks?: TechniqueBiomechanicsHipProgressionCheck[];
+  jumpHeightMeasurement?: TechniqueBiomechanicsJumpHeightMeasurement | null;
+  keyEvents?: Array<{ eventType: string; label?: string | null }>;
+}
+
 interface TechniqueMediaAsset {
   id: string;
   kind: "IMAGE" | "GIF" | "VIDEO";
@@ -541,6 +596,9 @@ interface TechniqueEntry {
   title: string;
   description: string | null;
   measurementInstructions: string | null;
+  proVideoUrl?: string | null;
+  proLandmarks?: TechniqueProLandmarks | null;
+  biomechanicsConfig?: TechniqueBiomechanicsConfig | null;
   comparisonEnabled: boolean;
   mediaAssets: TechniqueMediaAsset[];
   measurementDefinitions: TechniqueMeasurementDefinition[];
@@ -3394,6 +3452,7 @@ export default function HomeScreen() {
         <TecnicaScreen
           technique={technique}
           techniques={techniques}
+          athleteHeightCm={profile?.heightCm ?? null}
           selectedTechniqueId={selectedTechniqueEntry?.id ?? null}
           loading={loading || refreshing}
           submitting={techniqueSaving}

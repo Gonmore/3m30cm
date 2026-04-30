@@ -31,6 +31,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="jump30cm-game"/>
+        <data android:scheme="exp+3m30cm-game"/>
       </intent-filter>
     </activity>
   </application>

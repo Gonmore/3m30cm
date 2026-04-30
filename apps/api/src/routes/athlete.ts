@@ -1943,6 +1943,7 @@ athleteRouter.post("/technique/metrics", async (req: AuthenticatedRequest, res: 
       measurementInstructions: entry.measurementInstructions,
       proVideoUrl: entry.proVideoUrl,
       proLandmarks: entry.proLandmarks,
+      biomechanicsConfig: entry.biomechanicsConfig,
       comparisonEnabled: entry.comparisonEnabled,
       mediaAssets: entry.mediaAssets,
       measurementDefinitions: entry.measurementDefinitions,

@@ -521,12 +521,18 @@ function buildFlightTimeMethodPreview(
     };
   }
 
-  const playbackCandidates = motionProfile === "SLOW_MOTION"
+  const playbackCandidates = typeof centerOfMassReferenceCm === "number"
     ? Array.from(new Set([
+      1,
       config.playbackSpeedRatio,
       ...slowMotionPlaybackCandidates,
     ].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1)))
-    : [1];
+    : motionProfile === "SLOW_MOTION"
+      ? Array.from(new Set([
+        config.playbackSpeedRatio,
+        ...slowMotionPlaybackCandidates,
+      ].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1)))
+      : [1];
 
   const validCandidates = playbackCandidates
     .map((candidate) => buildFlightTimeCandidatePreview(landmarks, toeOffEvent, apexEvent, landingEvent, candidate))

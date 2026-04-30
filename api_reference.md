@@ -187,14 +187,15 @@ Incluye:
 - texto tecnico por tecnica
 - recursos asociados por tecnica (video, imagen o GIF)
 - referencia biomecanica profesional opcional por tecnica (`proVideoUrl`, `proLandmarks`)
-- metadata biomecanica persistida por tecnica en `biomechanicsConfig`, incluyendo `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `pointChecks`, `angleChecks`, `trajectoryChecks`, `keyEvents`, `orientationPolicy` y `coachNotes`
+- metadata biomecanica persistida por tecnica en `biomechanicsConfig`, incluyendo `referenceMediaAssetId`, `referenceMotionProfile`, `focusPoints`, `pointChecks`, `angleChecks`, `trajectoryChecks`, `keyEvents`, `orientationPolicy`, `coachNotes` y la configuracion de `jumpHeightMeasurement`
 - `keyEvents` ahora admite los tipos `ANTEPENULTIMATE_CONTACT`, `PRE_PENULTIMATE_FLIGHT` y `APEX`, además de `source`, `confidence` y `detector` para convivir con la autodetección asistida del admin
 - `pointChecks` agrega comparaciones puntuales o por ventana sobre un landmark y un eje, por ejemplo altura de cadera en `Y` durante último apoyo o delta vertical entre penúltimo apoyo y despegue
 - en `keyEvents`, el admin ya puede persistir `frameIndex` explicito ademas de `frameHint` para volver al frame exacto en el editor visual del portal web
 - `angleChecks` soporta anclaje a evento/ventana para que el JSON administrativo ya exprese dónde debe evaluarse cada ángulo
 - `trajectoryChecks` expresa trayectorias biomecanicas entre eventos, por ejemplo la cadera antes del despegue
 - `orientationPolicy` deja declarada la direccion preferida, el espejo permitido y el modo de normalizacion esperado para la futura capa atleta
-- `GET /athlete/technique` ya expone `biomechanicsConfig` junto a la referencia profesional para que la capa atleta futura consuma el mismo contrato canónico
+- `GET /athlete/technique` ya expone `biomechanicsConfig` junto a la referencia profesional para que `apps/mobile2` consuma el mismo contrato canónico y ejecute analisis local del atleta sin redefinir el esquema
+- dentro de `jumpHeightMeasurement`, `CENTER_OF_MASS` es el metodo principal y `FLIGHT_TIME` queda como corroboracion secundaria; el valor de `subjectHeightCm` se puede completar desde el perfil del atleta para escalar el salto en centimetros
 - `packages/shared` ya define el contrato futuro de analisis biomecanico del atleta (`poseSequence`, `detectedEvents`, `measuredChecks`) para encarar la siguiente capa sin romper el contrato actual de `technique`
 - definiciones de medicion por tecnica
 - metricas tecnicas ya registradas por el atleta para ese template, incluyendo `completedSessionsAtMeasurement`
@@ -215,6 +216,9 @@ Registra una metrica tecnica para el atleta autenticado sobre una tecnica concre
   "isBaseline": "boolean (default: false)"
 }
 ```
+
+Notas:
+- la respuesta refresca el bloque `techniques` hidratado con `biomechanicsConfig`, `proVideoUrl` y `proLandmarks`, de modo que `mobile2` puede seguir mostrando y reutilizando la misma referencia biomecanica despues de guardar una metrica automatica o manual.
 
 ---
 
