@@ -58,6 +58,11 @@ interface SupportRun extends IndexedRun {
   side: SupportSide;
 }
 
+interface SupportPeak {
+  frameIndex: number;
+  side: SupportSide;
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -476,6 +481,43 @@ function buildContactConfidence(index: number, leftSeries: number[], rightSeries
   return normalizeConfidence(0.5 + (Math.max(leftScore, rightScore) * 0.18));
 }
 
+function collectSupportPeaks(
+  leftSeries: number[],
+  rightSeries: number[],
+  leftGround: ReturnType<typeof buildGroundedFlags>,
+  rightGround: ReturnType<typeof buildGroundedFlags>,
+  endIndex: number,
+  minGap: number,
+) {
+  const prominence = Math.max(Math.max(...leftSeries, ...rightSeries) - Math.min(...leftSeries, ...rightSeries), 0.01) * 0.03;
+  const rawPeaks: SupportPeak[] = [
+    ...findLocalMaxima(leftSeries, 0, endIndex, minGap, prominence)
+      .filter((frameIndex) => Boolean(leftGround.flags[frameIndex]))
+      .map((frameIndex) => ({ frameIndex, side: "LEFT" as const })),
+    ...findLocalMaxima(rightSeries, 0, endIndex, minGap, prominence)
+      .filter((frameIndex) => Boolean(rightGround.flags[frameIndex]))
+      .map((frameIndex) => ({ frameIndex, side: "RIGHT" as const })),
+  ].sort((left, right) => left.frameIndex - right.frameIndex);
+
+  const collapsedPeaks: SupportPeak[] = [];
+  rawPeaks.forEach((peak) => {
+    const previousPeak = collapsedPeaks[collapsedPeaks.length - 1];
+    if (!previousPeak) {
+      collapsedPeaks.push(peak);
+      return;
+    }
+
+    if (previousPeak.side === peak.side && peak.frameIndex - previousPeak.frameIndex <= Math.max(2, minGap + 1)) {
+      collapsedPeaks[collapsedPeaks.length - 1] = peak;
+      return;
+    }
+
+    collapsedPeaks.push(peak);
+  });
+
+  return collapsedPeaks;
+}
+
 export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null | undefined): AutoDetectedTechniqueKeyEvent[] {
   const referenceLandmarks = landmarks;
   const frames = referenceLandmarks?.frames ?? [];
@@ -525,15 +567,19 @@ export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null
   const contactRunMinLength = (referenceLandmarks.fps ?? 15) <= 20 ? 1 : 2;
   const supportRuns = collectSupportRuns(supportLabels, 0, toeOffIndex, contactRunMinLength);
   const airborneRuns = collectRuns(anyGroundedFlags, false, 0, toeOffIndex, 1);
+  const fallbackSupportPeaks = collectSupportPeaks(leftContactSeries, rightContactSeries, leftGround, rightGround, toeOffIndex, contactRunMinLength);
   const lastSupportRun = supportRuns[supportRuns.length - 1] ?? null;
   const penultimateSupportRun = supportRuns[supportRuns.length - 2] ?? null;
   const antepenultimateSupportRun = supportRuns[supportRuns.length - 3] ?? null;
-  const lastContactIndex = lastSupportRun?.start ?? takeOffIndex;
-  const penultimateContactIndex = penultimateSupportRun?.start ?? null;
-  const antepenultimateContactIndex = antepenultimateSupportRun?.start ?? null;
+  const fallbackLastPeak = fallbackSupportPeaks[fallbackSupportPeaks.length - 1] ?? null;
+  const fallbackPenultimatePeak = fallbackSupportPeaks[fallbackSupportPeaks.length - 2] ?? null;
+  const fallbackAntepenultimatePeak = fallbackSupportPeaks[fallbackSupportPeaks.length - 3] ?? null;
+  const lastContactIndex = lastSupportRun?.start ?? fallbackLastPeak?.frameIndex ?? takeOffIndex;
+  const penultimateContactIndex = penultimateSupportRun?.start ?? fallbackPenultimatePeak?.frameIndex ?? null;
+  const antepenultimateContactIndex = antepenultimateSupportRun?.start ?? fallbackAntepenultimatePeak?.frameIndex ?? null;
   const prePenultimateFlightRun = antepenultimateSupportRun && penultimateSupportRun
     ? airborneRuns.find((run) => run.start > antepenultimateSupportRun.end && run.end < penultimateSupportRun.start) ?? null
-    : null;
+    : airborneRuns.find((run) => run.start > (antepenultimateContactIndex ?? -1) && run.end < (penultimateContactIndex ?? -1)) ?? null;
   const targetFramesBeforePenultimate = Math.max(1, Math.round((referenceLandmarks.fps ?? 15) / 7.5));
   const targetPrePenultimateFrameIndex = penultimateContactIndex !== null
     ? Math.max(0, penultimateContactIndex - targetFramesBeforePenultimate)
