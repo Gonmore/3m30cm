@@ -576,6 +576,36 @@ textarea { resize: vertical; }
 .workflow-note p { color: var(--ink-soft); font-size: 0.86rem; line-height: 1.5; }
 .warning-note { background: rgba(174, 32, 18, 0.06); border-color: rgba(174, 32, 18, 0.14); }
 .biomechanics-card { gap: 12px; }
+.biomechanics-subcard { gap: 10px; }
+.biomechanics-preview-grid {
+  display: grid;
+  gap: 10px;
+}
+.biomechanics-preview-card {
+  gap: 10px;
+}
+.biomechanics-preview-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.biomechanics-preview-status {
+  background: rgba(20, 33, 61, 0.08);
+}
+.biomechanics-progression-grid {
+  display: grid;
+  gap: 10px;
+}
+.biomechanics-step-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(20, 33, 61, 0.08);
+  background: rgba(255, 255, 255, 0.7);
+}
 .biomechanics-debug-panel {
   gap: 14px;
   background: linear-gradient(180deg, rgba(20, 33, 61, 0.05), rgba(42, 157, 143, 0.06));

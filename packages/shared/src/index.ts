@@ -49,6 +49,25 @@ export type BiomechanicsEventDetector = (typeof biomechanicsEventDetectors)[numb
 export type BiomechanicsLandmarkAxis = "X" | "Y";
 export type BiomechanicsReferenceMode = "ABSOLUTE" | "DELTA_FROM_START";
 export type BiomechanicsMeasuredCheckStatus = "PENDING" | "OK" | "OUT_OF_RANGE" | "MISSING_EVENT" | "MISSING_LANDMARK";
+export const biomechanicsDerivedLandmarks = ["HIP_CENTER"] as const;
+export const biomechanicsGroundReferenceModes = ["LOWEST_FOOT"] as const;
+export const biomechanicsProgressionNormalizationModes = ["PERCENT_OF_TOTAL_DROP"] as const;
+export const biomechanicsJumpHeightMeasurementMethods = ["FLIGHT_TIME", "GEOMETRIC_HIP_RISE"] as const;
+export const biomechanicsJumpHeightMeasurementStatuses = [
+  "PENDING",
+  "OK",
+  "INVALID_MOTION_PROFILE",
+  "MISSING_EVENT",
+  "MISSING_LANDMARK",
+  "LOW_CONFIDENCE",
+  "METHOD_DISAGREEMENT",
+] as const;
+
+export type BiomechanicsDerivedLandmark = (typeof biomechanicsDerivedLandmarks)[number];
+export type BiomechanicsGroundReferenceMode = (typeof biomechanicsGroundReferenceModes)[number];
+export type BiomechanicsProgressionNormalizationMode = (typeof biomechanicsProgressionNormalizationModes)[number];
+export type BiomechanicsJumpHeightMeasurementMethod = (typeof biomechanicsJumpHeightMeasurementMethods)[number];
+export type BiomechanicsJumpHeightMeasurementStatus = (typeof biomechanicsJumpHeightMeasurementStatuses)[number];
 
 export interface BiomechanicsPoseLandmarkSample {
   name: string;
@@ -114,10 +133,73 @@ export interface AthleteBiomechanicsMeasuredTrajectoryCheck {
   targetMax: number | null;
 }
 
+export interface BiomechanicsHipProgressionCheckStepDefinition {
+  eventType: BiomechanicsEventType;
+  targetCumulativeDropMinPercent: number | null;
+  targetCumulativeDropMaxPercent: number | null;
+}
+
+export interface BiomechanicsHipProgressionCheckDefinition {
+  id: string;
+  label: string;
+  derivedLandmark: BiomechanicsDerivedLandmark;
+  axis: "Y";
+  groundReferenceMode: BiomechanicsGroundReferenceMode;
+  normalizationMode: BiomechanicsProgressionNormalizationMode;
+  requireMonotonic: boolean;
+  steps: BiomechanicsHipProgressionCheckStepDefinition[];
+  notes: string | null;
+}
+
+export interface BiomechanicsJumpHeightMeasurementConfig {
+  enabled: boolean;
+  subjectHeightCm: number | null;
+  playbackSpeedRatio: number | null;
+  flightTimeMethodEnabled: boolean;
+  geometricHipRiseMethodEnabled: boolean;
+  consensusToleranceCm: number | null;
+  notes: string | null;
+}
+
+export interface AthleteBiomechanicsMeasuredHipProgressionStep {
+  eventId: string | null;
+  eventType: BiomechanicsEventType;
+  actualHeightFromGround: number | null;
+  cumulativeDropPercent: number | null;
+  targetCumulativeDropMinPercent: number | null;
+  targetCumulativeDropMaxPercent: number | null;
+}
+
+export interface AthleteBiomechanicsMeasuredHipProgressionCheck {
+  checkId: string;
+  label: string;
+  status: BiomechanicsMeasuredCheckStatus;
+  totalDropValue: number | null;
+  monotonic: boolean | null;
+  steps: AthleteBiomechanicsMeasuredHipProgressionStep[];
+}
+
+export interface AthleteBiomechanicsJumpHeightMethodMeasurement {
+  method: BiomechanicsJumpHeightMeasurementMethod;
+  status: BiomechanicsJumpHeightMeasurementStatus;
+  valueCm: number | null;
+  confidence: number | null;
+  notes: string | null;
+}
+
+export interface AthleteBiomechanicsJumpHeightMeasurement {
+  motionProfile: "REAL_TIME" | "SLOW_MOTION" | null;
+  playbackSpeedRatio: number | null;
+  methods: AthleteBiomechanicsJumpHeightMethodMeasurement[];
+  consensusValueCm: number | null;
+  disagreementCm: number | null;
+}
+
 export interface AthleteBiomechanicsMeasuredChecks {
   angleChecks: AthleteBiomechanicsMeasuredAngleCheck[];
   pointChecks: AthleteBiomechanicsMeasuredPointCheck[];
   trajectoryChecks: AthleteBiomechanicsMeasuredTrajectoryCheck[];
+  hipProgressionChecks: AthleteBiomechanicsMeasuredHipProgressionCheck[];
 }
 
 export interface AthleteBiomechanicsAnalysisContract {
@@ -125,4 +207,5 @@ export interface AthleteBiomechanicsAnalysisContract {
   poseSequence: AthleteBiomechanicsPoseSequence | null;
   detectedEvents: AthleteBiomechanicsDetectedEvent[];
   measuredChecks: AthleteBiomechanicsMeasuredChecks;
+  jumpHeightMeasurement: AthleteBiomechanicsJumpHeightMeasurement | null;
 }

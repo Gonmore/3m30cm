@@ -161,6 +161,12 @@ const techniqueBiomechanicsPreferredDirections = ["ANY", "LEFT_TO_RIGHT", "RIGHT
 const techniqueBiomechanicsNormalizationModes = ["AUTO", "MANUAL_ONLY"] as const;
 const techniqueBiomechanicsEventSources = ["AUTO", "MANUAL", "HYBRID"] as const;
 const techniqueBiomechanicsEventDetectors = ["HIP_FOOT_HEURISTIC_V1"] as const;
+const techniqueBiomechanicsDerivedLandmarks = ["HIP_CENTER"] as const;
+const techniqueBiomechanicsGroundReferenceModes = ["LOWEST_FOOT"] as const;
+const techniqueBiomechanicsProgressionNormalizationModes = ["PERCENT_OF_TOTAL_DROP"] as const;
+const techniqueBiomechanicsEventTypeOrder = Object.fromEntries(
+  techniqueBiomechanicsEventTypes.map((eventType, index) => [eventType, index]),
+) as Record<(typeof techniqueBiomechanicsEventTypes)[number], number>;
 
 const techniqueBiomechanicsFocusPointSchema = z.object({
   id: z.string().trim().min(1).max(80),
@@ -287,6 +293,112 @@ const techniqueBiomechanicsTrajectoryCheckSchema = z.object({
   }
 });
 
+const techniqueBiomechanicsHipProgressionStepSchema = z.object({
+  eventType: z.enum(techniqueBiomechanicsEventTypes),
+  targetCumulativeDropMinPercent: z.number().finite().min(0).max(100).nullable().optional(),
+  targetCumulativeDropMaxPercent: z.number().finite().min(0).max(100).nullable().optional(),
+}).superRefine((value, context) => {
+  if (
+    typeof value.targetCumulativeDropMinPercent === "number"
+    && typeof value.targetCumulativeDropMaxPercent === "number"
+    && value.targetCumulativeDropMinPercent > value.targetCumulativeDropMaxPercent
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "targetCumulativeDropMinPercent must be lower than targetCumulativeDropMaxPercent",
+      path: ["targetCumulativeDropMinPercent"],
+    });
+  }
+});
+
+const techniqueBiomechanicsHipProgressionCheckSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  derivedLandmark: z.enum(techniqueBiomechanicsDerivedLandmarks),
+  axis: z.literal("Y"),
+  groundReferenceMode: z.enum(techniqueBiomechanicsGroundReferenceModes),
+  normalizationMode: z.enum(techniqueBiomechanicsProgressionNormalizationModes),
+  requireMonotonic: z.boolean().default(true),
+  steps: z.array(techniqueBiomechanicsHipProgressionStepSchema).min(2).max(6),
+  notes: z.string().trim().nullable().optional(),
+}).superRefine((value, context) => {
+  const seenEvents = new Set<string>();
+
+  value.steps.forEach((step, index) => {
+    if (seenEvents.has(step.eventType)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Hip progression events must be unique",
+        path: ["steps", index, "eventType"],
+      });
+    }
+    seenEvents.add(step.eventType);
+
+    if (index === 0) {
+      return;
+    }
+
+    const previousStep = value.steps[index - 1];
+    if (!previousStep) {
+      return;
+    }
+
+    if (techniqueBiomechanicsEventTypeOrder[step.eventType] < techniqueBiomechanicsEventTypeOrder[previousStep.eventType]) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Hip progression events must follow gesture order",
+        path: ["steps", index, "eventType"],
+      });
+    }
+
+    if (
+      typeof step.targetCumulativeDropMinPercent === "number"
+      && typeof previousStep.targetCumulativeDropMinPercent === "number"
+      && step.targetCumulativeDropMinPercent < previousStep.targetCumulativeDropMinPercent
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Step minimum cumulative drop must be monotonic",
+        path: ["steps", index, "targetCumulativeDropMinPercent"],
+      });
+    }
+
+    if (
+      typeof step.targetCumulativeDropMaxPercent === "number"
+      && typeof previousStep.targetCumulativeDropMaxPercent === "number"
+      && step.targetCumulativeDropMaxPercent < previousStep.targetCumulativeDropMaxPercent
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Step maximum cumulative drop must be monotonic",
+        path: ["steps", index, "targetCumulativeDropMaxPercent"],
+      });
+    }
+  });
+});
+
+const techniqueBiomechanicsJumpHeightMeasurementSchema = z.object({
+  enabled: z.boolean().default(false),
+  subjectHeightCm: z.number().finite().positive().max(300).nullable().optional(),
+  playbackSpeedRatio: z.number().finite().positive().max(1).nullable().optional(),
+  flightTimeMethodEnabled: z.boolean().default(true),
+  geometricHipRiseMethodEnabled: z.boolean().default(true),
+  consensusToleranceCm: z.number().finite().positive().max(200).nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+}).superRefine((value, context) => {
+  if (!value.enabled) {
+    return;
+  }
+
+  if (!value.flightTimeMethodEnabled && !value.geometricHipRiseMethodEnabled) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "At least one jump height method must be enabled",
+      path: ["flightTimeMethodEnabled"],
+    });
+  }
+});
+
 const techniqueBiomechanicsKeyEventSchema = z.object({
   id: z.string().trim().min(1).max(80),
   label: z.string().trim().min(1).max(120),
@@ -314,7 +426,17 @@ const techniqueBiomechanicsConfigSchema = z.object({
   pointChecks: z.array(techniqueBiomechanicsPointCheckSchema).max(12).default([]),
   angleChecks: z.array(techniqueBiomechanicsAngleCheckSchema).max(12).default([]),
   trajectoryChecks: z.array(techniqueBiomechanicsTrajectoryCheckSchema).max(12).default([]),
+  hipProgressionChecks: z.array(techniqueBiomechanicsHipProgressionCheckSchema).max(6).default([]),
   keyEvents: z.array(techniqueBiomechanicsKeyEventSchema).max(12).default([]),
+  jumpHeightMeasurement: techniqueBiomechanicsJumpHeightMeasurementSchema.default({
+    enabled: false,
+    subjectHeightCm: null,
+    playbackSpeedRatio: null,
+    flightTimeMethodEnabled: true,
+    geometricHipRiseMethodEnabled: true,
+    consensusToleranceCm: 6,
+    notes: null,
+  }),
   orientationPolicy: techniqueBiomechanicsOrientationPolicySchema.default({
     allowMirror: true,
     preferredTravelDirection: "ANY",
@@ -322,6 +444,19 @@ const techniqueBiomechanicsConfigSchema = z.object({
     normalizationMode: "AUTO",
   }),
   coachNotes: z.string().trim().nullable().optional(),
+}).superRefine((value, context) => {
+  if (
+    value.referenceMotionProfile === "SLOW_MOTION"
+    && value.jumpHeightMeasurement.enabled
+    && value.jumpHeightMeasurement.flightTimeMethodEnabled
+    && typeof value.jumpHeightMeasurement.playbackSpeedRatio !== "number"
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Slow motion jump height measurement requires playbackSpeedRatio for the flight-time method",
+      path: ["jumpHeightMeasurement", "playbackSpeedRatio"],
+    });
+  }
 });
 
 const createTechniqueSchema = z.object({

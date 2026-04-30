@@ -6,6 +6,7 @@ import {
   type AutoDetectedTechniqueKeyEvent,
   type AutoDetectedTechniqueSupportLabel,
 } from "./biomechanicsEventDetection";
+import { buildReferenceBiomechanicsMeasurementsPreview } from "./biomechanicsReferenceMeasurements";
 import { BiomechanicsVisualEditor } from "./components/BiomechanicsVisualEditor";
 import { extractTechniquePoseSequence, type TechniquePoseFrame, type TechniqueProLandmarks } from "./techniquePoseExtraction";
 
@@ -61,6 +62,9 @@ const biomechanicsTrajectoryAxisOptions = ["X", "Y"] as const;
 const biomechanicsTrajectoryReferenceModeOptions = ["ABSOLUTE", "DELTA_FROM_START"] as const;
 const biomechanicsPreferredDirectionOptions = ["ANY", "LEFT_TO_RIGHT", "RIGHT_TO_LEFT"] as const;
 const biomechanicsNormalizationModeOptions = ["AUTO", "MANUAL_ONLY"] as const;
+const biomechanicsDerivedLandmarkOptions = ["HIP_CENTER"] as const;
+const biomechanicsGroundReferenceModeOptions = ["LOWEST_FOOT"] as const;
+const biomechanicsProgressionNormalizationModeOptions = ["PERCENT_OF_TOTAL_DROP"] as const;
 const biomechanicsPlaneOptions = ["SAGITTAL_2D", "FRONTAL_2D", "TRANSVERSE_PROXY"] as const;
 const referenceMotionProfileOptions = ["REAL_TIME", "SLOW_MOTION"] as const;
 const strengthSeriesSummary = "Series 1-3 explosivas · serie 4 lenta y tecnica · serie 5 burnout/piramidal.";
@@ -119,6 +123,9 @@ type TechniqueBiomechanicsTrajectoryAxis = (typeof biomechanicsTrajectoryAxisOpt
 type TechniqueBiomechanicsTrajectoryReferenceMode = (typeof biomechanicsTrajectoryReferenceModeOptions)[number];
 type TechniqueBiomechanicsPreferredDirection = (typeof biomechanicsPreferredDirectionOptions)[number];
 type TechniqueBiomechanicsNormalizationMode = (typeof biomechanicsNormalizationModeOptions)[number];
+type TechniqueBiomechanicsDerivedLandmark = (typeof biomechanicsDerivedLandmarkOptions)[number];
+type TechniqueBiomechanicsGroundReferenceMode = (typeof biomechanicsGroundReferenceModeOptions)[number];
+type TechniqueBiomechanicsProgressionNormalizationMode = (typeof biomechanicsProgressionNormalizationModeOptions)[number];
 type TechniqueBiomechanicsAnglePlane = (typeof biomechanicsPlaneOptions)[number];
 type TechniqueReferenceMotionProfile = (typeof referenceMotionProfileOptions)[number];
 type TechniqueVisualEditorMode = "inspect" | "points" | "angles" | "events";
@@ -613,6 +620,34 @@ interface TechniqueBiomechanicsOrientationPolicyRecord {
   normalizationMode: TechniqueBiomechanicsNormalizationMode;
 }
 
+interface TechniqueBiomechanicsHipProgressionStepRecord {
+  eventType: TechniqueBiomechanicsEventType;
+  targetCumulativeDropMinPercent: number | null;
+  targetCumulativeDropMaxPercent: number | null;
+}
+
+interface TechniqueBiomechanicsHipProgressionCheckRecord {
+  id: string;
+  label: string;
+  derivedLandmark: TechniqueBiomechanicsDerivedLandmark;
+  axis: "Y";
+  groundReferenceMode: TechniqueBiomechanicsGroundReferenceMode;
+  normalizationMode: TechniqueBiomechanicsProgressionNormalizationMode;
+  requireMonotonic: boolean;
+  steps: TechniqueBiomechanicsHipProgressionStepRecord[];
+  notes: string | null;
+}
+
+interface TechniqueBiomechanicsJumpHeightMeasurementRecord {
+  enabled: boolean;
+  subjectHeightCm: number | null;
+  playbackSpeedRatio: number | null;
+  flightTimeMethodEnabled: boolean;
+  geometricHipRiseMethodEnabled: boolean;
+  consensusToleranceCm: number | null;
+  notes: string | null;
+}
+
 interface TechniqueBiomechanicsKeyEventRecord {
   id: string;
   label: string;
@@ -633,7 +668,9 @@ interface TechniqueBiomechanicsConfig {
   pointChecks: TechniqueBiomechanicsPointCheckRecord[];
   angleChecks: TechniqueBiomechanicsAngleCheckRecord[];
   trajectoryChecks: TechniqueBiomechanicsTrajectoryCheckRecord[];
+  hipProgressionChecks: TechniqueBiomechanicsHipProgressionCheckRecord[];
   keyEvents: TechniqueBiomechanicsKeyEventRecord[];
+  jumpHeightMeasurement: TechniqueBiomechanicsJumpHeightMeasurementRecord;
   orientationPolicy: TechniqueBiomechanicsOrientationPolicyRecord;
   coachNotes: string | null;
 }
@@ -738,6 +775,34 @@ interface TechniqueBiomechanicsOrientationPolicyDraft {
   normalizationMode: TechniqueBiomechanicsNormalizationMode;
 }
 
+interface TechniqueBiomechanicsHipProgressionStepDraft {
+  eventType: TechniqueBiomechanicsEventType;
+  targetCumulativeDropMinPercent: string;
+  targetCumulativeDropMaxPercent: string;
+}
+
+interface TechniqueBiomechanicsHipProgressionCheckDraft {
+  id: string;
+  label: string;
+  derivedLandmark: TechniqueBiomechanicsDerivedLandmark;
+  axis: "Y";
+  groundReferenceMode: TechniqueBiomechanicsGroundReferenceMode;
+  normalizationMode: TechniqueBiomechanicsProgressionNormalizationMode;
+  requireMonotonic: boolean;
+  steps: TechniqueBiomechanicsHipProgressionStepDraft[];
+  notes: string;
+}
+
+interface TechniqueBiomechanicsJumpHeightMeasurementDraft {
+  enabled: boolean;
+  subjectHeightCm: string;
+  playbackSpeedRatio: string;
+  flightTimeMethodEnabled: boolean;
+  geometricHipRiseMethodEnabled: boolean;
+  consensusToleranceCm: string;
+  notes: string;
+}
+
 interface TechniqueBiomechanicsKeyEventDraft {
   id: string;
   label: string;
@@ -756,7 +821,9 @@ interface TechniqueBiomechanicsFormState {
   pointChecks: TechniqueBiomechanicsPointCheckDraft[];
   angleChecks: TechniqueBiomechanicsAngleCheckDraft[];
   trajectoryChecks: TechniqueBiomechanicsTrajectoryCheckDraft[];
+  hipProgressionChecks: TechniqueBiomechanicsHipProgressionCheckDraft[];
   keyEvents: TechniqueBiomechanicsKeyEventDraft[];
+  jumpHeightMeasurement: TechniqueBiomechanicsJumpHeightMeasurementDraft;
   orientationPolicy: TechniqueBiomechanicsOrientationPolicyDraft;
   coachNotes: string;
 }
@@ -851,6 +918,49 @@ const emptyTemplateForm = (): TemplateFormState => ({
   cycleLengthDays: "14",
 });
 
+function createDefaultHipProgressionStepDraft(
+  eventType: TechniqueBiomechanicsEventType,
+  targetCumulativeDropMinPercent: string,
+  targetCumulativeDropMaxPercent: string,
+): TechniqueBiomechanicsHipProgressionStepDraft {
+  return {
+    eventType,
+    targetCumulativeDropMinPercent,
+    targetCumulativeDropMaxPercent,
+  };
+}
+
+function createDefaultHipProgressionCheckDraft(): TechniqueBiomechanicsHipProgressionCheckDraft {
+  return {
+    id: createDraftId(),
+    label: "Descenso progresivo de cadera",
+    derivedLandmark: "HIP_CENTER",
+    axis: "Y",
+    groundReferenceMode: "LOWEST_FOOT",
+    normalizationMode: "PERCENT_OF_TOTAL_DROP",
+    requireMonotonic: true,
+    steps: [
+      createDefaultHipProgressionStepDraft("SETUP", "0", "5"),
+      createDefaultHipProgressionStepDraft("ANTEPENULTIMATE_CONTACT", "15", "45"),
+      createDefaultHipProgressionStepDraft("PENULTIMATE_CONTACT", "45", "80"),
+      createDefaultHipProgressionStepDraft("LAST_CONTACT", "90", "100"),
+    ],
+    notes: "La cadera debe bajar progresivamente antes del último apoyo, sin colapsar todo el descenso en un solo paso.",
+  };
+}
+
+function createDefaultJumpHeightMeasurementDraft(): TechniqueBiomechanicsJumpHeightMeasurementDraft {
+  return {
+    enabled: false,
+    subjectHeightCm: "",
+    playbackSpeedRatio: "",
+    flightTimeMethodEnabled: true,
+    geometricHipRiseMethodEnabled: true,
+    consensusToleranceCm: "6",
+    notes: "Corroborar la altura del salto con tiempo de vuelo y elevación geométrica de la cadera.",
+  };
+}
+
 const emptyTechniqueForm = (): TechniqueFormState => ({
   title: "",
   description: "",
@@ -863,7 +973,9 @@ const emptyTechniqueForm = (): TechniqueFormState => ({
     pointChecks: [],
     angleChecks: [],
     trajectoryChecks: [],
+    hipProgressionChecks: [],
     keyEvents: [],
+    jumpHeightMeasurement: createDefaultJumpHeightMeasurementDraft(),
     orientationPolicy: {
       allowMirror: true,
       preferredTravelDirection: "ANY",
@@ -1327,6 +1439,25 @@ function normalizeTechniqueBiomechanicsConfig(
       targetMax: typeof entry.targetMax === "number" ? entry.targetMax : null,
       notes: entry.notes ?? null,
     })),
+    hipProgressionChecks: (config?.hipProgressionChecks ?? []).map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      derivedLandmark: entry.derivedLandmark,
+      axis: "Y",
+      groundReferenceMode: entry.groundReferenceMode,
+      normalizationMode: entry.normalizationMode,
+      requireMonotonic: entry.requireMonotonic ?? true,
+      steps: (entry.steps ?? []).map((step) => ({
+        eventType: step.eventType,
+        targetCumulativeDropMinPercent: typeof step.targetCumulativeDropMinPercent === "number"
+          ? step.targetCumulativeDropMinPercent
+          : null,
+        targetCumulativeDropMaxPercent: typeof step.targetCumulativeDropMaxPercent === "number"
+          ? step.targetCumulativeDropMaxPercent
+          : null,
+      })),
+      notes: entry.notes ?? null,
+    })),
     keyEvents: (config?.keyEvents ?? []).map((entry) => ({
       id: entry.id,
       label: entry.label,
@@ -1340,6 +1471,21 @@ function normalizeTechniqueBiomechanicsConfig(
       detector: entry.detector ?? null,
       notes: entry.notes ?? null,
     })),
+    jumpHeightMeasurement: {
+      enabled: config?.jumpHeightMeasurement?.enabled ?? false,
+      subjectHeightCm: typeof config?.jumpHeightMeasurement?.subjectHeightCm === "number"
+        ? config.jumpHeightMeasurement.subjectHeightCm
+        : null,
+      playbackSpeedRatio: typeof config?.jumpHeightMeasurement?.playbackSpeedRatio === "number"
+        ? config.jumpHeightMeasurement.playbackSpeedRatio
+        : null,
+      flightTimeMethodEnabled: config?.jumpHeightMeasurement?.flightTimeMethodEnabled ?? true,
+      geometricHipRiseMethodEnabled: config?.jumpHeightMeasurement?.geometricHipRiseMethodEnabled ?? true,
+      consensusToleranceCm: typeof config?.jumpHeightMeasurement?.consensusToleranceCm === "number"
+        ? config.jumpHeightMeasurement.consensusToleranceCm
+        : 6,
+      notes: config?.jumpHeightMeasurement?.notes ?? null,
+    },
     orientationPolicy: {
       allowMirror: config?.orientationPolicy?.allowMirror ?? true,
       preferredTravelDirection: config?.orientationPolicy?.preferredTravelDirection ?? "ANY",
@@ -1410,6 +1556,21 @@ function mapTechniqueBiomechanicsConfigToForm(
       targetMax: entry.targetMax?.toString() ?? "",
       notes: entry.notes ?? "",
     })),
+    hipProgressionChecks: normalized.hipProgressionChecks.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      derivedLandmark: entry.derivedLandmark,
+      axis: "Y",
+      groundReferenceMode: entry.groundReferenceMode,
+      normalizationMode: entry.normalizationMode,
+      requireMonotonic: entry.requireMonotonic,
+      steps: entry.steps.map((step) => ({
+        eventType: step.eventType,
+        targetCumulativeDropMinPercent: step.targetCumulativeDropMinPercent?.toString() ?? "",
+        targetCumulativeDropMaxPercent: step.targetCumulativeDropMaxPercent?.toString() ?? "",
+      })),
+      notes: entry.notes ?? "",
+    })),
     keyEvents: normalized.keyEvents.map((entry) => ({
       id: entry.id,
       label: entry.label,
@@ -1421,6 +1582,15 @@ function mapTechniqueBiomechanicsConfigToForm(
       detector: entry.detector ?? "",
       notes: entry.notes ?? "",
     })),
+    jumpHeightMeasurement: {
+      enabled: normalized.jumpHeightMeasurement.enabled,
+      subjectHeightCm: normalized.jumpHeightMeasurement.subjectHeightCm?.toString() ?? "",
+      playbackSpeedRatio: normalized.jumpHeightMeasurement.playbackSpeedRatio?.toString() ?? "",
+      flightTimeMethodEnabled: normalized.jumpHeightMeasurement.flightTimeMethodEnabled,
+      geometricHipRiseMethodEnabled: normalized.jumpHeightMeasurement.geometricHipRiseMethodEnabled,
+      consensusToleranceCm: normalized.jumpHeightMeasurement.consensusToleranceCm?.toString() ?? "",
+      notes: normalized.jumpHeightMeasurement.notes ?? "",
+    },
     orientationPolicy: {
       allowMirror: normalized.orientationPolicy.allowMirror,
       preferredTravelDirection: normalized.orientationPolicy.preferredTravelDirection,
@@ -1500,6 +1670,27 @@ function serializeTechniqueBiomechanicsForm(
         targetMax: entry.targetMax.trim() ? Number(entry.targetMax) : null,
         notes: entry.notes.trim() || null,
       })),
+    hipProgressionChecks: form.hipProgressionChecks
+      .filter((entry) => entry.label.trim())
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.label.trim(),
+        derivedLandmark: entry.derivedLandmark,
+        axis: "Y" as const,
+        groundReferenceMode: entry.groundReferenceMode,
+        normalizationMode: entry.normalizationMode,
+        requireMonotonic: entry.requireMonotonic,
+        steps: entry.steps.map((step) => ({
+          eventType: step.eventType,
+          targetCumulativeDropMinPercent: step.targetCumulativeDropMinPercent.trim()
+            ? Number(step.targetCumulativeDropMinPercent)
+            : null,
+          targetCumulativeDropMaxPercent: step.targetCumulativeDropMaxPercent.trim()
+            ? Number(step.targetCumulativeDropMaxPercent)
+            : null,
+        })),
+        notes: entry.notes.trim() || null,
+      })),
     keyEvents: form.keyEvents
       .filter((entry) => entry.label.trim())
       .map((entry) => {
@@ -1516,6 +1707,21 @@ function serializeTechniqueBiomechanicsForm(
           notes: entry.notes.trim() || null,
         };
       }),
+    jumpHeightMeasurement: {
+      enabled: form.jumpHeightMeasurement.enabled,
+      subjectHeightCm: form.jumpHeightMeasurement.subjectHeightCm.trim()
+        ? Number(form.jumpHeightMeasurement.subjectHeightCm)
+        : null,
+      playbackSpeedRatio: form.jumpHeightMeasurement.playbackSpeedRatio.trim()
+        ? Number(form.jumpHeightMeasurement.playbackSpeedRatio)
+        : null,
+      flightTimeMethodEnabled: form.jumpHeightMeasurement.flightTimeMethodEnabled,
+      geometricHipRiseMethodEnabled: form.jumpHeightMeasurement.geometricHipRiseMethodEnabled,
+      consensusToleranceCm: form.jumpHeightMeasurement.consensusToleranceCm.trim()
+        ? Number(form.jumpHeightMeasurement.consensusToleranceCm)
+        : null,
+      notes: form.jumpHeightMeasurement.notes.trim() || null,
+    },
     orientationPolicy: {
       allowMirror: form.orientationPolicy.allowMirror,
       preferredTravelDirection: form.orientationPolicy.preferredTravelDirection,
@@ -1641,6 +1847,38 @@ function formatPreferredDirectionLabel(direction: TechniqueBiomechanicsPreferred
 
 function formatNormalizationModeLabel(mode: TechniqueBiomechanicsNormalizationMode) {
   return mode === "AUTO" ? "Automática" : "Solo manual";
+}
+
+function formatMeasurementStatusLabel(status: string) {
+  if (status === "OK") {
+    return "OK";
+  }
+
+  if (status === "OUT_OF_RANGE") {
+    return "Fuera de rango";
+  }
+
+  if (status === "MISSING_EVENT") {
+    return "Faltan eventos";
+  }
+
+  if (status === "MISSING_LANDMARK") {
+    return "Faltan landmarks";
+  }
+
+  if (status === "INVALID_MOTION_PROFILE") {
+    return "Perfil temporal inválido";
+  }
+
+  if (status === "METHOD_DISAGREEMENT") {
+    return "Métodos en desacuerdo";
+  }
+
+  if (status === "LOW_CONFIDENCE") {
+    return "Baja confianza";
+  }
+
+  return "Pendiente";
 }
 
 function formatReferenceMotionProfile(profile: TechniqueReferenceMotionProfile | null | undefined) {
@@ -2047,6 +2285,36 @@ export default function App() {
       }))
       .filter((event): event is TechniqueBiomechanicsKeyEventDraft & { frameIndex: number } => event.frameIndex !== null),
     [templateTechniqueForm.biomechanics.keyEvents],
+  );
+
+  const previewBiomechanicsConfig = useMemo(
+    () => serializeTechniqueBiomechanicsForm(
+      templateTechniqueForm.biomechanics,
+      normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMediaAssetId,
+    ),
+    [selectedTechnique?.biomechanicsConfig, templateTechniqueForm.biomechanics],
+  );
+
+  const referenceBiomechanicsPreview = useMemo(
+    () => buildReferenceBiomechanicsMeasurementsPreview(
+      selectedTechnique?.proLandmarks,
+      referenceEventMarkers.map((event) => ({
+        id: event.id,
+        label: event.label,
+        eventType: event.eventType,
+        frameIndex: event.frameIndex,
+      })),
+      previewBiomechanicsConfig.hipProgressionChecks,
+      previewBiomechanicsConfig.jumpHeightMeasurement,
+      templateTechniqueForm.biomechanics.referenceMotionProfile,
+    ),
+    [
+      previewBiomechanicsConfig.hipProgressionChecks,
+      previewBiomechanicsConfig.jumpHeightMeasurement,
+      referenceEventMarkers,
+      selectedTechnique?.proLandmarks,
+      templateTechniqueForm.biomechanics.referenceMotionProfile,
+    ],
   );
 
   const focusPointLandmarkSet = useMemo(
@@ -6646,7 +6914,7 @@ export default function App() {
                     {`Modo: ${formatReferenceMotionProfile(normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMotionProfile)}`}
                   </span>
                   <span className="biomechanics-badge">
-                    {`${templateTechniqueForm.biomechanics.focusPoints.length} punto(s) · ${templateTechniqueForm.biomechanics.pointChecks.length} point-check(s) · ${templateTechniqueForm.biomechanics.angleChecks.length} ángulo(s) · ${templateTechniqueForm.biomechanics.trajectoryChecks.length} trayectoria(s) · ${templateTechniqueForm.biomechanics.keyEvents.length} evento(s)`}
+                    {`${templateTechniqueForm.biomechanics.focusPoints.length} punto(s) · ${templateTechniqueForm.biomechanics.pointChecks.length} point-check(s) · ${templateTechniqueForm.biomechanics.angleChecks.length} ángulo(s) · ${templateTechniqueForm.biomechanics.trajectoryChecks.length} trayectoria(s) · ${templateTechniqueForm.biomechanics.hipProgressionChecks.length} progresión(es) · ${templateTechniqueForm.biomechanics.keyEvents.length} evento(s)`}
                   </span>
                 </div>
                 {techniquePoseProcessing.status === "processing" ? (
@@ -8283,6 +8551,523 @@ export default function App() {
                     </label>
                   </div>
                   <p className="helper-text">Esta política todavía no ejecuta el espejo ni la rotación en APK, pero deja definido el comportamiento esperado en el JSON canónico.</p>
+                </div>
+
+                <div className="detail-card program-card biomechanics-card">
+                  <div className="section-header compact-header">
+                    <div>
+                      <p className="eyebrow">Descenso progresivo</p>
+                      <h3>Cadera respecto al suelo</h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() =>
+                        setTemplateTechniqueForm((current) => ({
+                          ...current,
+                          biomechanics: {
+                            ...current.biomechanics,
+                            hipProgressionChecks: [
+                              ...current.biomechanics.hipProgressionChecks,
+                              createDefaultHipProgressionCheckDraft(),
+                            ],
+                          },
+                        }))
+                      }
+                    >
+                      + Progresión de cadera
+                    </button>
+                  </div>
+                  {templateTechniqueForm.biomechanics.hipProgressionChecks.length ? (
+                    templateTechniqueForm.biomechanics.hipProgressionChecks.map((progressionCheck, index) => (
+                      <article key={progressionCheck.id} className="detail-card program-card biomechanics-subcard">
+                        <div className="form-grid-3">
+                          <label>
+                            Nombre del check
+                            <input
+                              value={progressionCheck.label}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    hipProgressionChecks: current.biomechanics.hipProgressionChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, label: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="ej. Descenso progresivo setup → último apoyo"
+                            />
+                          </label>
+                          <label>
+                            Landmark derivado
+                            <select
+                              value={progressionCheck.derivedLandmark}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    hipProgressionChecks: current.biomechanics.hipProgressionChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, derivedLandmark: event.target.value as TechniqueBiomechanicsDerivedLandmark } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {biomechanicsDerivedLandmarkOptions.map((option) => (
+                                <option key={option} value={option}>{option === "HIP_CENTER" ? "Centro de cadera" : option}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Referencia al suelo
+                            <select
+                              value={progressionCheck.groundReferenceMode}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    hipProgressionChecks: current.biomechanics.hipProgressionChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, groundReferenceMode: event.target.value as TechniqueBiomechanicsGroundReferenceMode } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {biomechanicsGroundReferenceModeOptions.map((option) => (
+                                <option key={option} value={option}>{option === "LOWEST_FOOT" ? "Pie más bajo detectado" : option}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Normalización
+                            <select
+                              value={progressionCheck.normalizationMode}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    hipProgressionChecks: current.biomechanics.hipProgressionChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, normalizationMode: event.target.value as TechniqueBiomechanicsProgressionNormalizationMode } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            >
+                              {biomechanicsProgressionNormalizationModeOptions.map((option) => (
+                                <option key={option} value={option}>{option === "PERCENT_OF_TOTAL_DROP" ? "% del descenso total" : option}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Eje observado
+                            <input value={progressionCheck.axis} disabled />
+                          </label>
+                          <label className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={progressionCheck.requireMonotonic}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    hipProgressionChecks: current.biomechanics.hipProgressionChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, requireMonotonic: event.target.checked } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                            />
+                            Exigir descenso monotónico entre eventos
+                          </label>
+                          <label style={{ gridColumn: "1 / -1" }}>
+                            Notas
+                            <textarea
+                              value={progressionCheck.notes}
+                              onChange={(event) =>
+                                setTemplateTechniqueForm((current) => ({
+                                  ...current,
+                                  biomechanics: {
+                                    ...current.biomechanics,
+                                    hipProgressionChecks: current.biomechanics.hipProgressionChecks.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, notes: event.target.value } : entry,
+                                    ),
+                                  },
+                                }))
+                              }
+                              rows={3}
+                              placeholder="ej. El atleta no puede perder casi todo el descenso en un solo apoyo; debe repartirlo entre antepenúltimo, penúltimo y último apoyo."
+                            />
+                          </label>
+                        </div>
+
+                        <div className="detail-card program-card biomechanics-subcard">
+                          <div>
+                            <p className="eyebrow">Corredores acumulados</p>
+                            <p className="helper-text">Cada evento expresa cuánto del descenso total setup → último apoyo debería haberse consumido hasta ese punto.</p>
+                          </div>
+                          <div className="biomechanics-progression-grid">
+                            {progressionCheck.steps.map((step, stepIndex) => (
+                              <div key={`${progressionCheck.id}-${stepIndex}`} className="biomechanics-step-row">
+                                <label>
+                                  Evento
+                                  <select
+                                    value={step.eventType}
+                                    onChange={(event) =>
+                                      setTemplateTechniqueForm((current) => ({
+                                        ...current,
+                                        biomechanics: {
+                                          ...current.biomechanics,
+                                          hipProgressionChecks: current.biomechanics.hipProgressionChecks.map((entry, entryIndex) =>
+                                            entryIndex === index
+                                              ? {
+                                                ...entry,
+                                                steps: entry.steps.map((currentStep, currentStepIndex) =>
+                                                  currentStepIndex === stepIndex
+                                                    ? { ...currentStep, eventType: event.target.value as TechniqueBiomechanicsEventType }
+                                                    : currentStep,
+                                                ),
+                                              }
+                                              : entry,
+                                          ),
+                                        },
+                                      }))
+                                    }
+                                  >
+                                    {biomechanicsEventTypeOptions.map((option) => (
+                                      <option key={option} value={option}>{formatBiomechanicsEventLabel(option)}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label>
+                                  Mínimo acumulado (%)
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    value={step.targetCumulativeDropMinPercent}
+                                    onChange={(event) =>
+                                      setTemplateTechniqueForm((current) => ({
+                                        ...current,
+                                        biomechanics: {
+                                          ...current.biomechanics,
+                                          hipProgressionChecks: current.biomechanics.hipProgressionChecks.map((entry, entryIndex) =>
+                                            entryIndex === index
+                                              ? {
+                                                ...entry,
+                                                steps: entry.steps.map((currentStep, currentStepIndex) =>
+                                                  currentStepIndex === stepIndex
+                                                    ? { ...currentStep, targetCumulativeDropMinPercent: event.target.value }
+                                                    : currentStep,
+                                                ),
+                                              }
+                                              : entry,
+                                          ),
+                                        },
+                                      }))
+                                    }
+                                    placeholder="15"
+                                  />
+                                </label>
+                                <label>
+                                  Máximo acumulado (%)
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    value={step.targetCumulativeDropMaxPercent}
+                                    onChange={(event) =>
+                                      setTemplateTechniqueForm((current) => ({
+                                        ...current,
+                                        biomechanics: {
+                                          ...current.biomechanics,
+                                          hipProgressionChecks: current.biomechanics.hipProgressionChecks.map((entry, entryIndex) =>
+                                            entryIndex === index
+                                              ? {
+                                                ...entry,
+                                                steps: entry.steps.map((currentStep, currentStepIndex) =>
+                                                  currentStepIndex === stepIndex
+                                                    ? { ...currentStep, targetCumulativeDropMaxPercent: event.target.value }
+                                                    : currentStep,
+                                                ),
+                                              }
+                                              : entry,
+                                          ),
+                                        },
+                                      }))
+                                    }
+                                    placeholder="45"
+                                  />
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="chip-row">
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() =>
+                              setTemplateTechniqueForm((current) => ({
+                                ...current,
+                                biomechanics: {
+                                  ...current.biomechanics,
+                                  hipProgressionChecks: current.biomechanics.hipProgressionChecks.filter((_, entryIndex) => entryIndex !== index),
+                                },
+                              }))
+                            }
+                          >
+                            Eliminar progresión
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="helper-text">Configura un check compuesto para exigir que la cadera descienda de forma progresiva entre setup, antepenúltimo, penúltimo y último apoyo.</p>
+                  )}
+                </div>
+
+                <div className="detail-card program-card biomechanics-card">
+                  <div className="section-header compact-header">
+                    <div>
+                      <p className="eyebrow">Altura del salto</p>
+                      <h3>Medición dual y consenso</h3>
+                    </div>
+                  </div>
+                  <div className="form-grid-3">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={templateTechniqueForm.biomechanics.jumpHeightMeasurement.enabled}
+                        onChange={(event) =>
+                          setTemplateTechniqueForm((current) => ({
+                            ...current,
+                            biomechanics: {
+                              ...current.biomechanics,
+                              jumpHeightMeasurement: {
+                                ...current.biomechanics.jumpHeightMeasurement,
+                                enabled: event.target.checked,
+                              },
+                            },
+                          }))
+                        }
+                      />
+                      Activar medición automática de la altura del salto
+                    </label>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={templateTechniqueForm.biomechanics.jumpHeightMeasurement.flightTimeMethodEnabled}
+                        onChange={(event) =>
+                          setTemplateTechniqueForm((current) => ({
+                            ...current,
+                            biomechanics: {
+                              ...current.biomechanics,
+                              jumpHeightMeasurement: {
+                                ...current.biomechanics.jumpHeightMeasurement,
+                                flightTimeMethodEnabled: event.target.checked,
+                              },
+                            },
+                          }))
+                        }
+                      />
+                      Método por tiempo de vuelo
+                    </label>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={templateTechniqueForm.biomechanics.jumpHeightMeasurement.geometricHipRiseMethodEnabled}
+                        onChange={(event) =>
+                          setTemplateTechniqueForm((current) => ({
+                            ...current,
+                            biomechanics: {
+                              ...current.biomechanics,
+                              jumpHeightMeasurement: {
+                                ...current.biomechanics.jumpHeightMeasurement,
+                                geometricHipRiseMethodEnabled: event.target.checked,
+                              },
+                            },
+                          }))
+                        }
+                      />
+                      Método por elevación geométrica de cadera
+                    </label>
+                    <label>
+                      Altura del sujeto (cm)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={templateTechniqueForm.biomechanics.jumpHeightMeasurement.subjectHeightCm}
+                        onChange={(event) =>
+                          setTemplateTechniqueForm((current) => ({
+                            ...current,
+                            biomechanics: {
+                              ...current.biomechanics,
+                              jumpHeightMeasurement: {
+                                ...current.biomechanics.jumpHeightMeasurement,
+                                subjectHeightCm: event.target.value,
+                              },
+                            },
+                          }))
+                        }
+                        placeholder="185"
+                      />
+                    </label>
+                    <label>
+                      Playback speed ratio
+                      <input
+                        type="number"
+                        min="0.01"
+                        max="1"
+                        step="0.01"
+                        value={templateTechniqueForm.biomechanics.jumpHeightMeasurement.playbackSpeedRatio}
+                        onChange={(event) =>
+                          setTemplateTechniqueForm((current) => ({
+                            ...current,
+                            biomechanics: {
+                              ...current.biomechanics,
+                              jumpHeightMeasurement: {
+                                ...current.biomechanics.jumpHeightMeasurement,
+                                playbackSpeedRatio: event.target.value,
+                              },
+                            },
+                          }))
+                        }
+                        placeholder="0.50"
+                      />
+                    </label>
+                    <label>
+                      Tolerancia entre métodos (cm)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={templateTechniqueForm.biomechanics.jumpHeightMeasurement.consensusToleranceCm}
+                        onChange={(event) =>
+                          setTemplateTechniqueForm((current) => ({
+                            ...current,
+                            biomechanics: {
+                              ...current.biomechanics,
+                              jumpHeightMeasurement: {
+                                ...current.biomechanics.jumpHeightMeasurement,
+                                consensusToleranceCm: event.target.value,
+                              },
+                            },
+                          }))
+                        }
+                        placeholder="6"
+                      />
+                    </label>
+                    <label>
+                      Perfil actual del video
+                      <input value={formatReferenceMotionProfile(templateTechniqueForm.biomechanics.referenceMotionProfile)} disabled />
+                    </label>
+                    <label style={{ gridColumn: "1 / -1" }}>
+                      Notas
+                      <textarea
+                        value={templateTechniqueForm.biomechanics.jumpHeightMeasurement.notes}
+                        onChange={(event) =>
+                          setTemplateTechniqueForm((current) => ({
+                            ...current,
+                            biomechanics: {
+                              ...current.biomechanics,
+                              jumpHeightMeasurement: {
+                                ...current.biomechanics.jumpHeightMeasurement,
+                                notes: event.target.value,
+                              },
+                            },
+                          }))
+                        }
+                        rows={3}
+                        placeholder="ej. Si el video es slow motion, exigir playbackSpeedRatio para validar el método por tiempo de vuelo."
+                      />
+                    </label>
+                  </div>
+                  <p className="helper-text">Cuando el perfil del video sea `SLOW_MOTION`, el método por tiempo de vuelo debe llevar `playbackSpeedRatio` explícito. El método geométrico usará la elevación de la cadera como segunda verificación.</p>
+                </div>
+
+                <div className="detail-card program-card biomechanics-card">
+                  <div className="section-header compact-header">
+                    <div>
+                      <p className="eyebrow">Preview referencia</p>
+                      <h3>Resultados sobre la técnica profesional</h3>
+                    </div>
+                  </div>
+                  {!selectedTechnique?.proLandmarks ? (
+                    <p className="helper-text">Procesa primero la referencia profesional para calcular el descenso progresivo de cadera y la altura del salto sobre el video base.</p>
+                  ) : (
+                    <div className="biomechanics-preview-grid">
+                      {referenceBiomechanicsPreview.hipProgressionChecks.map((check) => (
+                        <article key={check.checkId} className="detail-card program-card biomechanics-preview-card">
+                          <div className="biomechanics-preview-badge-row">
+                            <strong>{check.label}</strong>
+                            <span className="biomechanics-badge biomechanics-preview-status">{formatMeasurementStatusLabel(check.status)}</span>
+                            {typeof check.totalDropValue === "number" ? (
+                              <span className="biomechanics-badge">Descenso total: {check.totalDropValue.toFixed(3)}</span>
+                            ) : null}
+                            {typeof check.monotonic === "boolean" ? (
+                              <span className="biomechanics-badge">Monótona: {check.monotonic ? "sí" : "no"}</span>
+                            ) : null}
+                          </div>
+                          <div className="biomechanics-debug-list">
+                            {check.steps.map((step) => (
+                              <p key={`${check.checkId}-${step.eventType}`}>
+                                <strong>{formatBiomechanicsEventLabel(step.eventType as TechniqueBiomechanicsEventType)}:</strong>{" "}
+                                {step.frameIndex !== null ? `frame ${step.frameIndex + 1}` : "sin frame"}
+                                {typeof step.heightFromGround === "number" ? ` · altura relativa ${step.heightFromGround.toFixed(3)}` : ""}
+                                {typeof step.cumulativeDropPercent === "number" ? ` · descenso ${step.cumulativeDropPercent.toFixed(1)}%` : ""}
+                                {(typeof step.targetCumulativeDropMinPercent === "number" || typeof step.targetCumulativeDropMaxPercent === "number")
+                                  ? ` · objetivo ${typeof step.targetCumulativeDropMinPercent === "number" ? step.targetCumulativeDropMinPercent : 0}-${typeof step.targetCumulativeDropMaxPercent === "number" ? step.targetCumulativeDropMaxPercent : 100}%`
+                                  : ""}
+                                {typeof step.withinTarget === "boolean" ? ` · ${step.withinTarget ? "dentro" : "fuera"}` : ""}
+                              </p>
+                            ))}
+                          </div>
+                          {check.notes ? <p className="helper-text">{check.notes}</p> : null}
+                        </article>
+                      ))}
+
+                      {referenceBiomechanicsPreview.jumpHeight ? (
+                        <article className="detail-card program-card biomechanics-preview-card">
+                          <div className="biomechanics-preview-badge-row">
+                            <strong>Altura del salto</strong>
+                            <span className="biomechanics-badge biomechanics-preview-status">{formatMeasurementStatusLabel(referenceBiomechanicsPreview.jumpHeight.status)}</span>
+                            {typeof referenceBiomechanicsPreview.jumpHeight.consensusValueCm === "number" ? (
+                              <span className="biomechanics-badge">Consenso: {referenceBiomechanicsPreview.jumpHeight.consensusValueCm.toFixed(1)} cm</span>
+                            ) : null}
+                            {typeof referenceBiomechanicsPreview.jumpHeight.disagreementCm === "number" ? (
+                              <span className="biomechanics-badge">Diferencia: {referenceBiomechanicsPreview.jumpHeight.disagreementCm.toFixed(1)} cm</span>
+                            ) : null}
+                          </div>
+                          <div className="biomechanics-debug-list">
+                            {referenceBiomechanicsPreview.jumpHeight.methods.length ? referenceBiomechanicsPreview.jumpHeight.methods.map((method) => (
+                              <p key={method.method}>
+                                <strong>{method.method === "FLIGHT_TIME" ? "Tiempo de vuelo" : "Elevación geométrica de cadera"}:</strong>{" "}
+                                {formatMeasurementStatusLabel(method.status)}
+                                {typeof method.valueCm === "number" ? ` · ${method.valueCm.toFixed(1)} cm` : ""}
+                                {typeof method.confidence === "number" ? ` · confianza ${method.confidence.toFixed(2)}` : ""}
+                              </p>
+                            )) : <p>No hay métodos activos para esta medición.</p>}
+                          </div>
+                          {referenceBiomechanicsPreview.jumpHeight.notes ? <p className="helper-text">{referenceBiomechanicsPreview.jumpHeight.notes}</p> : null}
+                          {referenceBiomechanicsPreview.jumpHeight.methods.some((method) => method.notes) ? (
+                            <div className="biomechanics-debug-list">
+                              {referenceBiomechanicsPreview.jumpHeight.methods.map((method) => (
+                                method.notes ? <p key={`${method.method}-note`}>{method.notes}</p> : null
+                              ))}
+                            </div>
+                          ) : null}
+                        </article>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
 
                 <label>
