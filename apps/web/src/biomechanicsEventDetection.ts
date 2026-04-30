@@ -139,6 +139,21 @@ function smoothSeries(values: number[], radius = 2) {
   });
 }
 
+function buildRollingMaximumSeries(values: number[], radius = 4) {
+  return values.map((_, index) => {
+    const start = Math.max(0, index - radius);
+    const end = Math.min(values.length - 1, index + radius);
+    return Math.max(...values.slice(start, end + 1));
+  });
+}
+
+function normalizeSeries(values: number[]) {
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const range = Math.max(maximum - minimum, 0.0001);
+  return values.map((value) => clamp((value - minimum) / range, 0, 1));
+}
+
 function getSeriesValue(values: number[], index: number) {
   return values[index] ?? 0;
 }
@@ -337,20 +352,29 @@ function buildPointMotionSeries(points: Array<Point2D | null>) {
 function buildContactScoreSeries(
   contactSeries: number[],
   motionSeries: number[],
+  hipToFootSeries: number[],
   groundInfo: ReturnType<typeof buildGroundedFlags>,
 ) {
-  const motionMin = Math.min(...motionSeries);
-  const motionMax = Math.max(...motionSeries);
-  const motionRange = Math.max(motionMax - motionMin, 0.0001);
+  const motionNormalized = normalizeSeries(motionSeries);
+  const legLoadNormalized = normalizeSeries(hipToFootSeries);
+  const localMaxima = buildRollingMaximumSeries(contactSeries, 5);
+  const localTolerance = Math.max((Math.max(...contactSeries) - Math.min(...contactSeries)) * 0.06, 0.008);
 
   return contactSeries.map((value, index) => {
     const groundedness = clamp(
-      (value - (groundInfo.groundBaseline - groundInfo.tolerance)) / Math.max(groundInfo.tolerance * 1.4, 0.0001),
+      (value - (groundInfo.groundBaseline - groundInfo.tolerance)) / Math.max(groundInfo.tolerance * 1.5, 0.0001),
       0,
       1,
     );
-    const stability = clamp(1 - ((getSeriesValue(motionSeries, index) - motionMin) / motionRange), 0, 1);
-    return (groundedness * 0.7) + (stability * 0.3);
+    const localGroundedness = clamp(
+      (value - (getSeriesValue(localMaxima, index) - localTolerance)) / Math.max(localTolerance, 0.0001),
+      0,
+      1,
+    );
+    const stability = clamp(1 - getSeriesValue(motionNormalized, index), 0, 1);
+    const legLoad = getSeriesValue(legLoadNormalized, index);
+
+    return (groundedness * 0.28) + (localGroundedness * 0.28) + (stability * 0.24) + (legLoad * 0.20);
   });
 }
 
@@ -496,11 +520,17 @@ function buildGroundedFlags(series: number[]) {
   const groundBaseline = averageLargestValues(series);
   const range = Math.max(...series) - Math.min(...series);
   const tolerance = Math.max(range * 0.08, 0.01);
+  const localMaxima = buildRollingMaximumSeries(series, 5);
+  const localTolerance = Math.max(range * 0.06, 0.008);
 
   return {
     groundBaseline,
     tolerance,
-    flags: series.map((value) => value >= groundBaseline - tolerance),
+    flags: series.map((value, index) => {
+      const nearGlobalBaseline = value >= groundBaseline - tolerance;
+      const nearLocalBaseline = value >= getSeriesValue(localMaxima, index) - localTolerance;
+      return nearGlobalBaseline || nearLocalBaseline;
+    }),
   };
 }
 
@@ -535,11 +565,11 @@ function buildSupportLabels(
       continue;
     }
 
-    const leftSupportStrength = getSeriesValue(leftSeries, index) - (leftGround.groundBaseline - leftGround.tolerance);
-    const rightSupportStrength = getSeriesValue(rightSeries, index) - (rightGround.groundBaseline - rightGround.tolerance);
+    const leftSupportStrength = getSeriesValue(leftSeries, index);
+    const rightSupportStrength = getSeriesValue(rightSeries, index);
     const supportDifference = leftSupportStrength - rightSupportStrength;
 
-    if (Math.abs(supportDifference) < Math.max(leftGround.tolerance, rightGround.tolerance) * 0.35 && previousSide) {
+    if (Math.abs(supportDifference) < 0.08 && previousSide) {
       labels.push(previousSide);
       continue;
     }
@@ -583,9 +613,13 @@ function detectSetupIndex(hipX: number[], hipY: number[], dipIndex: number) {
 }
 
 function buildContactConfidence(index: number, leftSeries: number[], rightSeries: number[], leftGround: ReturnType<typeof buildGroundedFlags>, rightGround: ReturnType<typeof buildGroundedFlags>) {
-  const leftScore = (getSeriesValue(leftSeries, index) - (leftGround.groundBaseline - leftGround.tolerance)) / Math.max(leftGround.tolerance, 0.001);
-  const rightScore = (getSeriesValue(rightSeries, index) - (rightGround.groundBaseline - rightGround.tolerance)) / Math.max(rightGround.tolerance, 0.001);
-  return normalizeConfidence(0.5 + (Math.max(leftScore, rightScore) * 0.18));
+  const leftScore = getSeriesValue(leftSeries, index);
+  const rightScore = getSeriesValue(rightSeries, index);
+  const groundedBonus = Math.max(
+    leftGround.flags[index] ? 0.06 : 0,
+    rightGround.flags[index] ? 0.06 : 0,
+  );
+  return normalizeConfidence(0.45 + (Math.max(leftScore, rightScore) * 0.4) + groundedBonus);
 }
 
 function collectSupportPeaks(
@@ -596,7 +630,7 @@ function collectSupportPeaks(
   endIndex: number,
   minGap: number,
 ) {
-  const prominence = Math.max(Math.max(...leftSeries, ...rightSeries) - Math.min(...leftSeries, ...rightSeries), 0.01) * 0.03;
+  const prominence = Math.max(Math.max(...leftSeries, ...rightSeries) - Math.min(...leftSeries, ...rightSeries), 0.01) * 0.015;
   const rawPeaks: SupportPeak[] = [
     ...findLocalMaxima(leftSeries, 0, endIndex, minGap, prominence)
       .filter((frameIndex) => Boolean(leftGround.flags[frameIndex]))
@@ -681,6 +715,8 @@ export function detectTechniqueKeyEventsWithDebug(
     frame.landmarks[landmarkIndex.LEFT_HIP]?.y,
     frame.landmarks[landmarkIndex.RIGHT_HIP]?.y,
   ])));
+  const leftHipYSeries = smoothSeries(frames.map((frame) => frame.landmarks[landmarkIndex.LEFT_HIP]?.y ?? 0));
+  const rightHipYSeries = smoothSeries(frames.map((frame) => frame.landmarks[landmarkIndex.RIGHT_HIP]?.y ?? 0));
   const hipXSeries = smoothSeries(frames.map((frame) => average([
     frame.landmarks[landmarkIndex.LEFT_HIP]?.x,
     frame.landmarks[landmarkIndex.RIGHT_HIP]?.x,
@@ -709,10 +745,16 @@ export function detectTechniqueKeyEventsWithDebug(
   const rightGround = buildGroundedFlags(rightContactSeries);
   const leftFootMotionSeries = buildPointMotionSeries(leftFootPointSeries);
   const rightFootMotionSeries = buildPointMotionSeries(rightFootPointSeries);
-  const leftContactScoreSeries = buildContactScoreSeries(leftContactSeries, leftFootMotionSeries, leftGround);
-  const rightContactScoreSeries = buildContactScoreSeries(rightContactSeries, rightFootMotionSeries, rightGround);
-  const anyGroundedFlags = frames.map((_, index) => Boolean(leftGround.flags[index] || rightGround.flags[index]));
-  const supportLabels = buildSupportLabels(leftGround, rightGround, leftContactSeries, rightContactSeries);
+  const leftHipToFootSeries = smoothSeries(leftContactSeries.map((value, index) => value - getSeriesValue(leftHipYSeries, index)), 1);
+  const rightHipToFootSeries = smoothSeries(rightContactSeries.map((value, index) => value - getSeriesValue(rightHipYSeries, index)), 1);
+  const leftContactScoreSeries = buildContactScoreSeries(leftContactSeries, leftFootMotionSeries, leftHipToFootSeries, leftGround);
+  const rightContactScoreSeries = buildContactScoreSeries(rightContactSeries, rightFootMotionSeries, rightHipToFootSeries, rightGround);
+  const supportEvidenceThreshold = 0.52;
+  const anyGroundedFlags = frames.map((_, index) => (
+    getSeriesValue(leftContactScoreSeries, index) >= supportEvidenceThreshold
+    || getSeriesValue(rightContactScoreSeries, index) >= supportEvidenceThreshold
+  ));
+  const supportLabels = buildSupportLabels(leftGround, rightGround, leftContactScoreSeries, rightContactScoreSeries);
 
   const firstAirborneIndex = findFirstRun(anyGroundedFlags.map((isGrounded) => !isGrounded), Math.min(dipIndex + 1, frames.length - 1), 2)
     ?? Math.max(Math.min(apexIndex - 1, frames.length - 2), dipIndex + 1);
@@ -786,7 +828,7 @@ export function detectTechniqueKeyEventsWithDebug(
     antepenultimateContactIndex !== null ? {
       eventType: "ANTEPENULTIMATE_CONTACT",
       frameIndex: antepenultimateContactIndex,
-      confidence: buildContactConfidence(antepenultimateContactIndex, leftContactSeries, rightContactSeries, leftGround, rightGround),
+      confidence: buildContactConfidence(antepenultimateContactIndex, leftContactScoreSeries, rightContactScoreSeries, leftGround, rightGround),
       detector: autoDetectedTechniqueEventDetector,
     } : null,
     prePenultimateFlightIndex !== null && prePenultimateFlightConfidence !== null ? {
@@ -798,13 +840,13 @@ export function detectTechniqueKeyEventsWithDebug(
     penultimateContactIndex !== null ? {
       eventType: "PENULTIMATE_CONTACT",
       frameIndex: penultimateContactIndex,
-      confidence: buildContactConfidence(penultimateContactIndex, leftContactSeries, rightContactSeries, leftGround, rightGround),
+      confidence: buildContactConfidence(penultimateContactIndex, leftContactScoreSeries, rightContactScoreSeries, leftGround, rightGround),
       detector: autoDetectedTechniqueEventDetector,
     } : null,
     {
       eventType: "LAST_CONTACT",
       frameIndex: lastContactIndex,
-      confidence: buildContactConfidence(lastContactIndex, leftContactSeries, rightContactSeries, leftGround, rightGround),
+      confidence: buildContactConfidence(lastContactIndex, leftContactScoreSeries, rightContactScoreSeries, leftGround, rightGround),
       detector: autoDetectedTechniqueEventDetector,
     },
     {
