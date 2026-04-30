@@ -247,6 +247,68 @@ function getFramePoint(frame: TechniqueProLandmarks["frames"][number] | undefine
   return { x: point.x, y: point.y };
 }
 
+function averageFramePoints(points: Array<Point2D | null>) {
+  const validPoints = points.filter((point): point is Point2D => Boolean(point));
+  if (!validPoints.length) {
+    return null;
+  }
+
+  return {
+    x: average(validPoints.map((point) => point.x)),
+    y: average(validPoints.map((point) => point.y)),
+  };
+}
+
+function getFootReferencePoint(
+  frame: TechniqueProLandmarks["frames"][number] | undefined,
+  ankleIndex: number,
+  heelIndex: number,
+  footIndex: number,
+) {
+  return averageFramePoints([
+    getFramePoint(frame, ankleIndex),
+    getFramePoint(frame, heelIndex),
+    getFramePoint(frame, footIndex),
+  ]);
+}
+
+function buildPointMotionSeries(points: Array<Point2D | null>) {
+  const motionSeries = points.map((point, index) => {
+    if (index === 0 || !point) {
+      return 0;
+    }
+
+    const previousPoint = points[index - 1];
+    if (!previousPoint) {
+      return 0;
+    }
+
+    return Math.hypot(point.x - previousPoint.x, point.y - previousPoint.y);
+  });
+
+  return smoothSeries(motionSeries, 1);
+}
+
+function buildContactScoreSeries(
+  contactSeries: number[],
+  motionSeries: number[],
+  groundInfo: ReturnType<typeof buildGroundedFlags>,
+) {
+  const motionMin = Math.min(...motionSeries);
+  const motionMax = Math.max(...motionSeries);
+  const motionRange = Math.max(motionMax - motionMin, 0.0001);
+
+  return contactSeries.map((value, index) => {
+    const groundedness = clamp(
+      (value - (groundInfo.groundBaseline - groundInfo.tolerance)) / Math.max(groundInfo.tolerance * 1.4, 0.0001),
+      0,
+      1,
+    );
+    const stability = clamp(1 - ((getSeriesValue(motionSeries, index) - motionMin) / motionRange), 0, 1);
+    return (groundedness * 0.7) + (stability * 0.3);
+  });
+}
+
 function measureAngleDegrees(pointA: Point2D | null, vertex: Point2D | null, pointC: Point2D | null) {
   if (!pointA || !vertex || !pointC) {
     return null;
@@ -518,6 +580,32 @@ function collectSupportPeaks(
   return collapsedPeaks;
 }
 
+function selectAlternatingSupportPeaks(peaks: SupportPeak[]) {
+  const selectedPeaks: SupportPeak[] = [];
+
+  for (let index = peaks.length - 1; index >= 0; index -= 1) {
+    const peak = peaks[index];
+    if (!peak) {
+      continue;
+    }
+
+    const previousSelectedPeak = selectedPeaks[selectedPeaks.length - 1];
+    if (!previousSelectedPeak || previousSelectedPeak.side !== peak.side) {
+      selectedPeaks.push(peak);
+    }
+
+    if (selectedPeaks.length >= 3) {
+      break;
+    }
+  }
+
+  return {
+    last: selectedPeaks[0] ?? null,
+    penultimate: selectedPeaks[1] ?? null,
+    antepenultimate: selectedPeaks[2] ?? null,
+  };
+}
+
 export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null | undefined): AutoDetectedTechniqueKeyEvent[] {
   const referenceLandmarks = landmarks;
   const frames = referenceLandmarks?.frames ?? [];
@@ -533,6 +621,8 @@ export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null
     frame.landmarks[landmarkIndex.LEFT_HIP]?.x,
     frame.landmarks[landmarkIndex.RIGHT_HIP]?.x,
   ])));
+  const leftFootPointSeries = frames.map((frame) => getFootReferencePoint(frame, landmarkIndex.LEFT_ANKLE, landmarkIndex.LEFT_HEEL, landmarkIndex.LEFT_FOOT_INDEX));
+  const rightFootPointSeries = frames.map((frame) => getFootReferencePoint(frame, landmarkIndex.RIGHT_ANKLE, landmarkIndex.RIGHT_HEEL, landmarkIndex.RIGHT_FOOT_INDEX));
   const leftContactSeries = smoothSeries(frames.map((frame) => Math.max(
     frame.landmarks[landmarkIndex.LEFT_ANKLE]?.y ?? 0,
     frame.landmarks[landmarkIndex.LEFT_HEEL]?.y ?? 0,
@@ -553,6 +643,10 @@ export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null
   const setupIndex = detectSetupIndex(hipXSeries, hipYSeries, dipIndex);
   const leftGround = buildGroundedFlags(leftContactSeries);
   const rightGround = buildGroundedFlags(rightContactSeries);
+  const leftFootMotionSeries = buildPointMotionSeries(leftFootPointSeries);
+  const rightFootMotionSeries = buildPointMotionSeries(rightFootPointSeries);
+  const leftContactScoreSeries = buildContactScoreSeries(leftContactSeries, leftFootMotionSeries, leftGround);
+  const rightContactScoreSeries = buildContactScoreSeries(rightContactSeries, rightFootMotionSeries, rightGround);
   const anyGroundedFlags = frames.map((_, index) => Boolean(leftGround.flags[index] || rightGround.flags[index]));
   const supportLabels = buildSupportLabels(leftGround, rightGround, leftContactSeries, rightContactSeries);
 
@@ -567,13 +661,14 @@ export function detectTechniqueKeyEvents(landmarks: TechniqueProLandmarks | null
   const contactRunMinLength = (referenceLandmarks.fps ?? 15) <= 20 ? 1 : 2;
   const supportRuns = collectSupportRuns(supportLabels, 0, toeOffIndex, contactRunMinLength);
   const airborneRuns = collectRuns(anyGroundedFlags, false, 0, toeOffIndex, 1);
-  const fallbackSupportPeaks = collectSupportPeaks(leftContactSeries, rightContactSeries, leftGround, rightGround, toeOffIndex, contactRunMinLength);
+  const fallbackSupportPeaks = collectSupportPeaks(leftContactScoreSeries, rightContactScoreSeries, leftGround, rightGround, toeOffIndex, contactRunMinLength);
+  const alternatingFallbackPeaks = selectAlternatingSupportPeaks(fallbackSupportPeaks);
   const lastSupportRun = supportRuns[supportRuns.length - 1] ?? null;
   const penultimateSupportRun = supportRuns[supportRuns.length - 2] ?? null;
   const antepenultimateSupportRun = supportRuns[supportRuns.length - 3] ?? null;
-  const fallbackLastPeak = fallbackSupportPeaks[fallbackSupportPeaks.length - 1] ?? null;
-  const fallbackPenultimatePeak = fallbackSupportPeaks[fallbackSupportPeaks.length - 2] ?? null;
-  const fallbackAntepenultimatePeak = fallbackSupportPeaks[fallbackSupportPeaks.length - 3] ?? null;
+  const fallbackLastPeak = alternatingFallbackPeaks.last;
+  const fallbackPenultimatePeak = alternatingFallbackPeaks.penultimate;
+  const fallbackAntepenultimatePeak = alternatingFallbackPeaks.antepenultimate;
   const lastContactIndex = lastSupportRun?.start ?? fallbackLastPeak?.frameIndex ?? takeOffIndex;
   const penultimateContactIndex = penultimateSupportRun?.start ?? fallbackPenultimatePeak?.frameIndex ?? null;
   const antepenultimateContactIndex = antepenultimateSupportRun?.start ?? fallbackAntepenultimatePeak?.frameIndex ?? null;
