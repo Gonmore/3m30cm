@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Image as ExpoImage } from "expo-image";
+import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { ResizeMode, Video } from "expo-av";
@@ -72,6 +73,8 @@ interface TechniqueData {
   };
   metrics: TechniqueMetric[];
 }
+
+type TechniqueAngleComparison = AthleteTechniqueAutoAnalysis["angleComparisons"][number];
 
 interface TecnicaScreenProps {
   technique: TechniqueData | null;
@@ -170,10 +173,95 @@ function formatJumpMethodLabel(method: string) {
   return method === "CENTER_OF_MASS" ? "Centro de masas" : "Tiempo de vuelo";
 }
 
+function formatComparisonOrientationLabel(orientation: "NORMAL" | "MIRRORED") {
+  return orientation === "MIRRORED" ? "Pierna contraria" : "Misma pierna";
+}
+
+function formatSignedDegrees(value: number) {
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}°`;
+}
+
+function clampPercent(value: number) {
+  return Math.min(Math.max(value, 0), 100);
+}
+
+function angleToPercent(angleDeg: number | null) {
+  if (typeof angleDeg !== "number" || Number.isNaN(angleDeg)) {
+    return 0;
+  }
+
+  return clampPercent((angleDeg / 180) * 100);
+}
+
+function formatExpectedAngleRange(minDeg: number | null, maxDeg: number | null) {
+  if (typeof minDeg === "number" && typeof maxDeg === "number") {
+    return `${minDeg.toFixed(0)}° - ${maxDeg.toFixed(0)}°`;
+  }
+
+  if (typeof minDeg === "number") {
+    return `>= ${minDeg.toFixed(0)}°`;
+  }
+
+  if (typeof maxDeg === "number") {
+    return `<= ${maxDeg.toFixed(0)}°`;
+  }
+
+  return "Sin rango objetivo";
+}
+
+function buildUserAngleHighlights(autoAnalysis: AthleteTechniqueAutoAnalysis | null) {
+  if (!autoAnalysis?.angleComparisons.length) {
+    return [] as string[];
+  }
+
+  const majorDifferences = [...autoAnalysis.angleComparisons]
+    .sort((left, right) => Math.abs(right.deltaDeg) - Math.abs(left.deltaDeg))
+    .filter((comparison) => Math.abs(comparison.deltaDeg) >= 6)
+    .slice(0, 3)
+    .map((comparison) => {
+      const direction = comparison.deltaDeg >= 0 ? "más abierto" : "más cerrado";
+      return `${formatAutoEventLabel(comparison.eventType)}: ${comparison.label} ${direction} de la referencia por ${Math.abs(comparison.deltaDeg).toFixed(1)}°.`;
+    });
+
+  if (majorDifferences.length) {
+    return majorDifferences;
+  }
+
+  return ["Los ángulos principales quedaron cerca de la referencia técnica."];
+}
+
+function formatTimestampMs(timestampMs: number | null | undefined) {
+  if (typeof timestampMs !== "number" || Number.isNaN(timestampMs)) {
+    return "--";
+  }
+
+  return `${(timestampMs / 1000).toFixed(2)} s`;
+}
+
+function buildAnalysisJsonPreview(autoAnalysis: AthleteTechniqueAutoAnalysis | null) {
+  if (!autoAnalysis) {
+    return "";
+  }
+
+  return JSON.stringify({
+    ...autoAnalysis.analysisJson,
+    poseSequence: {
+      frameCount: autoAnalysis.landmarks.frameCount,
+      fps: autoAnalysis.landmarks.fps,
+      durationMs: autoAnalysis.landmarks.durationMs,
+    },
+  }, null, 2);
+}
+
 function pickFileExtension(fileName: string | null | undefined, uri: string) {
   const source = fileName || uri;
   const match = source.match(/\.([a-z0-9]{2,5})(?:[?#].*)?$/i);
   return match?.[1]?.toLowerCase() ?? "mp4";
+}
+
+interface PickedVideoAsset {
+  uri: string;
+  fileName?: string | null;
 }
 
 function buildAnalysisVideoPath(fileName: string | null | undefined, uri: string) {
@@ -215,14 +303,16 @@ export default function TecnicaScreen({
   const [notes, setNotes] = useState("");
   const [isBaseline, setIsBaseline] = useState(false);
   const [athleteVideoUri, setAthleteVideoUri] = useState<string | null>(null);
-  const [analysisVideoUri, setAnalysisVideoUri] = useState<string | null>(null);
   const [athleteVideoName, setAthleteVideoName] = useState<string | null>(null);
   const [analysisRequestId, setAnalysisRequestId] = useState(0);
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ processed: 0, total: 0 });
   const [analysisError, setAnalysisError] = useState("");
   const [autoAnalysis, setAutoAnalysis] = useState<AthleteTechniqueAutoAnalysis | null>(null);
+  const [selectedVisualEventType, setSelectedVisualEventType] = useState<string | null>(null);
   const [showAnalysisJson, setShowAnalysisJson] = useState(false);
+  const [showCorrectionsViewer, setShowCorrectionsViewer] = useState(false);
+  const athleteVideoRef = useRef<Video | null>(null);
 
   const selectedMeasurement = useMemo(
     () => selectedTechnique?.measurementDefinitions.find((entry) => entry.id === selectedMeasurementId)
@@ -248,20 +338,60 @@ export default function TecnicaScreen({
       return left.method === "CENTER_OF_MASS" ? -1 : 1;
     });
   }, [autoAnalysis?.measurements.jumpHeight?.methods]);
-  const analysisJsonPreview = useMemo(() => {
-    if (!autoAnalysis) {
-      return "";
+  const angleComparisonGroups = useMemo(() => {
+    const groups = new Map<string, TechniqueAngleComparison[]>();
+
+    for (const comparison of autoAnalysis?.angleComparisons ?? []) {
+      const group = groups.get(comparison.eventType) ?? [];
+      group.push(comparison);
+      groups.set(comparison.eventType, group);
     }
 
-    return JSON.stringify({
-      ...autoAnalysis.analysisJson,
-      poseSequence: {
-        frameCount: autoAnalysis.landmarks.frameCount,
-        fps: autoAnalysis.landmarks.fps,
-        durationMs: autoAnalysis.landmarks.durationMs,
-      },
-    }, null, 2);
+    return Array.from(groups.entries()).map(([eventType, comparisons]) => ({
+      eventType,
+      comparisons: comparisons.sort((left, right) => Math.abs(right.deltaDeg) - Math.abs(left.deltaDeg)),
+      averageDeltaDeg: comparisons.length
+        ? comparisons.reduce((total, comparison) => total + Math.abs(comparison.deltaDeg), 0) / comparisons.length
+        : 0,
+    }));
+  }, [autoAnalysis?.angleComparisons]);
+  const userAngleHighlights = useMemo(() => buildUserAngleHighlights(autoAnalysis), [autoAnalysis]);
+  const analysisJsonPreview = useMemo(() => buildAnalysisJsonPreview(autoAnalysis), [autoAnalysis]);
+  const eventOverlayItems = useMemo(() => {
+    if (!autoAnalysis) {
+      return [] as Array<{
+        eventType: string;
+        label: string;
+        frameIndex: number;
+        timestampMs: number | null;
+        positionPct: number;
+        comparisons: TechniqueAngleComparison[];
+      }>;
+    }
+
+    const durationMs = autoAnalysis.landmarks.durationMs || 1;
+
+    return autoAnalysis.detectedEvents
+      .map((event) => {
+        const timestampMs = autoAnalysis.landmarks.frames[event.frameIndex]?.timestampMs ?? null;
+        return {
+          eventType: event.eventType,
+          label: formatAutoEventLabel(event.eventType),
+          frameIndex: event.frameIndex,
+          timestampMs,
+          positionPct: clampPercent(typeof timestampMs === "number" ? (timestampMs / durationMs) * 100 : 0),
+          comparisons: autoAnalysis.angleComparisons.filter((comparison) => comparison.eventType === event.eventType),
+        };
+      })
+      .sort((left, right) => left.frameIndex - right.frameIndex);
   }, [autoAnalysis]);
+  const selectedEventOverlay = useMemo(() => {
+    if (!eventOverlayItems.length) {
+      return null;
+    }
+
+    return eventOverlayItems.find((item) => item.eventType === selectedVisualEventType) ?? eventOverlayItems[0] ?? null;
+  }, [eventOverlayItems, selectedVisualEventType]);
 
   useEffect(() => {
     setSelectedMeasurementId((current) => {
@@ -292,15 +422,32 @@ export default function TecnicaScreen({
 
   useEffect(() => {
     setAthleteVideoUri(null);
-    setAnalysisVideoUri(null);
     setAthleteVideoName(null);
     setAnalysisRequestId(0);
     setAnalysisBusy(false);
     setAnalysisProgress({ processed: 0, total: 0 });
     setAnalysisError("");
     setAutoAnalysis(null);
+    setSelectedVisualEventType(null);
     setShowAnalysisJson(false);
+    setShowCorrectionsViewer(false);
   }, [selectedTechnique?.id]);
+
+  useEffect(() => {
+    if (!eventOverlayItems.length) {
+      setSelectedVisualEventType(null);
+      return;
+    }
+
+    setSelectedVisualEventType((current) => {
+      if (current && eventOverlayItems.some((item) => item.eventType === current)) {
+        return current;
+      }
+
+      const firstComparable = eventOverlayItems.find((item) => item.comparisons.length > 0);
+      return firstComparable?.eventType ?? eventOverlayItems[0]?.eventType ?? null;
+    });
+  }, [eventOverlayItems]);
 
   function handleSubmit() {
     if (!selectedTechnique) {
@@ -327,21 +474,18 @@ export default function TecnicaScreen({
     setIsBaseline(false);
   }
 
-  async function prepareAthleteVideoAsset(asset: ImagePicker.ImagePickerAsset) {
+  async function prepareAthleteVideoAsset(asset: PickedVideoAsset) {
     if (!asset.uri) {
       throw new Error("No se recibió un video válido para analizar.");
     }
 
     const targetPath = buildAnalysisVideoPath(asset.fileName, asset.uri);
     await FileSystem.copyAsync({ from: asset.uri, to: targetPath });
-    const normalizedAnalysisUri = await normalizeAnalyzerVideoUri(targetPath);
 
     setAthleteVideoUri(targetPath);
-    setAnalysisVideoUri(normalizedAnalysisUri);
     setAthleteVideoName(asset.fileName ?? `video-${Date.now()}.mp4`);
     setAnalysisProgress({ processed: 0, total: 0 });
     setAutoAnalysis(null);
-    setShowAnalysisJson(false);
     setAnalysisBusy(true);
     setAnalysisRequestId((current) => current + 1);
   }
@@ -354,22 +498,20 @@ export default function TecnicaScreen({
     try {
       setAnalysisError("");
 
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        throw new Error("Hace falta permiso de galería para elegir el video del atleta.");
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        allowsEditing: false,
-        quality: 1,
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "video/*",
+        copyToCacheDirectory: true,
+        multiple: false,
       });
 
       if (result.canceled || !result.assets[0]?.uri) {
         return;
       }
 
-      await prepareAthleteVideoAsset(result.assets[0]);
+      await prepareAthleteVideoAsset({
+        uri: result.assets[0].uri,
+        fileName: result.assets[0].name,
+      });
     } catch (error) {
       setAnalysisBusy(false);
       setAnalysisError(error instanceof Error ? error.message : "No se pudo preparar el video del atleta.");
@@ -406,18 +548,6 @@ export default function TecnicaScreen({
     }
   }
 
-  async function normalizeAnalyzerVideoUri(uri: string) {
-    if (Platform.OS !== "android" || !uri.startsWith("file://")) {
-      return uri;
-    }
-
-    try {
-      return await FileSystem.getContentUriAsync(uri);
-    } catch {
-      return uri;
-    }
-  }
-
   function handlePoseAnalysisResult(landmarks: TechniqueProLandmarks) {
     if (!selectedTechnique) {
       setAnalysisBusy(false);
@@ -430,6 +560,7 @@ export default function TecnicaScreen({
         landmarks,
         biomechanicsConfig: selectedTechnique.biomechanicsConfig,
         athleteHeightCm,
+        referenceLandmarks: selectedTechnique.proLandmarks ?? null,
       });
 
       setAutoAnalysis(analysis);
@@ -466,6 +597,18 @@ export default function TecnicaScreen({
       notes: analysis.findings.join(" ") || undefined,
       isBaseline: false,
     });
+  }
+
+  function handleSelectVisualEvent(eventType: string) {
+    setSelectedVisualEventType(eventType);
+
+    const event = eventOverlayItems.find((item) => item.eventType === eventType);
+    const targetMs = event?.timestampMs;
+    if (typeof targetMs !== "number") {
+      return;
+    }
+
+    void athleteVideoRef.current?.setPositionAsync(Math.max(targetMs - 120, 0)).catch(() => {});
   }
 
   if (!technique || !techniques.length) {
@@ -563,12 +706,48 @@ export default function TecnicaScreen({
             {hasAutomaticAnalysisContract ? (
               <>
                 <Text style={styles.helperText}>
-                  El contrato biomecánico de esta técnica ya está cargado. El Centro de Masas es el método principal y usa tu altura de perfil para escalar el salto en centímetros. El tiempo de vuelo se usa como corroboración secundaria y prueba `1.0`, `0.5` y `0.25` cuando hace falta inferir la velocidad real del video.
+                  El contrato biomecánico de esta técnica ya está cargado. El video del atleta se analiza siempre en velocidad normal. El Centro de Masas usa tu altura de perfil para escalar el salto en centímetros y el tiempo de vuelo queda como corroboración secundaria.
                 </Text>
                 {!autoAnalysis ? <Text style={styles.helperText}>Sube o graba un video en “Seguimiento técnico” para ejecutar la corrección automática.</Text> : null}
 
                 {autoAnalysis ? (
                   <>
+                    <View style={styles.metricCard}>
+                      <View style={styles.sectionHeaderRow}>
+                        <View>
+                          <Text style={styles.metricLabel}>JSON de análisis</Text>
+                          <Text style={styles.metricMeta}>Visible para revisión técnica y futuro historial.</Text>
+                        </View>
+                        <Pressable style={styles.ghostButton} onPress={() => setShowAnalysisJson((current) => !current)}>
+                          <Text style={styles.ghostButtonText}>{showAnalysisJson ? "Ocultar" : "Mostrar"}</Text>
+                        </Pressable>
+                      </View>
+                      {showAnalysisJson ? <Text style={styles.analysisJsonText}>{analysisJsonPreview}</Text> : null}
+                    </View>
+
+                    <View style={styles.metricCard}>
+                      <Text style={styles.metricLabel}>Resumen automático</Text>
+                      {autoAnalysis.comparisonSummary?.comparableChecks ? (
+                        <>
+                          <Text style={styles.metricNotes}>
+                            Orientación usada: {formatComparisonOrientationLabel(autoAnalysis.comparisonSummary.appliedOrientation)}.
+                          </Text>
+                          {typeof autoAnalysis.comparisonSummary.averageDeltaDeg === "number" ? (
+                            <Text style={styles.metricNotes}>
+                              Desviación angular media: {autoAnalysis.comparisonSummary.averageDeltaDeg.toFixed(1)}°.
+                            </Text>
+                          ) : null}
+                          {userAngleHighlights.map((highlight) => (
+                            <Text key={highlight} style={styles.metricNotes}>• {highlight}</Text>
+                          ))}
+                        </>
+                      ) : (
+                        <Text style={styles.metricNotes}>
+                          Todavía no hubo suficientes eventos coincidentes entre tu video y la referencia para comparar ángulos automáticamente.
+                        </Text>
+                      )}
+                    </View>
+
                     <View style={styles.analysisResultGrid}>
                       <View style={styles.metricCard}>
                         <Text style={styles.metricLabel}>Eventos detectados</Text>
@@ -610,7 +789,55 @@ export default function TecnicaScreen({
                     </View>
 
                     <View style={styles.metricCard}>
-                      <Text style={styles.metricLabel}>Hallazgos</Text>
+                      <Text style={styles.metricLabel}>Comparación por eventos</Text>
+                      {angleComparisonGroups.length ? angleComparisonGroups.map((group) => (
+                        <View key={group.eventType} style={styles.eventComparisonGroup}>
+                          <Text style={styles.eventComparisonTitle}>
+                            {formatAutoEventLabel(group.eventType)} · delta medio {group.averageDeltaDeg.toFixed(1)}°
+                          </Text>
+                          {group.comparisons.map((comparison) => {
+                            const rangeStart = angleToPercent(comparison.targetMinDeg ?? comparison.referenceAngleDeg);
+                            const rangeEnd = angleToPercent(comparison.targetMaxDeg ?? comparison.referenceAngleDeg);
+                            const rangeWidth = Math.max(rangeEnd - rangeStart, 2);
+                            const referenceMarker = angleToPercent(comparison.referenceAngleDeg);
+                            const athleteMarker = angleToPercent(comparison.athleteAngleDeg);
+
+                            return (
+                              <View key={comparison.checkId} style={styles.angleComparisonRow}>
+                                <View style={styles.angleComparisonHeader}>
+                                  <Text style={styles.angleComparisonLabel}>{comparison.label}</Text>
+                                  <Text
+                                    style={[
+                                      styles.angleComparisonDelta,
+                                      Math.abs(comparison.deltaDeg) <= 6 ? styles.angleComparisonDeltaOk : styles.angleComparisonDeltaWarn,
+                                    ]}
+                                  >
+                                    {formatSignedDegrees(comparison.deltaDeg)}
+                                  </Text>
+                                </View>
+                                <View style={styles.angleTrack}>
+                                  <View style={[styles.angleRangeBand, { left: `${rangeStart}%`, width: `${rangeWidth}%` }]} />
+                                  <View style={[styles.angleReferenceMarker, { left: `${referenceMarker}%` }]} />
+                                  <View
+                                    style={[
+                                      styles.angleAthleteMarker,
+                                      comparison.withinTarget === false ? styles.angleAthleteMarkerWarn : styles.angleAthleteMarkerOk,
+                                      { left: `${athleteMarker}%` },
+                                    ]}
+                                  />
+                                </View>
+                                <Text style={styles.angleComparisonMeta}>
+                                  Atleta {comparison.athleteAngleDeg.toFixed(1)}° · referencia {comparison.referenceAngleDeg.toFixed(1)}° · esperado {formatExpectedAngleRange(comparison.targetMinDeg, comparison.targetMaxDeg)}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )) : <Text style={styles.metricNotes}>No hay ángulos configurados o no coinciden todavía los eventos con la referencia.</Text>}
+                    </View>
+
+                    <View style={styles.metricCard}>
+                      <Text style={styles.metricLabel}>Hallazgos técnicos</Text>
                       {autoAnalysis.findings.length ? autoAnalysis.findings.map((finding, index) => (
                         <Text key={`${index}-${finding}`} style={styles.metricNotes}>• {finding}</Text>
                       )) : <Text style={styles.metricNotes}>No hay hallazgos relevantes adicionales.</Text>}
@@ -624,19 +851,6 @@ export default function TecnicaScreen({
                           {typeof check.totalDropValue === "number" ? ` · descenso total ${check.totalDropValue.toFixed(3)}` : ""}
                         </Text>
                       )) : <Text style={styles.metricNotes}>La técnica no tiene checks compuestos de descenso progresivo configurados.</Text>}
-                    </View>
-
-                    <View style={styles.metricCard}>
-                      <View style={styles.sectionHeaderRow}>
-                        <View>
-                          <Text style={styles.metricLabel}>JSON de análisis</Text>
-                          <Text style={styles.metricMeta}>Resumen listo para comparar o enviar al backend.</Text>
-                        </View>
-                        <Pressable style={styles.ghostButton} onPress={() => setShowAnalysisJson((current) => !current)}>
-                          <Text style={styles.ghostButtonText}>{showAnalysisJson ? "Ocultar" : "Mostrar"}</Text>
-                        </Pressable>
-                      </View>
-                      {showAnalysisJson ? <Text style={styles.analysisJsonText}>{analysisJsonPreview}</Text> : null}
                     </View>
                   </>
                 ) : null}
@@ -655,9 +869,8 @@ export default function TecnicaScreen({
                   Sube un video tuyo usando esta técnica, similar a los videos de referencia. A partir de ese video la app detecta eventos, estima la altura del salto, revisa los checks de referencia y genera correcciones automáticas.
                 </Text>
                 <View style={styles.tipBox}>
-                  <Text style={styles.tipTitle}>Velocidad normal vs cámara lenta</Text>
-                  <Text style={styles.tipBody}>Velocidad normal: conserva mejor el tiempo real del gesto, pero puede perder detalle en los apoyos muy rápidos.</Text>
-                  <Text style={styles.tipBody}>Cámara lenta: ayuda a ver mejor los eventos y ángulos, pero a veces obliga a inferir el ratio real de reproducción.</Text>
+                  <Text style={styles.tipTitle}>Cómo grabarlo</Text>
+                  <Text style={styles.tipBody}>Sube siempre el video en velocidad normal. Para conservar la mejor calidad, la app abre un selector de archivo para elegir el video original sin edición.</Text>
                 </View>
                 <View style={styles.analysisButtonRow}>
                   <Pressable
@@ -665,7 +878,7 @@ export default function TecnicaScreen({
                     onPress={() => void handlePickAthleteVideo()}
                     disabled={analysisBusy}
                   >
-                    <Text style={styles.primaryButtonText}>{athleteVideoUri ? "Cambiar video desde galería" : "Elegir video de galería"}</Text>
+                    <Text style={styles.primaryButtonText}>{athleteVideoUri ? "Cambiar video original" : "Elegir video original"}</Text>
                   </Pressable>
                   <Pressable
                     style={styles.secondaryUploadButton}
@@ -688,7 +901,16 @@ export default function TecnicaScreen({
                 {athleteVideoUri ? (
                   <View style={styles.mediaCard}>
                     <Text style={styles.mediaTitle}>{athleteVideoName || "Video del atleta"}</Text>
-                    <Video source={{ uri: athleteVideoUri }} style={styles.video} useNativeControls resizeMode={ResizeMode.CONTAIN} />
+                    <Pressable
+                      style={styles.openCorrectionsButton}
+                      onPress={() => setShowCorrectionsViewer(true)}
+                      disabled={!autoAnalysis}
+                    >
+                      <Text style={styles.openCorrectionsButtonText}>Ver correcciones</Text>
+                      <Text style={styles.openCorrectionsButtonMeta}>
+                        Abrir visor grande con eventos, barra temporal y sombras de ángulo.
+                      </Text>
+                    </Pressable>
                   </View>
                 ) : null}
 
@@ -762,10 +984,10 @@ export default function TecnicaScreen({
             )}
           </View>
 
-          {analysisVideoUri ? (
+          {athleteVideoUri ? (
             <TechniqueVideoPoseAnalyzer
               requestId={analysisRequestId}
-              videoUri={analysisVideoUri}
+              videoUri={athleteVideoUri}
               onProgress={(processedFrames, totalFrames) => setAnalysisProgress({ processed: processedFrames, total: totalFrames })}
               onResult={handlePoseAnalysisResult}
               onError={(message) => {
@@ -774,6 +996,110 @@ export default function TecnicaScreen({
               }}
             />
           ) : null}
+
+          <Modal visible={showCorrectionsViewer} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setShowCorrectionsViewer(false)}>
+            <View style={styles.viewerModalScreen}>
+              <View style={styles.viewerModalHeader}>
+                <View style={styles.viewerModalHeaderTextWrap}>
+                  <Text style={styles.viewerModalEyebrow}>Corrección visual</Text>
+                  <Text style={styles.viewerModalTitle}>{selectedTechnique.title}</Text>
+                </View>
+                <Pressable style={styles.viewerModalCloseButton} onPress={() => setShowCorrectionsViewer(false)}>
+                  <Text style={styles.viewerModalCloseText}>Cerrar</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.viewerModalBody}>
+                <View style={styles.viewerVideoStage}>
+                  {athleteVideoUri ? (
+                    <Video ref={athleteVideoRef} source={{ uri: athleteVideoUri }} style={styles.viewerVideo} useNativeControls resizeMode={ResizeMode.CONTAIN} />
+                  ) : null}
+
+                  {selectedEventOverlay ? (
+                    <>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.videoEventChipRow}
+                        style={styles.videoEventChipScroller}
+                      >
+                        {eventOverlayItems.map((item) => (
+                          <Pressable
+                            key={item.eventType}
+                            style={[
+                              styles.videoEventChip,
+                              selectedEventOverlay.eventType === item.eventType ? styles.videoEventChipActive : null,
+                            ]}
+                            onPress={() => handleSelectVisualEvent(item.eventType)}
+                          >
+                            <Text style={[
+                              styles.videoEventChipText,
+                              selectedEventOverlay.eventType === item.eventType ? styles.videoEventChipTextActive : null,
+                            ]}>
+                              {item.label}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+
+                      <View style={styles.videoOverlayCard}>
+                        <View style={styles.videoOverlayHeader}>
+                          <Text style={styles.videoOverlayTitle}>{selectedEventOverlay.label}</Text>
+                          <Text style={styles.videoOverlayMeta}>{formatTimestampMs(selectedEventOverlay.timestampMs)}</Text>
+                        </View>
+                        {selectedEventOverlay.comparisons.length ? selectedEventOverlay.comparisons.slice(0, 2).map((comparison) => {
+                          const rangeStart = angleToPercent(comparison.targetMinDeg ?? comparison.referenceAngleDeg);
+                          const rangeEnd = angleToPercent(comparison.targetMaxDeg ?? comparison.referenceAngleDeg);
+                          const rangeWidth = Math.max(rangeEnd - rangeStart, 2);
+                          const referenceMarker = angleToPercent(comparison.referenceAngleDeg);
+                          const athleteMarker = angleToPercent(comparison.athleteAngleDeg);
+
+                          return (
+                            <View key={comparison.checkId} style={styles.videoAngleGhostRow}>
+                              <View style={styles.videoAngleGhostHeader}>
+                                <Text style={styles.videoAngleGhostLabel}>{comparison.label}</Text>
+                                <Text style={styles.videoAngleGhostDelta}>{formatSignedDegrees(comparison.deltaDeg)}</Text>
+                              </View>
+                              <View style={styles.videoAngleGhostTrack}>
+                                <View style={[styles.videoAngleGhostRange, { left: `${rangeStart}%`, width: `${rangeWidth}%` }]} />
+                                <View style={[styles.videoAngleGhostReference, { left: `${referenceMarker}%` }]} />
+                                <View style={[styles.videoAngleGhostAthlete, { left: `${athleteMarker}%` }]} />
+                              </View>
+                              <Text style={styles.videoAngleGhostMeta}>
+                                Esperado {formatExpectedAngleRange(comparison.targetMinDeg, comparison.targetMaxDeg)} · atleta {comparison.athleteAngleDeg.toFixed(1)}°
+                              </Text>
+                            </View>
+                          );
+                        }) : (
+                          <Text style={styles.videoOverlayBody}>No hay ángulos comparables para este evento todavía.</Text>
+                        )}
+                      </View>
+                    </>
+                  ) : null}
+                </View>
+
+                <View style={styles.viewerTimelineSection}>
+                  <Text style={styles.viewerTimelineLabel}>Eventos sobre la reproducción</Text>
+                  <View style={styles.eventTimelineTrack}>
+                    {eventOverlayItems.map((item) => (
+                      <Pressable
+                        key={item.eventType}
+                        style={[
+                          styles.eventTimelineMarker,
+                          { left: `${item.positionPct}%` },
+                          selectedEventOverlay?.eventType === item.eventType ? styles.eventTimelineMarkerActive : null,
+                        ]}
+                        onPress={() => handleSelectVisualEvent(item.eventType)}
+                      >
+                        <View style={styles.eventTimelineDot} />
+                        <Text style={styles.eventTimelineLabel}>{item.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            </View>
+          </Modal>
         </>
       ) : null}
     </ScrollView>
@@ -844,5 +1170,62 @@ function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
     metricMeta: { color: C.textMuted, fontSize: 12 },
     metricNotes: { color: C.textSub, fontSize: 13, lineHeight: 18 },
     metricBadge: { color: C.teal, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+    eventComparisonGroup: { gap: S.sm, paddingTop: S.sm },
+    eventComparisonTitle: { color: C.text, fontSize: 13, fontWeight: "800" },
+    angleComparisonRow: { gap: 6 },
+    angleComparisonHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: S.sm },
+    angleComparisonLabel: { color: C.textSub, fontSize: 13, fontWeight: "700", flex: 1 },
+    angleComparisonDelta: { fontSize: 13, fontWeight: "800" },
+    angleComparisonDeltaOk: { color: C.teal },
+    angleComparisonDeltaWarn: { color: C.danger },
+    angleTrack: { position: "relative", height: 18, borderRadius: R.full, overflow: "hidden", borderWidth: 1, borderColor: C.border, backgroundColor: C.bg },
+    angleRangeBand: { position: "absolute", top: 3, bottom: 3, borderRadius: R.full, backgroundColor: C.amberDim },
+    angleReferenceMarker: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: C.textMuted, transform: [{ translateX: -1 }] },
+    angleAthleteMarker: { position: "absolute", top: 0, bottom: 0, width: 4, borderRadius: R.full, transform: [{ translateX: -2 }] },
+    angleAthleteMarkerOk: { backgroundColor: C.teal },
+    angleAthleteMarkerWarn: { backgroundColor: C.danger },
+    angleComparisonMeta: { color: C.textMuted, fontSize: 12, lineHeight: 17 },
+    openCorrectionsButton: { backgroundColor: C.amber, borderRadius: R.xl, paddingVertical: 16, paddingHorizontal: S.md, gap: 4 },
+    openCorrectionsButtonText: { color: C.bg, fontSize: 18, fontWeight: "900", textAlign: "center" },
+    openCorrectionsButtonMeta: { color: C.bg, fontSize: 12, lineHeight: 17, textAlign: "center", opacity: 0.86 },
+    videoStage: { position: "relative" },
+    videoEventChipScroller: { position: "absolute", top: 10, left: 10, right: 10, maxHeight: 42 },
+    videoEventChipRow: { gap: 8, paddingRight: 12 },
+    videoEventChip: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: R.full, backgroundColor: "rgba(10, 16, 25, 0.72)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)" },
+    videoEventChipActive: { backgroundColor: "rgba(245, 179, 36, 0.9)", borderColor: C.amberBorder },
+    videoEventChipText: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "800" },
+    videoEventChipTextActive: { color: C.bg },
+    videoOverlayCard: { position: "absolute", left: 10, right: 10, bottom: 10, borderRadius: R.lg, padding: S.sm, gap: 6, backgroundColor: "rgba(10, 16, 25, 0.82)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
+    videoOverlayHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: S.sm },
+    videoOverlayTitle: { color: "#ffffff", fontSize: 13, fontWeight: "800" },
+    videoOverlayMeta: { color: "rgba(255,255,255,0.76)", fontSize: 11, fontWeight: "700" },
+    videoOverlayBody: { color: "rgba(255,255,255,0.82)", fontSize: 12, lineHeight: 17 },
+    videoAngleGhostRow: { gap: 4 },
+    videoAngleGhostHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: S.sm },
+    videoAngleGhostLabel: { color: "rgba(255,255,255,0.9)", fontSize: 12, fontWeight: "700", flex: 1 },
+    videoAngleGhostDelta: { color: C.amber, fontSize: 12, fontWeight: "800" },
+    videoAngleGhostTrack: { position: "relative", height: 14, borderRadius: R.full, backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden" },
+    videoAngleGhostRange: { position: "absolute", top: 2, bottom: 2, borderRadius: R.full, backgroundColor: "rgba(245, 179, 36, 0.32)" },
+    videoAngleGhostReference: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: "rgba(255,255,255,0.55)", transform: [{ translateX: -1 }] },
+    videoAngleGhostAthlete: { position: "absolute", top: 0, bottom: 0, width: 4, borderRadius: R.full, backgroundColor: C.teal, transform: [{ translateX: -2 }] },
+    videoAngleGhostMeta: { color: "rgba(255,255,255,0.72)", fontSize: 11, lineHeight: 15 },
+    eventTimelineCard: { gap: 6, paddingTop: 6 },
+    eventTimelineTrack: { position: "relative", height: 44, borderRadius: R.full, backgroundColor: C.surfaceRaise, borderWidth: 1, borderColor: C.border, overflow: "visible" },
+    eventTimelineMarker: { position: "absolute", top: 4, bottom: 4, width: 2, alignItems: "center" },
+    eventTimelineMarkerActive: { zIndex: 2 },
+    eventTimelineDot: { width: 10, height: 10, borderRadius: R.full, backgroundColor: C.amber, borderWidth: 2, borderColor: C.bg, marginLeft: -4 },
+    eventTimelineLabel: { position: "absolute", top: 14, minWidth: 70, marginLeft: -32, color: C.textMuted, fontSize: 10, textAlign: "center" },
+    viewerModalScreen: { flex: 1, backgroundColor: C.bg },
+    viewerModalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: S.md, paddingHorizontal: S.md, paddingTop: S.lg, paddingBottom: S.sm, borderBottomWidth: 1, borderBottomColor: C.border },
+    viewerModalHeaderTextWrap: { flex: 1, gap: 2 },
+    viewerModalEyebrow: { color: C.textMuted, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.8 },
+    viewerModalTitle: { color: C.text, fontSize: 18, fontWeight: "900" },
+    viewerModalCloseButton: { borderRadius: R.full, borderWidth: 1, borderColor: C.borderStrong, paddingHorizontal: S.md, paddingVertical: 10, backgroundColor: C.surfaceRaise },
+    viewerModalCloseText: { color: C.text, fontSize: 13, fontWeight: "800" },
+    viewerModalBody: { flex: 1, padding: S.md, gap: S.md },
+    viewerVideoStage: { position: "relative", flex: 1, minHeight: 420, borderRadius: R.xl, overflow: "hidden", backgroundColor: "#000" },
+    viewerVideo: { width: "100%", height: "100%", backgroundColor: "#000" },
+    viewerTimelineSection: { gap: S.sm },
+    viewerTimelineLabel: { color: C.textSub, fontSize: 13, fontWeight: "700" },
   });
 }

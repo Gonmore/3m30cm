@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import type { TechniqueProLandmarks } from "../../../web/src/techniquePoseExtraction";
@@ -264,8 +264,8 @@ const analyzerHtml = String.raw`<!doctype html>
 export default function TechniqueVideoPoseAnalyzer({
   requestId,
   videoUri,
-  targetFps = 15,
-  maxFrames = 240,
+  targetFps = 30,
+  maxFrames = 480,
   onProgress,
   onResult,
   onError,
@@ -273,6 +273,13 @@ export default function TechniqueVideoPoseAnalyzer({
   const webViewRef = useRef<WebView | null>(null);
   const [ready, setReady] = useState(false);
   const latestRequestRef = useRef<number>(requestId);
+  const htmlSource = useMemo(
+    () => ({
+      html: analyzerHtml,
+      ...(Platform.OS === "android" ? { baseUrl: "file:///android_asset/" } : {}),
+    }),
+    [],
+  );
 
   latestRequestRef.current = requestId;
 
@@ -333,7 +340,7 @@ export default function TechniqueVideoPoseAnalyzer({
     <View style={styles.hiddenWrap} pointerEvents="none">
       <WebView
         ref={webViewRef}
-        source={{ html: analyzerHtml }}
+        source={htmlSource}
         originWhitelist={["*"]}
         javaScriptEnabled
         allowFileAccess

@@ -14,6 +14,20 @@
 
 ## Registro de trabajo
 
+### 0.1. Ajuste de muestreo para analisis tecnico en mobile2
+
+Se ajustó el analizador de video del atleta en `apps/mobile2` para aumentar la resolución temporal del gesto:
+
+- `TechniqueVideoPoseAnalyzer` pasó de `targetFps = 15` a `targetFps = 30`
+- el tope `maxFrames` pasó de `240` a `480` para no recortar videos útiles por duplicar el muestreo
+- la extracción sigue usando `@mediapipe/pose` dentro de `WebView`, igual que el stack de referencia del portal admin, pero ahora la app móvil conserva mejor contactos rápidos y transiciones cercanas al despegue/aterrizaje
+- el portal web admin se deja momentáneamente en 15 fps porque el flujo profesional todavía se usa también con referencias en cámara lenta; esa revisión queda separada
+
+Validación ejecutada durante este ajuste:
+
+- `npm --prefix apps/mobile2 run build`
+- `echo y | npm --prefix apps/mobile2 run apk:prod` (`BUILD SUCCESSFUL`, APK release regenerada con el muestreo a 30 fps)
+
 ### 0. Iteracion biomecanica visual en admin web
 
 Se cerro una nueva iteracion del flujo biomecanico del portal admin web sobre `ProgramTemplateTechnique`:

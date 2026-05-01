@@ -14,6 +14,7 @@
     "dev:mobile:debug": "npm --prefix apps/mobile exec expo start -- --lan --clear --port 8081",
     "dev:mobile2": "npm --prefix apps/mobile2 run dev",
     "prod:mobile2": "npm --prefix apps/mobile2 run prod",
+    "prod:mobile2:localhost": "npm --prefix apps/mobile2 run prod:localhost",
     "devbuild:mobile2": "npm --prefix apps/mobile2 run devbuild:android",
     "dev:mobile2:web": "npm --prefix apps/mobile2 run web",
     "build": "npm run build --workspaces --if-present",

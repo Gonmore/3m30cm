@@ -196,6 +196,7 @@ Incluye:
 - `orientationPolicy` deja declarada la direccion preferida, el espejo permitido y el modo de normalizacion esperado para la futura capa atleta
 - `GET /athlete/technique` ya expone `biomechanicsConfig` junto a la referencia profesional para que `apps/mobile2` consuma el mismo contrato canónico y ejecute analisis local del atleta sin redefinir el esquema
 - dentro de `jumpHeightMeasurement`, `CENTER_OF_MASS` es el metodo principal y `FLIGHT_TIME` queda como corroboracion secundaria; el valor de `subjectHeightCm` se puede completar desde el perfil del atleta para escalar el salto en centimetros
+- en `apps/mobile2`, la extracción local del video del atleta usa actualmente `@mediapipe/pose` con muestreo por defecto a 30 fps y tope de 480 frames; el portal admin sigue con la extracción profesional a 15 fps hasta revisar aparte el flujo de cámara lenta
 - `packages/shared` ya define el contrato futuro de analisis biomecanico del atleta (`poseSequence`, `detectedEvents`, `measuredChecks`) para encarar la siguiente capa sin romper el contrato actual de `technique`
 - definiciones de medicion por tecnica
 - metricas tecnicas ya registradas por el atleta para ese template, incluyendo `completedSessionsAtMeasurement`

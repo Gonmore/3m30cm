@@ -765,8 +765,6 @@ export function detectTechniqueKeyEventsWithDebug(
   const hipRange = Math.max(hipMaximum - hipMinimum, 0.01);
   const apexSearchStart = Math.max(2, Math.floor(frames.length * 0.15));
   const apexIndex = findIndexOfMinimum(hipYSeries, apexSearchStart, frames.length - 1);
-  const dipIndex = findIndexOfMaximum(hipYSeries, 0, Math.max(apexIndex - 1, 0));
-  const setupIndex = detectSetupIndex(hipXSeries, hipYSeries, dipIndex);
   const leftGround = buildGroundedFlags(leftContactSeries);
   const rightGround = buildGroundedFlags(rightContactSeries);
   const leftFootMotionSeries = buildPointMotionSeries(leftFootPointSeries);
@@ -782,13 +780,24 @@ export function detectTechniqueKeyEventsWithDebug(
   ));
   const supportLabels = buildSupportLabels(leftGround, rightGround, leftContactScoreSeries, rightContactScoreSeries);
 
-  const firstAirborneIndex = findFirstRun(anyGroundedFlags.map((isGrounded) => !isGrounded), Math.min(dipIndex + 1, frames.length - 1), 2)
-    ?? Math.max(Math.min(apexIndex - 1, frames.length - 2), dipIndex + 1);
+  const allAirborneRuns = collectRuns(anyGroundedFlags, false, 0, frames.length - 1, 1);
+  const airborneRunAroundApex = allAirborneRuns.find((run) => run.start <= apexIndex && run.end >= apexIndex)
+    ?? allAirborneRuns.slice().sort((left, right) => {
+      const leftDistance = Math.min(Math.abs(apexIndex - left.start), Math.abs(apexIndex - left.end));
+      const rightDistance = Math.min(Math.abs(apexIndex - right.start), Math.abs(apexIndex - right.end));
+      return leftDistance - rightDistance || right.length - left.length;
+    })[0]
+    ?? null;
+  const firstAirborneIndex = airborneRunAroundApex?.start
+    ?? findFirstRun(anyGroundedFlags.map((isGrounded) => !isGrounded), 0, 2)
+    ?? Math.max(Math.min(apexIndex - 1, frames.length - 2), 1);
   const toeOffIndex = Math.max(0, firstAirborneIndex - 1);
+  const dipIndex = findIndexOfMaximum(hipYSeries, 0, Math.max(toeOffIndex - 1, 0));
+  const setupIndex = detectSetupIndex(hipXSeries, hipYSeries, dipIndex);
   const takeOffIndex = Math.max(dipIndex + 1, toeOffIndex - 1);
   const travelDirection = inferTravelDirection(hipXSeries, setupIndex, takeOffIndex) as 1 | -1;
   const landingIndex = findFirstRun(anyGroundedFlags, Math.min(apexIndex + 1, frames.length - 1), 2)
-    ?? Math.min(frames.length - 1, apexIndex + 2);
+    ?? Math.min(frames.length - 1, (airborneRunAroundApex?.end ?? apexIndex) + 1);
   const flightIndex = Math.min(Math.max(firstAirborneIndex, takeOffIndex + 1), apexIndex);
   const contactRunMinLength = (referenceLandmarks.fps ?? 15) <= 20 ? 1 : 2;
   const supportRuns = collectSupportRuns(supportLabels, 0, toeOffIndex, contactRunMinLength);
@@ -803,11 +812,13 @@ export function detectTechniqueKeyEventsWithDebug(
   const fallbackPenultimatePeak = alternatingFallbackPeaks.penultimate;
   const fallbackAntepenultimatePeak = alternatingFallbackPeaks.antepenultimate;
   const lastContactIndex = lastSupportRun?.start ?? fallbackLastPeak?.frameIndex ?? takeOffIndex;
-  const penultimateContactIndex = penultimateSupportRun?.start ?? fallbackPenultimatePeak?.frameIndex ?? null;
-  const antepenultimateContactIndex = antepenultimateSupportRun?.start ?? fallbackAntepenultimatePeak?.frameIndex ?? null;
-  const prePenultimateFlightRun = antepenultimateSupportRun && penultimateSupportRun
+  const approachTravel = Math.abs(getSeriesValue(hipXSeries, toeOffIndex) - getSeriesValue(hipXSeries, setupIndex));
+  const allowApproachContacts = approachTravel >= 0.06 || supportRuns.length >= 3 || fallbackSupportPeaks.length >= 3;
+  const penultimateContactIndex = allowApproachContacts ? (penultimateSupportRun?.start ?? fallbackPenultimatePeak?.frameIndex ?? null) : null;
+  const antepenultimateContactIndex = allowApproachContacts ? (antepenultimateSupportRun?.start ?? fallbackAntepenultimatePeak?.frameIndex ?? null) : null;
+  const prePenultimateFlightRun = allowApproachContacts && (antepenultimateSupportRun && penultimateSupportRun
     ? airborneRuns.find((run) => run.start > antepenultimateSupportRun.end && run.end < penultimateSupportRun.start) ?? null
-    : airborneRuns.find((run) => run.start > (antepenultimateContactIndex ?? -1) && run.end < (penultimateContactIndex ?? -1)) ?? null;
+    : airborneRuns.find((run) => run.start > (antepenultimateContactIndex ?? -1) && run.end < (penultimateContactIndex ?? -1)) ?? null);
   const targetFramesBeforePenultimate = Math.max(1, Math.round((referenceLandmarks.fps ?? 15) / 7.5));
   const targetPrePenultimateFrameIndex = penultimateContactIndex !== null
     ? Math.max(0, penultimateContactIndex - targetFramesBeforePenultimate)

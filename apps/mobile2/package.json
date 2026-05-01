@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --dev-client --offline --port 8082 --clear",
-    "prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node ../../node_modules/expo/bin/cli start --dev-client --offline --port 8082 --clear",
+    "prod": "node scripts/start-expo-dev-client.mjs",
+    "prod:localhost": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 node ../../node_modules/expo/bin/cli start --dev-client --host localhost --port 8082 --clear",
     "android": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --dev-client --android --offline --port 8082 --clear",
     "android:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node ../../node_modules/expo/bin/cli start --dev-client --android --offline --port 8082 --clear",
     "apk:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node scripts/build-android-apk.mjs",
@@ -30,6 +31,7 @@
     "expo-crypto": "~15.0.8",
     "expo-dev-client": "~6.0.20",
     "expo-device": "~8.0.10",
+    "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.21",
     "expo-image": "~3.0.11",
     "expo-image-picker": "~17.0.10",

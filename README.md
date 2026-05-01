@@ -40,6 +40,7 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - Las app moviles consumen login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local, registro de cumplimiento con metricas, una vista `Técnica` para elegir la tecnica activa y una vista `Evolución` que ya muestra historico/comparacion por tecnica.
 - `apps/mobile2` ahora exige completar `heightCm` y `weightKg` del atleta antes de salir de `Hoy`, y el backend persiste esos campos en `AthleteProfile`.
 - `apps/mobile2` ya puede elegir un video del atleta, extraer pose con MediaPipe Pose JS dentro de un `WebView`, autodetectar eventos del gesto reutilizando la logica del web admin y calcular la altura del salto con `CENTER_OF_MASS` como metodo principal y `FLIGHT_TIME` como corroboracion secundaria antes de guardar la metrica automatica.
+- `apps/mobile2` ahora muestrea el video del atleta a 30 fps por defecto durante la extracción de pose para no perder contactos rápidos; el portal web admin mantiene por ahora la extracción de referencia profesional a 15 fps porque ese flujo todavía convive con videos en cámara lenta.
 - Se eliminan automaticamente los programas archivados de la vista de sesiones cuando se regenera un programa.
 - `forgot-password` ya soporta envio SMTP con override de TLS por `SMTP_TLS_SERVERNAME` y, en desarrollo, hace fallback a log con token, deep link y URL de reset si el SMTP falla, sin bloquear las pruebas locales.
 - `forgot-password` ahora tambien emite un codigo de 6 digitos persistido en Prisma para que `apps/mobile2` pueda restablecer la clave dentro de la app sin depender solo del deep link.
@@ -192,6 +193,7 @@ Notas de runtime:
 - En `prod`, los scripts fuerzan `EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com`.
 - Ya no hace falta editar `.env` para alternar entre backend local y backend publico.
 - `npm --prefix apps/mobile2 run build` corre `tsc --noEmit` para validar el workspace compartido antes de probar Expo o Android.
+- El analizador oculto de `apps/mobile2` ahora usa `targetFps=30` y `maxFrames=480`, manteniendo una cobertura temporal similar a la versión anterior pero con mayor resolución para detectar apoyos, despegue y aterrizaje.
 - `npm --prefix apps/mobile2 run apk:prod` usa `apps/mobile2/scripts/build-android-apk.mjs`, detecta `JAVA_HOME`/Android SDK, recrea `android/local.properties` y ejecuta `gradlew assembleRelease`; sin Android SDK instalado el build falla por prerequisito, no por la app.
 - Si VS Code sigue mostrando errores en `node_modules/*/tsconfig.json` de Expo despues de actualizar el repo, recarga la ventana o reinicia TypeScript para que tome `.vscode/settings.json`.
 

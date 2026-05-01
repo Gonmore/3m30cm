@@ -589,7 +589,24 @@ interface TechniqueBiomechanicsConfig {
   referenceMotionProfile?: "REAL_TIME" | "SLOW_MOTION" | null;
   hipProgressionChecks?: TechniqueBiomechanicsHipProgressionCheck[];
   jumpHeightMeasurement?: TechniqueBiomechanicsJumpHeightMeasurement | null;
-  keyEvents?: Array<{ eventType: string; label?: string | null }>;
+  keyEvents?: Array<{ id?: string | null; eventType: string; label?: string | null; frameIndex?: number | null }>;
+  angleChecks?: Array<{
+    id: string;
+    label: string;
+    pointA: string;
+    vertex: string;
+    pointC: string;
+    anchorEventId?: string | null;
+    anchorEventType?: string | null;
+    targetMinDeg?: number | null;
+    targetMaxDeg?: number | null;
+  }>;
+  orientationPolicy?: {
+    allowMirror?: boolean | null;
+    preferredTravelDirection?: "ANY" | "LEFT_TO_RIGHT" | "RIGHT_TO_LEFT" | null;
+    manualOverrideAllowed?: boolean | null;
+    normalizationMode?: "AUTO" | "MANUAL_ONLY" | null;
+  } | null;
 }
 
 interface TechniqueMediaAsset {
