@@ -2433,6 +2433,33 @@ export default function App() {
     [templateTechniqueForm.biomechanics.keyEvents],
   );
 
+  const angleWizardActiveGroup = useMemo(
+    () => (angleWizard.open && angleWizard.phase === "review-angles"
+      ? angleWizard.groups[angleWizard.groupIndex] ?? null
+      : null),
+    [angleWizard],
+  );
+
+  const angleWizardActiveEventFrameIndex = useMemo(() => {
+    if (!angleWizardActiveGroup) {
+      return null;
+    }
+
+    const eventDraft = templateTechniqueForm.biomechanics.keyEvents.find(
+      (event) => event.eventType === angleWizardActiveGroup.eventType,
+    );
+
+    return parseFrameIndexInput(eventDraft?.frameIndex) ?? parseFrameIndexFromHint(eventDraft?.frameHint);
+  }, [angleWizardActiveGroup, templateTechniqueForm.biomechanics.keyEvents]);
+
+  const angleWizardActiveEventTimestampMs = useMemo(() => {
+    if (angleWizardActiveEventFrameIndex === null) {
+      return null;
+    }
+
+    return getReferencePoseFrame(selectedTechnique?.proLandmarks, angleWizardActiveEventFrameIndex)?.timestampMs ?? null;
+  }, [angleWizardActiveEventFrameIndex, selectedTechnique?.proLandmarks]);
+
   const previewBiomechanicsConfig = useMemo(
     () => serializeTechniqueBiomechanicsForm(
       templateTechniqueForm.biomechanics,
@@ -2997,8 +3024,8 @@ export default function App() {
 
     // Only offer events that have a valid frame index and would produce at least one angle suggestion.
     const eventsWithSuggestions = currentEvents.filter((e) => {
-      const fi = Number(e.frameIndex);
-      return Number.isFinite(fi) && buildAutoSuggestedAngleCheckDrafts(referenceLandmarks, [e]).length > 0;
+      const frameIndex = parseFrameIndexInput(e.frameIndex) ?? parseFrameIndexFromHint(e.frameHint);
+      return frameIndex !== null && buildAutoSuggestedAngleCheckDrafts(referenceLandmarks, [e]).length > 0;
     });
 
     if (!eventsWithSuggestions.length) {
@@ -3050,6 +3077,13 @@ export default function App() {
         setError("No se encontraron ángulos para los eventos seleccionados.");
         return;
       }
+
+      const firstGroupEvent = currentEvents.find((event) => event.eventType === groups[0]?.eventType);
+      const firstGroupFrameIndex = parseFrameIndexInput(firstGroupEvent?.frameIndex) ?? parseFrameIndexFromHint(firstGroupEvent?.frameHint);
+      if (firstGroupFrameIndex !== null) {
+        setSelectedReferenceFrameIndex(firstGroupFrameIndex);
+      }
+
       setError("");
       setAngleWizard({ open: true, phase: "review-angles", groups, groupIndex: 0 });
     } else if (angleWizard.phase === "review-angles") {
@@ -6668,157 +6702,6 @@ export default function App() {
             </div>
           ) : null}
 
-          {angleWizard.open ? (
-            <div
-              className="modal-overlay"
-              role="dialog"
-              aria-modal="true"
-              onClick={(e) => { if (e.target === e.currentTarget) setAngleWizard({ open: false }); }}
-            >
-              <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
-                <div className="modal-header">
-                  <div>
-                    <p className="eyebrow">Autodetectar ángulos</p>
-                    {angleWizard.phase === "select-events" ? (
-                      <h2>Paso 1 — Selecciona los eventos</h2>
-                    ) : (
-                      <h2>
-                        Paso 2 — Revisar ángulos:{" "}
-                        {angleWizard.groups[angleWizard.groupIndex]?.eventLabel}
-                        {" "}
-                        <span className="eyebrow">
-                          ({angleWizard.groupIndex + 1}/{angleWizard.groups.length})
-                        </span>
-                      </h2>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => setAngleWizard({ open: false })}
-                  >
-                    Cancelar
-                  </button>
-                </div>
-
-                <div className="modal-body">
-                  {angleWizard.phase === "select-events" ? (
-                    <div className="stack-form">
-                      <p className="helper-text">
-                        Elige los eventos para los cuales se sugerirán ángulos articulares.
-                        Los valores medidos en el video de referencia ±15° se usarán como rango objetivo.
-                      </p>
-                      <div className="detail-list">
-                        {angleWizard.availableEvents.map((ev) => (
-                          <label key={ev.eventType} className="checkbox-label">
-                            <input
-                              type="checkbox"
-                              checked={angleWizard.selectedEventTypes.includes(ev.eventType)}
-                              onChange={(e) => {
-                                setAngleWizard((prev) => {
-                                  if (!prev.open || prev.phase !== "select-events") return prev;
-                                  return {
-                                    ...prev,
-                                    selectedEventTypes: e.target.checked
-                                      ? [...prev.selectedEventTypes, ev.eventType]
-                                      : prev.selectedEventTypes.filter((t) => t !== ev.eventType),
-                                  };
-                                });
-                              }}
-                            />
-                            {ev.label}
-                          </label>
-                        ))}
-                      </div>
-                      <div className="form-actions">
-                        <button
-                          type="button"
-                          className="primary-button"
-                          onClick={() => handleAngleWizardNext()}
-                        >
-                          Siguiente →
-                        </button>
-                      </div>
-                    </div>
-                  ) : angleWizard.phase === "review-angles" ? (
-                    <div className="stack-form">
-                      <p className="helper-text">
-                        Decide qué ángulos incluir para el evento{" "}
-                        <strong>{angleWizard.groups[angleWizard.groupIndex]?.eventLabel}</strong>.
-                        Los que marques como "Incluir" se agregarán al formulario al finalizar.
-                      </p>
-                      <div className="detail-list">
-                        {angleWizard.groups[angleWizard.groupIndex]?.angles.map((item, angleIdx) => (
-                          <div key={item.draft.id} className="detail-card">
-                            <div className="section-header compact-header">
-                              <div>
-                                <strong>{item.draft.label}</strong>
-                                <span className="helper-text">
-                                  {item.draft.pointA} → {item.draft.vertex} → {item.draft.pointC}
-                                  {item.draft.notes.includes("≈")
-                                    ? ` · ${item.draft.notes.match(/≈[^(]+/)?.[0]?.trim()}`
-                                    : ""}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                className={item.include ? "primary-button" : "secondary-button"}
-                                onClick={() => {
-                                  setAngleWizard((prev) => {
-                                    if (!prev.open || prev.phase !== "review-angles") return prev;
-                                    const newGroups = prev.groups.map((g, gi) =>
-                                      gi === prev.groupIndex
-                                        ? {
-                                            ...g,
-                                            angles: g.angles.map((a, ai) =>
-                                              ai === angleIdx ? { ...a, include: !a.include } : a,
-                                            ),
-                                          }
-                                        : g,
-                                    );
-                                    return { ...prev, groups: newGroups };
-                                  });
-                                }}
-                              >
-                                {item.include ? "✓ Incluir" : "Omitir"}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="form-actions">
-                        {angleWizard.groupIndex > 0 ? (
-                          <button
-                            type="button"
-                            className="ghost-button"
-                            onClick={() =>
-                              setAngleWizard((prev) =>
-                                prev.open && prev.phase === "review-angles"
-                                  ? { ...prev, groupIndex: prev.groupIndex - 1 }
-                                  : prev,
-                              )
-                            }
-                          >
-                            ← Anterior
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="primary-button"
-                          onClick={() => handleAngleWizardNext()}
-                        >
-                          {angleWizard.groupIndex + 1 < angleWizard.groups.length
-                            ? "Siguiente evento →"
-                            : "Finalizar y agregar"}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           {templateModalOpen ? (
             <div className="modal-overlay" onClick={() => setTemplateModalOpen(false)}>
               <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -9555,6 +9438,202 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+
+                {angleWizard.open ? (
+                  <div
+                    className="modal-overlay"
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={(event) => {
+                      if (event.target === event.currentTarget) {
+                        setAngleWizard({ open: false });
+                      }
+                    }}
+                  >
+                    <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
+                      <div className="modal-header">
+                        <div>
+                          <p className="eyebrow">Autodetectar ángulos</p>
+                          {angleWizard.phase === "select-events" ? (
+                            <h2>Paso 1 — Selecciona los eventos</h2>
+                          ) : (
+                            <h2>
+                              Paso 2 — Revisar ángulos:{" "}
+                              {angleWizard.groups[angleWizard.groupIndex]?.eventLabel}
+                              {" "}
+                              <span className="eyebrow">({angleWizard.groupIndex + 1}/{angleWizard.groups.length})</span>
+                            </h2>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => setAngleWizard({ open: false })}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+
+                      <div className="modal-body">
+                        {angleWizard.phase === "select-events" ? (
+                          <div className="stack-form">
+                            <p className="helper-text">
+                              Elige los eventos para los cuales se sugerirán ángulos articulares.
+                              Los valores medidos en el video de referencia ±15° se usarán como rango objetivo.
+                            </p>
+                            <div className="detail-list">
+                              {angleWizard.availableEvents.map((ev) => (
+                                <label key={ev.eventType} className="checkbox-label">
+                                  <input
+                                    type="checkbox"
+                                    checked={angleWizard.selectedEventTypes.includes(ev.eventType)}
+                                    onChange={(event) => {
+                                      setAngleWizard((prev) => {
+                                        if (!prev.open || prev.phase !== "select-events") return prev;
+                                        return {
+                                          ...prev,
+                                          selectedEventTypes: event.target.checked
+                                            ? [...prev.selectedEventTypes, ev.eventType]
+                                            : prev.selectedEventTypes.filter((eventType) => eventType !== ev.eventType),
+                                        };
+                                      });
+                                    }}
+                                  />
+                                  {ev.label}
+                                </label>
+                              ))}
+                            </div>
+                            <div className="form-actions">
+                              <button
+                                type="button"
+                                className="primary-button"
+                                onClick={() => handleAngleWizardNext()}
+                              >
+                                Siguiente →
+                              </button>
+                            </div>
+                          </div>
+                        ) : angleWizard.phase === "review-angles" ? (
+                          <div className="stack-form">
+                            <p className="helper-text">
+                              Decide qué ángulos incluir para el evento <strong>{angleWizardActiveGroup?.eventLabel}</strong>.
+                              Los que marques como "Incluir" se agregarán al formulario al finalizar.
+                            </p>
+
+                            {selectedReferenceVideoUrl && angleWizardActiveEventTimestampMs !== null ? (
+                              <div className="detail-card program-card">
+                                <strong>Vista previa del evento seleccionado</strong>
+                                <span className="helper-text">
+                                  Frame {angleWizardActiveEventFrameIndex !== null ? angleWizardActiveEventFrameIndex + 1 : "-"} · {formatReferenceFrameLabel(angleWizardActiveEventTimestampMs)}
+                                </span>
+                                <video
+                                  key={`angle-wizard-preview-${angleWizardActiveEventFrameIndex}`}
+                                  controls
+                                  preload="metadata"
+                                  style={{ width: "100%", borderRadius: 16, marginTop: 12 }}
+                                  src={selectedReferenceVideoUrl}
+                                  onLoadedMetadata={(event) => {
+                                    event.currentTarget.currentTime = angleWizardActiveEventTimestampMs / 1000;
+                                    event.currentTarget.pause();
+                                  }}
+                                />
+                                <div className="chip-row" style={{ marginTop: 10 }}>
+                                  <button
+                                    type="button"
+                                    className="ghost-button"
+                                    onClick={() => {
+                                      if (angleWizardActiveEventFrameIndex !== null) {
+                                        setSelectedReferenceFrameIndex(angleWizardActiveEventFrameIndex);
+                                      }
+                                    }}
+                                  >
+                                    Ir a este frame en el editor
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="helper-text">No hay vista previa de video para este evento (faltan frame o referencia visible).</p>
+                            )}
+
+                            <div className="detail-list">
+                              {angleWizard.groups[angleWizard.groupIndex]?.angles.map((item, angleIdx) => (
+                                <div key={item.draft.id} className="detail-card">
+                                  <div className="section-header compact-header">
+                                    <div>
+                                      <strong>{item.draft.label}</strong>
+                                      <span className="helper-text">
+                                        {item.draft.pointA} → {item.draft.vertex} → {item.draft.pointC}
+                                        {item.draft.notes.includes("≈")
+                                          ? ` · ${item.draft.notes.match(/≈[^(]+/)?.[0]?.trim()}`
+                                          : ""}
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className={item.include ? "primary-button" : "secondary-button"}
+                                      onClick={() => {
+                                        setAngleWizard((prev) => {
+                                          if (!prev.open || prev.phase !== "review-angles") return prev;
+                                          const newGroups = prev.groups.map((g, gi) =>
+                                            gi === prev.groupIndex
+                                              ? {
+                                                  ...g,
+                                                  angles: g.angles.map((a, ai) =>
+                                                    ai === angleIdx ? { ...a, include: !a.include } : a,
+                                                  ),
+                                                }
+                                              : g,
+                                          );
+                                          return { ...prev, groups: newGroups };
+                                        });
+                                      }}
+                                    >
+                                      {item.include ? "✓ Incluir" : "Omitir"}
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="form-actions">
+                              {angleWizard.groupIndex > 0 ? (
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() =>
+                                    setAngleWizard((prev) => {
+                                      if (!prev.open || prev.phase !== "review-angles") return prev;
+                                      const previousGroupIndex = prev.groupIndex - 1;
+                                      const previousEventType = prev.groups[previousGroupIndex]?.eventType;
+                                      const previousEventDraft = templateTechniqueForm.biomechanics.keyEvents.find(
+                                        (event) => event.eventType === previousEventType,
+                                      );
+                                      const previousFrameIndex = parseFrameIndexInput(previousEventDraft?.frameIndex) ?? parseFrameIndexFromHint(previousEventDraft?.frameHint);
+                                      if (previousFrameIndex !== null) {
+                                        setSelectedReferenceFrameIndex(previousFrameIndex);
+                                      }
+                                      return { ...prev, groupIndex: previousGroupIndex };
+                                    })
+                                  }
+                                >
+                                  ← Anterior
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="primary-button"
+                                onClick={() => handleAngleWizardNext()}
+                              >
+                                {angleWizard.groupIndex + 1 < angleWizard.groups.length
+                                  ? "Siguiente evento →"
+                                  : "Finalizar y agregar"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : (
