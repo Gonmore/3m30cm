@@ -36,7 +36,7 @@ export interface AutoDetectedTechniqueDebugPeak {
 }
 
 export interface AutoDetectedTechniqueDebugSelection {
-  eventType: AutoDetectedTechniqueEventType;
+  eventType: AutoDetectedTechniqueEventType | "LAST_CONTACT";
   frameIndex: number | null;
   side: AutoDetectedTechniqueSupportSide | null;
   source: "support-run" | "alternating-peak" | "timing-fallback" | "airborne-run" | "posture-choice";

@@ -3078,7 +3078,6 @@ export default function App() {
       }
     }
   }
-  }
 
   function handleFocusPointSelect(pointId: string, landmark: LandmarkName) {
     setVisualEditorMode("points");
@@ -9556,7 +9555,7 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              </form>
+              </div>
             </div>
           ) : (
             <p className="helper-text section-spacer">Selecciona un programa para empezar a cargar texto y archivos técnicos.</p>
