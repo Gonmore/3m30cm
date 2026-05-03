@@ -1,7 +1,7 @@
 {
   "name": "@jump/mobile2",
   "private": true,
-  "version": "2.1.1",
+  "version": "2.1.2",
   "main": "index.js",
   "scripts": {
     "dev": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --dev-client --offline --port 8082 --clear",

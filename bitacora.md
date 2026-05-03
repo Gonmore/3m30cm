@@ -690,3 +690,32 @@ La validacion paso despues del refactor del cliente.
 - `apps/mobile2/app.json`: `version = 2.1.1`, `android.versionCode = 211`
 - `apps/mobile2/package.json`: `version = 2.1.1`
 
+---
+
+### 29. Fix LAST_CONTACT + distancias de paso + ángulos por defecto v2.1.2
+
+**Objetivo:** corregir la detección de LAST_CONTACT (se detectaba en zona aérea), agregar medición automática de distancias horizontales de pasos de aproximación, y auto-crear las configuraciones de ángulos biomecánicos al autodetectar eventos.
+
+#### apps/web/src/biomechanicsEventDetection.ts — fix LAST_CONTACT
+- **Antes:** `lastContactIndex = lastSupportRun?.start` — podía fallar cuando la fase bilateral tenía el mismo side-label que el paso penúltimo (el selector alternante lo omitía), colocando el evento en zona aérea.
+- **Ahora:** se busca el último run aéreo de aproximación dentro de `[0, toeOffIndex]` (`airborneRuns.at(-1)`) y LAST_CONTACT = primer frame grounded justo después de ese run. Esto ancla el evento al vuelo de paso entre penúltimo y planta bilateral, que es una señal dura y confiable.
+
+#### apps/web/src/biomechanicsReferenceMeasurements.ts — distancias de paso
+- Nueva interfaz `ReferenceApproachStepDistancesPreview` con campos `prePenultimateFlightDistanceCm`, `lastStepDistanceCm`, `calibrated`, `notes`.
+- `ReferenceBiomechanicsMeasurementsPreview` tiene el nuevo campo `stepDistances`.
+- Función `buildApproachStepDistancesPreview`: calcula la distancia horizontal entre centros de cadera en ANTEPENULTIMATE→PENULTIMATE y PENULTIMATE→LAST_CONTACT. Calibra usando la altura visible del cuerpo en frames cercanos al SETUP y el `subjectHeightCm` del jumpHeightMeasurement.
+- Umbrales de alerta: ANTEPENULTIMATE→PENULTIMATE debe ser >200cm, PENULTIMATE→LAST_CONTACT debe ser <50cm.
+
+#### apps/web/src/App.tsx — auto-crear ángulos en autodetección
+- Nueva función `buildDefaultAngleCheckDrafts(keyEventDrafts)` que genera 6 ángulos estándar para salto vertical con carrera:
+  - Rodilla izq./der. en DIP
+  - Cadera izq./der. en LAST_CONTACT
+  - Rodilla izq./der. en TOE_OFF
+- Solo agrega los ángulos si el check es el primero (no hay ángulos previos) para no duplicar.
+- `handleAutoDetectReferenceEvents` ahora también agrega estos ángulos por defecto al autodetectar.
+- Nuevo card de "Distancias de pasos de aproximación" en el preview de biomecánica del portal web.
+
+#### Versionado
+- `apps/mobile2/app.json`: `version = 2.1.2`, `android.versionCode = 212`
+- `apps/mobile2/package.json`: `version = 2.1.2`
+

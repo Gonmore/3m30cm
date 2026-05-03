@@ -98,9 +98,20 @@ export interface ReferenceJumpHeightPreview {
   notes: string | null;
 }
 
+export interface ReferenceApproachStepDistancesPreview {
+  /** Horizontal hip displacement ANTEPENULTIMATE_CONTACT → PENULTIMATE_CONTACT (cm). */
+  prePenultimateFlightDistanceCm: number | null;
+  /** Horizontal hip displacement PENULTIMATE_CONTACT → LAST_CONTACT (cm). */
+  lastStepDistanceCm: number | null;
+  /** Whether the distances are calibrated with the subject's height (false = cm unavailable). */
+  calibrated: boolean;
+  notes: string | null;
+}
+
 export interface ReferenceBiomechanicsMeasurementsPreview {
   hipProgressionChecks: ReferenceHipProgressionCheckPreview[];
   jumpHeight: ReferenceJumpHeightPreview | null;
+  stepDistances: ReferenceApproachStepDistancesPreview | null;
 }
 
 function average(values: Array<number | null | undefined>) {
@@ -858,6 +869,59 @@ function buildJumpHeightPreview(
   };
 }
 
+function buildApproachStepDistancesPreview(
+  landmarks: TechniqueProLandmarks,
+  eventsByType: Map<string, ReferenceMeasurementEventMarker>,
+  subjectHeightCm: number | null,
+): ReferenceApproachStepDistancesPreview | null {
+  const antepenultimateEvent = eventsByType.get("ANTEPENULTIMATE_CONTACT") ?? null;
+  const penultimateEvent = eventsByType.get("PENULTIMATE_CONTACT") ?? null;
+  const lastContactEvent = eventsByType.get("LAST_CONTACT") ?? null;
+
+  if (!antepenultimateEvent && !penultimateEvent) {
+    return null;
+  }
+
+  const getHipCenterX = (frameIndex: number): number | null => {
+    const frame = landmarks.frames[frameIndex];
+    if (!frame) return null;
+    const leftX = frame.landmarks[landmarkIndex.LEFT_HIP]?.x ?? null;
+    const rightX = frame.landmarks[landmarkIndex.RIGHT_HIP]?.x ?? null;
+    if (leftX === null || rightX === null) return null;
+    return (leftX + rightX) / 2;
+  };
+
+  const hipX_ante = antepenultimateEvent ? getHipCenterX(antepenultimateEvent.frameIndex) : null;
+  const hipX_penu = penultimateEvent ? getHipCenterX(penultimateEvent.frameIndex) : null;
+  const hipX_last = lastContactEvent ? getHipCenterX(lastContactEvent.frameIndex) : null;
+
+  // Calibrate: visible body height (normalised 0–1) corresponds to subjectHeightCm in reality.
+  const setupEvent = eventsByType.get("SETUP") ?? null;
+  const calibFrameIndex = setupEvent?.frameIndex ?? 0;
+  const visibleBodyHeight = getMaxVisibleBodyHeightBeforeFrame(
+    landmarks,
+    Math.min(calibFrameIndex + 30, landmarks.frames.length - 1),
+  );
+  const calibrated = visibleBodyHeight !== null && visibleBodyHeight > 0 && subjectHeightCm !== null && subjectHeightCm > 0;
+  const pixelsPerCm = calibrated ? (visibleBodyHeight! / subjectHeightCm!) : null;
+
+  const prePenultimateFlightDistanceCm = hipX_ante !== null && hipX_penu !== null && pixelsPerCm !== null
+    ? roundTo(Math.abs(hipX_penu - hipX_ante) / pixelsPerCm)
+    : null;
+  const lastStepDistanceCm = hipX_penu !== null && hipX_last !== null && pixelsPerCm !== null
+    ? roundTo(Math.abs(hipX_last - hipX_penu) / pixelsPerCm)
+    : null;
+
+  return {
+    prePenultimateFlightDistanceCm,
+    lastStepDistanceCm,
+    calibrated,
+    notes: !calibrated
+      ? "Configura la altura del sujeto en 'Medición de altura del salto' para obtener distancias en cm."
+      : null,
+  };
+}
+
 export function buildReferenceBiomechanicsMeasurementsPreview(
   landmarks: TechniqueProLandmarks | null | undefined,
   eventMarkers: ReferenceMeasurementEventMarker[],
@@ -896,6 +960,7 @@ export function buildReferenceBiomechanicsMeasurementsPreview(
           notes: "Sube o procesa la referencia profesional para medir la altura del salto.",
         }
         : null,
+      stepDistances: null,
     };
   }
 
@@ -905,5 +970,6 @@ export function buildReferenceBiomechanicsMeasurementsPreview(
     jumpHeight: jumpHeightMeasurement
       ? buildJumpHeightPreview(jumpHeightMeasurement, landmarks, eventMarkers, motionProfile)
       : null,
+    stepDistances: buildApproachStepDistancesPreview(landmarks, eventsByType, jumpHeightMeasurement?.subjectHeightCm ?? null),
   };
 }

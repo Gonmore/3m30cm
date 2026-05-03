@@ -833,7 +833,15 @@ export function detectTechniqueKeyEventsWithDebug(
   const fallbackLastPeak = alternatingFallbackPeaks.last;
   const fallbackPenultimatePeak = alternatingFallbackPeaks.penultimate;
   const fallbackAntepenultimatePeak = alternatingFallbackPeaks.antepenultimate;
-  const lastContactIndex = lastSupportRun?.start ?? fallbackLastPeak?.frameIndex ?? takeOffIndex;
+
+  // LAST_CONTACT: anchor to the first grounded frame right after the last approach-step
+  // airborne run (the brief step flight between penultimate and bilateral plant). This is
+  // more robust than lastSupportRun?.start, which can mis-fire when the bilateral-plant
+  // side label matches the penultimate step (the alternating selector skips one run).
+  const lastApproachFlightRun = airborneRuns.at(-1) ?? null;
+  const lastContactIndex = lastApproachFlightRun != null
+    ? Math.min(lastApproachFlightRun.end + 1, toeOffIndex)
+    : (lastSupportRun?.start ?? fallbackLastPeak?.frameIndex ?? takeOffIndex);
   const approachTravel = Math.abs(getSeriesValue(hipXSeries, toeOffIndex) - getSeriesValue(hipXSeries, setupIndex));
   const allowApproachContacts = approachTravel >= 0.06 || supportRuns.length >= 3 || fallbackSupportPeaks.length >= 3;
   const penultimateContactIndex = allowApproachContacts ? (penultimateSupportRun?.start ?? fallbackPenultimatePeak?.frameIndex ?? null) : null;

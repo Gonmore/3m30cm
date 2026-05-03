@@ -1251,6 +1251,53 @@ function buildAutoDetectedEventNotes(eventType: TechniqueBiomechanicsEventType) 
   return null;
 }
 
+/**
+ * Generates a default set of angle check drafts for a running-approach vertical jump.
+ * Only creates checks for events that actually exist in keyEventDrafts.
+ * Each check has empty target ranges — the admin still needs to set the objective values.
+ */
+function buildDefaultAngleCheckDrafts(
+  keyEventDrafts: TechniqueBiomechanicsKeyEventDraft[],
+): TechniqueBiomechanicsAngleCheckDraft[] {
+  const getEventId = (eventType: TechniqueBiomechanicsEventType) =>
+    keyEventDrafts.find((e) => e.eventType === eventType)?.id ?? "";
+
+  const defaults: Array<{
+    label: string;
+    pointA: LandmarkName;
+    vertex: LandmarkName;
+    pointC: LandmarkName;
+    anchorEventType: TechniqueBiomechanicsEventType;
+  }> = [
+    { label: "Rodilla izq. en DIP", pointA: "LEFT_HIP", vertex: "LEFT_KNEE", pointC: "LEFT_ANKLE", anchorEventType: "DIP" },
+    { label: "Rodilla der. en DIP", pointA: "RIGHT_HIP", vertex: "RIGHT_KNEE", pointC: "RIGHT_ANKLE", anchorEventType: "DIP" },
+    { label: "Cadera izq. en Último Apoyo", pointA: "LEFT_SHOULDER", vertex: "LEFT_HIP", pointC: "LEFT_KNEE", anchorEventType: "LAST_CONTACT" },
+    { label: "Cadera der. en Último Apoyo", pointA: "RIGHT_SHOULDER", vertex: "RIGHT_HIP", pointC: "RIGHT_KNEE", anchorEventType: "LAST_CONTACT" },
+    { label: "Rodilla izq. en salida", pointA: "LEFT_HIP", vertex: "LEFT_KNEE", pointC: "LEFT_ANKLE", anchorEventType: "TOE_OFF" },
+    { label: "Rodilla der. en salida", pointA: "RIGHT_HIP", vertex: "RIGHT_KNEE", pointC: "RIGHT_ANKLE", anchorEventType: "TOE_OFF" },
+  ];
+
+  return defaults
+    .filter((def) => getEventId(def.anchorEventType) !== "")
+    .map((def) => ({
+      id: createDraftId(),
+      label: def.label,
+      pointA: def.pointA,
+      vertex: def.vertex,
+      pointC: def.pointC,
+      plane: "SAGITTAL_2D" as const,
+      anchorEventId: getEventId(def.anchorEventType),
+      anchorEventType: def.anchorEventType,
+      windowStartEventId: "",
+      windowEndEventId: "",
+      sampleMode: "AT_EVENT" as const,
+      targetMinDeg: "",
+      targetMaxDeg: "",
+      phase: "",
+      notes: "Auto-generado en autodetección. Configura los ángulos objetivo para esta técnica.",
+    }));
+}
+
 function formatSupportLabel(label: AutoDetectedTechniqueSupportLabel) {
   if (label === "LEFT") {
     return "Apoyo izquierdo";
@@ -2836,13 +2883,19 @@ export default function App() {
     }
 
     setError("");
-    setTemplateTechniqueForm((current) => ({
-      ...current,
-      biomechanics: {
-        ...current.biomechanics,
-        keyEvents: mergeAutoDetectedKeyEventDrafts(current.biomechanics.keyEvents, detectedEvents, referenceLandmarks),
-      },
-    }));
+    setTemplateTechniqueForm((current) => {
+      const mergedKeyEvents = mergeAutoDetectedKeyEventDrafts(current.biomechanics.keyEvents, detectedEvents, referenceLandmarks);
+      const shouldAddDefaultAngles = current.biomechanics.angleChecks.length === 0;
+      const defaultAngleChecks = shouldAddDefaultAngles ? buildDefaultAngleCheckDrafts(mergedKeyEvents) : [];
+      return {
+        ...current,
+        biomechanics: {
+          ...current.biomechanics,
+          keyEvents: mergedKeyEvents,
+          angleChecks: [...current.biomechanics.angleChecks, ...defaultAngleChecks],
+        },
+      };
+    });
     setMessage(`${detectedEvents.length} evento(s) sugeridos automáticamente sobre la referencia profesional.`);
   }
 
@@ -9077,6 +9130,44 @@ export default function App() {
                                 method.notes ? <p key={`${method.method}-note`}>{method.notes}</p> : null
                               ))}
                             </div>
+                          ) : null}
+                        </article>
+                      ) : null}
+
+                      {referenceBiomechanicsPreview.stepDistances ? (
+                        <article className="detail-card program-card biomechanics-preview-card">
+                          <div className="biomechanics-preview-badge-row">
+                            <strong>Distancias de pasos de aproximación</strong>
+                            {!referenceBiomechanicsPreview.stepDistances.calibrated ? (
+                              <span className="biomechanics-badge biomechanics-preview-status">Sin calibrar</span>
+                            ) : null}
+                          </div>
+                          <div className="biomechanics-debug-list">
+                            {referenceBiomechanicsPreview.stepDistances.prePenultimateFlightDistanceCm !== null ? (
+                              <p>
+                                <strong>Antepenúltimo → Penúltimo:</strong>{" "}
+                                {referenceBiomechanicsPreview.stepDistances.prePenultimateFlightDistanceCm.toFixed(1)} cm
+                                {referenceBiomechanicsPreview.stepDistances.prePenultimateFlightDistanceCm < 200
+                                  ? " ⚠️ (recomendado &gt; 200 cm)"
+                                  : " ✓"}
+                              </p>
+                            ) : (
+                              <p>Antepenúltimo → Penúltimo: sin datos (se necesitan ambos eventos)</p>
+                            )}
+                            {referenceBiomechanicsPreview.stepDistances.lastStepDistanceCm !== null ? (
+                              <p>
+                                <strong>Penúltimo → Último apoyo:</strong>{" "}
+                                {referenceBiomechanicsPreview.stepDistances.lastStepDistanceCm.toFixed(1)} cm
+                                {referenceBiomechanicsPreview.stepDistances.lastStepDistanceCm > 50
+                                  ? " ⚠️ (recomendado &lt; 50 cm)"
+                                  : " ✓"}
+                              </p>
+                            ) : (
+                              <p>Penúltimo → Último apoyo: sin datos (se necesitan ambos eventos)</p>
+                            )}
+                          </div>
+                          {referenceBiomechanicsPreview.stepDistances.notes ? (
+                            <p className="helper-text">{referenceBiomechanicsPreview.stepDistances.notes}</p>
                           ) : null}
                         </article>
                       ) : null}
