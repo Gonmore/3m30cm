@@ -663,3 +663,30 @@ La validacion paso despues del refactor del cliente.
 - La app exporta los datos de ghost skeleton listos para que el componente de video superponga el esqueleto de referencia sobre el video del atleta, sincronizado en TOE_OFF.
 - Los builds se vuelven significativamente más rápidos en el segundo ciclo cuando `app.json` y dependencias no cambiaron.
 
+---
+
+### 28. Detección LANDING-first + limpieza pantalla Hoy + v2.1.1
+
+**Objetivo:** hacer la detección de eventos más robusta ante clips donde el descenso post-aterrizaje confundía al detector, y eliminar contenido de técnica/referencia que aparecía incorrectamente en la pantalla Hoy.
+
+#### apps/web/src/biomechanicsEventDetection.ts — nueva estrategia de ancla
+- **Antes:** el ancla era `candidateApexIndex` = mínimo global de hipY desde el 15% del clip. Si el clip incluía descenso post-aterrizaje con rodillas bajas, el "candidato" podía caer fuera del tramo aéreo real.
+- **Ahora:** el ancla es **LANDING** = fin del último tramo aéreo significativo (duración ≥ `fps/8` frames). La transición airborne→grounded es una señal dura y muy fiable. Desde ahí se deriva hacia atrás: APEX dentro de la ventana aérea, luego TOE_OFF, TAKE_OFF, DIP, pasos de contacto.
+- Eliminadas las variables `candidateApexIndex` y `airborneRunAroundApex`; reemplazadas por `jumpAirborneRun` (último run aéreo suficientemente largo).
+
+#### apps/mobile2/components/screens/HoyScreenV2.tsx — limpieza
+- Eliminado el bloque JSX "programa activo" (eyebrow + título + descripción + video de referencia) que aparecía en la pantalla Hoy.
+- Eliminadas las 4 variables asociadas (`programOverviewAsset`, `programOverviewUri`, `programOverviewTitle`, `programOverviewDescription`).
+- Eliminados los imports `expo-image` y `expo-av` que solo servían para ese bloque.
+- Eliminados los 6 estilos `programOverview*`.
+
+#### Contexto: fps mismatch entre video de referencia y video de atleta
+- El video de referencia biomecánico es cámara lenta (SLOW_MOTION); el video del atleta se graba a velocidad normal (REAL_TIME).
+- El sistema ya maneja esto correctamente: `biomechanicsReferenceMeasurements.ts` tiene lógica de `playbackCandidates` que prueba ratios 0.5 y 0.25 para SLOW_MOTION y selecciona el candidato con mejor acuerdo con el método CoM.
+- Para el atleta, `analyzeAthleteTechniqueVideo` fija `athleteMotionProfile = "REAL_TIME"`, por lo que la detección de eventos y el cálculo de tiempo de vuelo usan ratio 1:1.
+- La comparación de ángulos (ghostSkeleton + angleComparisons) es independiente del fps: trabaja en índices de frames normalizados por evento, no en tiempo absoluto.
+
+#### Versionado
+- `apps/mobile2/app.json`: `version = 2.1.1`, `android.versionCode = 211`
+- `apps/mobile2/package.json`: `version = 2.1.1`
+

@@ -4,8 +4,8 @@ Guia operativa para generar el APK Android de `apps/mobile2` con una version esp
 
 ## Version actual
 
-- `mobile2` queda en `version = 2.1.0`
-- `android.versionCode = 210`
+- `mobile2` queda en `version = 2.1.1`
+- `android.versionCode = 211`
 
 ## Regla de versionado
 
@@ -117,3 +117,4 @@ Checklist corto para la proxima version:
 | Version | versionCode | Fecha       | Tamaño  | Notas |
 |---------|-------------|-------------|---------|-------|
 | 2.1.0   | 210         | 2026-05-02  | 96.3 MB | Motor biomecánico v2: APEX via CoM, penalización tuck, calibración SETUP, deltaPercent en UI, ghost skeleton data. Build optimizado con fingerprint skip + --build-cache. |
+| 2.1.1   | 211         | 2026-05-03  | —       | Detección de eventos reescrita con ancla LANDING-first (más robusta). Eliminado bloque "programa activo" (video + texto de referencia) de pantalla Hoy. Corrección de separación Hoy vs Técnica. |

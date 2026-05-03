@@ -3,7 +3,7 @@
     "name": "3m30cm GAME",
     "slug": "3m30cm-game",
     "scheme": "jump30cm-game",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/img/Estrella_SNT.png",
@@ -37,7 +37,7 @@
     },
     "android": {
       "package": "com.supernovatel.jump30cm.game",
-      "versionCode": 210,
+      "versionCode": 211,
       "permissions": [
         "POST_NOTIFICATIONS",
         "READ_CALENDAR",

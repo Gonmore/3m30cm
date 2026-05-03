@@ -769,8 +769,6 @@ export function detectTechniqueKeyEventsWithDebug(
   const hipMinimum = Math.min(...hipYSeries);
   const hipMaximum = Math.max(...hipYSeries);
   const hipRange = Math.max(hipMaximum - hipMinimum, 0.01);
-  const apexSearchStart = Math.max(2, Math.floor(frames.length * 0.15));
-  const candidateApexIndex = findIndexOfMinimum(hipYSeries, apexSearchStart, frames.length - 1);
   const leftGround = buildGroundedFlags(leftContactSeries);
   const rightGround = buildGroundedFlags(rightContactSeries);
   const leftFootMotionSeries = buildPointMotionSeries(leftFootPointSeries);
@@ -787,19 +785,34 @@ export function detectTechniqueKeyEventsWithDebug(
   const supportLabels = buildSupportLabels(leftGround, rightGround, leftContactScoreSeries, rightContactScoreSeries);
 
   const allAirborneRuns = collectRuns(anyGroundedFlags, false, 0, frames.length - 1, 1);
-  const airborneRunAroundApex = allAirborneRuns.find((run) => run.start <= candidateApexIndex && run.end >= candidateApexIndex)
-    ?? allAirborneRuns.slice().sort((left, right) => {
-      const leftDistance = Math.min(Math.abs(candidateApexIndex - left.start), Math.abs(candidateApexIndex - left.end));
-      const rightDistance = Math.min(Math.abs(candidateApexIndex - right.start), Math.abs(candidateApexIndex - right.end));
-      return leftDistance - rightDistance || right.length - left.length;
-    })[0]
-    ?? null;
-  // Refine apex to the minimum of full CoM (hips + shoulders) within the confirmed airborne window.
-  // This pins APEX to the true Vy = 0 frame rather than a global hip-Y search over the whole clip.
-  const apexIndex = airborneRunAroundApex
-    ? findIndexOfMinimum(comYSeries, airborneRunAroundApex.start, airborneRunAroundApex.end)
-    : candidateApexIndex;
-  const firstAirborneIndex = airborneRunAroundApex?.start
+
+  // ── Anchor detection on LANDING ────────────────────────────────────────────
+  // Strategy: identify the jump's main airborne run (last qualifying run with
+  // sufficient duration), derive LANDING from its end, then work backwards to
+  // locate APEX → TOE_OFF/TAKE_OFF → contact steps in chronological order.
+  // This is more robust than seeding from a global hip-Y minimum because
+  // the airborne→grounded transition at landing is a hard, detectable signal.
+  const minJumpFrames = Math.max(2, Math.round((referenceLandmarks.fps ?? 15) / 8));
+  const jumpAirborneRun = (
+    allAirborneRuns.filter((run) => run.length >= minJumpFrames).at(-1)
+    ?? allAirborneRuns.at(-1)
+    ?? null
+  );
+
+  // LANDING = first grounded frame immediately after the jump airborne run ends
+  const landingIndex = jumpAirborneRun != null
+    ? (findFirstRun(anyGroundedFlags, Math.min(jumpAirborneRun.end + 1, frames.length - 1), 1)
+       ?? Math.min(frames.length - 1, jumpAirborneRun.end + 1))
+    : Math.floor(frames.length * 0.85);
+
+  // APEX = comYSeries (4-point CoM) minimum strictly within the airborne window
+  const apexWindowStart = jumpAirborneRun?.start ?? Math.max(2, Math.floor(frames.length * 0.15));
+  const apexWindowEnd   = jumpAirborneRun != null
+    ? Math.min(jumpAirborneRun.end, landingIndex - 1)
+    : Math.max(landingIndex - 1, apexWindowStart);
+  const apexIndex = findIndexOfMinimum(comYSeries, apexWindowStart, apexWindowEnd);
+
+  const firstAirborneIndex = jumpAirborneRun?.start
     ?? findFirstRun(anyGroundedFlags.map((isGrounded) => !isGrounded), 0, 2)
     ?? Math.max(Math.min(apexIndex - 1, frames.length - 2), 1);
   const toeOffIndex = Math.max(0, firstAirborneIndex - 1);
@@ -807,8 +820,6 @@ export function detectTechniqueKeyEventsWithDebug(
   const setupIndex = detectSetupIndex(hipXSeries, hipYSeries, dipIndex);
   const takeOffIndex = Math.max(dipIndex + 1, toeOffIndex - 1);
   const travelDirection = inferTravelDirection(hipXSeries, setupIndex, takeOffIndex) as 1 | -1;
-  const landingIndex = findFirstRun(anyGroundedFlags, Math.min(apexIndex + 1, frames.length - 1), 2)
-    ?? Math.min(frames.length - 1, (airborneRunAroundApex?.end ?? apexIndex) + 1);
   const flightIndex = Math.min(Math.max(firstAirborneIndex, takeOffIndex + 1), apexIndex);
   const contactRunMinLength = (referenceLandmarks.fps ?? 15) <= 20 ? 1 : 2;
   const supportRuns = collectSupportRuns(supportLabels, 0, toeOffIndex, contactRunMinLength);
