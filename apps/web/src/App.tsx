@@ -9557,47 +9557,8 @@ export default function App() {
                   </div>
                 </div>
               </div>
-
-              <div className="program-list">
-                {selectedTemplateTechniqueMediaAssets.length ? (
-                  selectedTemplateTechniqueMediaAssets.map((asset) => {
-                    const assetUrl = normalizeMediaUrl(asset.url);
-
-                    return (
-                      <article key={asset.id} className="detail-card program-card">
-                        <strong>{asset.title || "Recurso de técnica"}</strong>
-                        <span>{asset.kind}{asset.isPrimary ? " · principal" : ""}</span>
-                        {assetUrl ? (
-                          asset.kind === "VIDEO" ? (
-                            <video controls preload="metadata" style={{ width: "100%", borderRadius: 16, marginTop: 12 }} src={assetUrl} />
-                          ) : (
-                            <img src={assetUrl} alt={asset.title || "Recurso de tecnica"} style={{ width: "100%", borderRadius: 16, marginTop: 12 }} />
-                          )
-                        ) : null}
-                        <div className="chip-row">
-                          <button
-                            type="button"
-                            className="danger-button"
-                            onClick={() => void handleTechniqueMediaDelete(asset.id)}
-                            disabled={loading}
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })
-                ) : (
-                  <p className="helper-text">Todavia no hay recursos de técnica cargados para este programa.</p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <p className="helper-text section-spacer">Selecciona un programa para empezar a cargar texto y archivos técnicos.</p>
-          )}
         </article>
       </section>
-      ) : null}
 
         </div>
       </div>
