@@ -9,6 +9,8 @@ const landmarkIndex = {
   RIGHT_SHOULDER: 12,
   LEFT_HIP: 23,
   RIGHT_HIP: 24,
+  LEFT_KNEE: 25,
+  RIGHT_KNEE: 26,
   LEFT_ANKLE: 27,
   RIGHT_ANKLE: 28,
   LEFT_HEEL: 29,
@@ -268,6 +270,57 @@ function buildEventsByType(eventMarkers: ReferenceMeasurementEventMarker[]) {
     }
   });
   return eventsByType;
+}
+
+/**
+ * Measures how far the knees hang below the hips in normalised Y coords.
+ * Positive = normal stance (knees lower than hips).
+ * Near zero or negative = knees pulled up (tucked landing).
+ */
+function measureKneeDropRelativeToHip(landmarks: TechniqueProLandmarks, frameIndex: number): number | null {
+  const leftHipY = getLandmarkY(landmarks, frameIndex, landmarkIndex.LEFT_HIP);
+  const rightHipY = getLandmarkY(landmarks, frameIndex, landmarkIndex.RIGHT_HIP);
+  const leftKneeY = getLandmarkY(landmarks, frameIndex, landmarkIndex.LEFT_KNEE);
+  const rightKneeY = getLandmarkY(landmarks, frameIndex, landmarkIndex.RIGHT_KNEE);
+  return average([
+    leftHipY !== null && leftKneeY !== null ? leftKneeY - leftHipY : null,
+    rightHipY !== null && rightKneeY !== null ? rightKneeY - rightHipY : null,
+  ]);
+}
+
+/**
+ * Detects the "salto con trampa" pattern: athlete tucks knees before landing,
+ * artificially prolonging flight time and inflating the FLIGHT_TIME result.
+ * Returns a confidence penalty (0–0.20) and a human-readable note.
+ */
+function detectLandingTuck(
+  landmarks: TechniqueProLandmarks,
+  toeOffFrameIndex: number | null,
+  landingFrameIndex: number | null,
+): { penalty: number; note: string | null } {
+  if (toeOffFrameIndex === null || landingFrameIndex === null) {
+    return { penalty: 0, note: null };
+  }
+
+  const takeOffKneeDrop = measureKneeDropRelativeToHip(landmarks, toeOffFrameIndex);
+  const landingKneeDrop = measureKneeDropRelativeToHip(landmarks, landingFrameIndex);
+
+  if (takeOffKneeDrop === null || landingKneeDrop === null) {
+    return { penalty: 0, note: null };
+  }
+
+  // A drop ≥ 0.06 in normalised Y (≈ 6 % of frame height) means knees were
+  // meaningfully pulled up. Scale the penalty linearly between 0.06 and 0.15.
+  const tuckAmount = takeOffKneeDrop - landingKneeDrop;
+  if (tuckAmount < 0.06) {
+    return { penalty: 0, note: null };
+  }
+
+  const penalty = Math.min(roundTo(((tuckAmount - 0.06) / 0.09) * 0.20, 2), 0.20);
+  return {
+    penalty,
+    note: `Se detectó recogida de rodillas en el aterrizaje (Δ ${roundTo(tuckAmount, 3)} en coords. normalizadas). El tiempo de vuelo puede estar sobreestimado; se prioriza el método del Centro de Masas.`,
+  };
 }
 
 function calculateHipHeightFromGround(landmarks: TechniqueProLandmarks, frameIndex: number) {
@@ -661,10 +714,13 @@ function buildCenterOfMassMethodPreview(
     toeOffEvent?.frameIndex ?? null,
     landingEvent?.frameIndex ?? null,
   );
-  const calibrationBodyHeight = getMaxVisibleBodyHeightBeforeFrame(
-    landmarks,
-    toeOffEvent?.frameIndex ?? setupEvent.frameIndex,
-  ) ?? calculateVisibleBodyHeight(landmarks, setupEvent.frameIndex);
+  // Prefer the SETUP frame body height as the calibration ruler because the
+  // athlete is standing upright there, making it the most reliable reference.
+  // Fall back to the maximum visible height before take-off if SETUP is partial.
+  const setupFrameBodyHeight = calculateVisibleBodyHeight(landmarks, setupEvent.frameIndex);
+  const calibrationBodyHeight = (setupFrameBodyHeight !== null && setupFrameBodyHeight > 0)
+    ? setupFrameBodyHeight
+    : getMaxVisibleBodyHeightBeforeFrame(landmarks, toeOffEvent?.frameIndex ?? setupEvent.frameIndex);
   const setupCenterOfMassHeight = calculateCenterOfMassHeightFromGround(
     landmarks,
     setupEvent.frameIndex,
@@ -730,13 +786,28 @@ function buildJumpHeightPreview(
 
   const eventsByType = buildEventsByType(eventMarkers);
   const centerOfMassMethod = buildCenterOfMassMethodPreview(config, landmarks, eventsByType);
-  const flightTimeMethod = buildFlightTimeMethodPreview(
+
+  // Detect the "salto con trampa" pattern before finalising the flight-time method.
+  const toeOffFrameIndex = eventsByType.get("TOE_OFF")?.frameIndex ?? eventsByType.get("TAKE_OFF")?.frameIndex ?? null;
+  const landingFrameIndex = eventsByType.get("LANDING")?.frameIndex ?? null;
+  const landingTuck = detectLandingTuck(landmarks, toeOffFrameIndex ?? null, landingFrameIndex ?? null);
+
+  const rawFlightTimeMethod = buildFlightTimeMethodPreview(
     config,
     landmarks,
     eventsByType,
     motionProfile,
     centerOfMassMethod.status === "OK" ? centerOfMassMethod.valueCm : null,
   );
+  const flightTimeMethod: ReferenceJumpHeightMethodPreview = rawFlightTimeMethod.status === "OK" && landingTuck.penalty > 0
+    ? {
+      ...rawFlightTimeMethod,
+      confidence: rawFlightTimeMethod.confidence !== null
+        ? roundTo(Math.max(rawFlightTimeMethod.confidence - landingTuck.penalty, 0.40), 2)
+        : null,
+      notes: landingTuck.note ?? rawFlightTimeMethod.notes,
+    }
+    : rawFlightTimeMethod;
   const methods = [flightTimeMethod, centerOfMassMethod];
 
   const okMethods = methods.filter((method) => method.status === "OK" && typeof method.valueCm === "number");

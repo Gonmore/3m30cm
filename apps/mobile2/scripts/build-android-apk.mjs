@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -291,6 +292,65 @@ function stopProjectBackgroundProcesses() {
   stopProjectGradleJavaProcesses();
 }
 
+/**
+ * Returns a short SHA-256 fingerprint of the files that control which native
+ * Android project expo prebuild must regenerate. When nothing has changed we
+ * can safely skip the expensive --clean prebuild and reuse the existing
+ * android/ folder.
+ */
+function computePrebuildFingerprint() {
+  const paths = [
+    path.join(projectRoot, "app.json"),
+    path.join(projectRoot, "package.json"),
+    // Including the workspace-level node_modules marker avoids stale native
+    // code when a dep version changes between builds.
+    path.join(workspaceRoot, "package-lock.json"),
+  ];
+  const hash = createHash("sha256");
+  for (const filePath of paths) {
+    try {
+      hash.update(readFileSync(filePath));
+    } catch {
+      // If a file doesn't exist just skip it; the fingerprint will still differ
+      // from the stored one and trigger a full prebuild.
+    }
+  }
+  return hash.digest("hex").slice(0, 16);
+}
+
+const prebuildFingerprintPath = path.join(androidDir, ".prebuild-fingerprint");
+
+function loadStoredPrebuildFingerprint() {
+  try {
+    return readFileSync(prebuildFingerprintPath, "utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
+function storePrebuildFingerprint(fingerprint) {
+  try {
+    writeFileSync(prebuildFingerprintPath, `${fingerprint}\n`, "utf8");
+  } catch {
+    // Non-fatal — just means next build will also do a full prebuild.
+  }
+}
+
+function shouldSkipPrebuild() {
+  // We can only skip when the android/ folder was previously generated.
+  if (!existsSync(androidDir) || !existsSync(path.join(androidDir, "build.gradle"))) {
+    return false;
+  }
+  const current = computePrebuildFingerprint();
+  const stored = loadStoredPrebuildFingerprint();
+  if (stored === current) {
+    console.log(`Saltando expo prebuild: el fingerprint ${current} no cambió desde el último build.`);
+    return true;
+  }
+  console.log(`Fingerprint cambió (${stored ?? "ninguno"} → ${current}); ejecutando prebuild completo.`);
+  return false;
+}
+
 function cleanupProjectLockFiles() {
   for (const lockFile of projectLockFiles) {
     if (!existsSync(lockFile)) {
@@ -338,6 +398,12 @@ function cleanAndroidLibraryBuildDirs() {
 }
 
 function runExpoPrebuildWithRetry() {
+  if (shouldSkipPrebuild()) {
+    return;
+  }
+
+  const prebuildFingerprint = computePrebuildFingerprint();
+
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     stopProjectBackgroundProcesses();
     cleanupProjectLockFiles();
@@ -355,6 +421,7 @@ function runExpoPrebuildWithRetry() {
     });
 
     if (typeof prebuildResult.status === "number" && prebuildResult.status === 0) {
+      storePrebuildFingerprint(prebuildFingerprint);
       return;
     }
 
@@ -377,7 +444,7 @@ alignExpoDevLauncherKotlinVersion();
 cleanAndroidLibraryBuildDirs();
 cleanupProjectLockFiles();
 
-const result = runGradle(["assembleRelease", "--no-daemon", "--max-workers=1", "--no-parallel"]);
+const result = runGradle(["assembleRelease", "--no-daemon", "--max-workers=1", "--no-parallel", "--build-cache"]);
 
 if (typeof result.status === "number") {
   process.exit(result.status);

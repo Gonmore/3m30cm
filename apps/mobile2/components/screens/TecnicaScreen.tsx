@@ -181,6 +181,10 @@ function formatSignedDegrees(value: number) {
   return `${value > 0 ? "+" : ""}${value.toFixed(1)}°`;
 }
 
+function formatSignedPercent(value: number) {
+  return `${value > 0 ? "+" : ""}${value.toFixed(0)}%`;
+}
+
 function clampPercent(value: number) {
   return Math.min(Math.max(value, 0), 100);
 }
@@ -220,7 +224,8 @@ function buildUserAngleHighlights(autoAnalysis: AthleteTechniqueAutoAnalysis | n
     .slice(0, 3)
     .map((comparison) => {
       const direction = comparison.deltaDeg >= 0 ? "más abierto" : "más cerrado";
-      return `${formatAutoEventLabel(comparison.eventType)}: ${comparison.label} ${direction} de la referencia por ${Math.abs(comparison.deltaDeg).toFixed(1)}°.`;
+      const pct = typeof comparison.deltaPercent === "number" ? ` (${formatSignedPercent(comparison.deltaPercent)})` : "";
+      return `${formatAutoEventLabel(comparison.eventType)}: ${comparison.label} ${direction} de la referencia por ${Math.abs(comparison.deltaDeg).toFixed(1)}°${pct}.`;
     });
 
   if (majorDifferences.length) {
@@ -812,7 +817,7 @@ export default function TecnicaScreen({
                                       Math.abs(comparison.deltaDeg) <= 6 ? styles.angleComparisonDeltaOk : styles.angleComparisonDeltaWarn,
                                     ]}
                                   >
-                                    {formatSignedDegrees(comparison.deltaDeg)}
+                                    {formatSignedDegrees(comparison.deltaDeg)}{typeof comparison.deltaPercent === "number" ? ` (${formatSignedPercent(comparison.deltaPercent)})` : ""}
                                   </Text>
                                 </View>
                                 <View style={styles.angleTrack}>
@@ -1058,7 +1063,7 @@ export default function TecnicaScreen({
                             <View key={comparison.checkId} style={styles.videoAngleGhostRow}>
                               <View style={styles.videoAngleGhostHeader}>
                                 <Text style={styles.videoAngleGhostLabel}>{comparison.label}</Text>
-                                <Text style={styles.videoAngleGhostDelta}>{formatSignedDegrees(comparison.deltaDeg)}</Text>
+                                <Text style={styles.videoAngleGhostDelta}>{formatSignedDegrees(comparison.deltaDeg)}{typeof comparison.deltaPercent === "number" ? ` (${formatSignedPercent(comparison.deltaPercent)})` : ""}</Text>
                               </View>
                               <View style={styles.videoAngleGhostTrack}>
                                 <View style={[styles.videoAngleGhostRange, { left: `${rangeStart}%`, width: `${rangeWidth}%` }]} />

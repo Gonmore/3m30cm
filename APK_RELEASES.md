@@ -4,8 +4,8 @@ Guia operativa para generar el APK Android de `apps/mobile2` con una version esp
 
 ## Version actual
 
-- `mobile2` queda en `version = 1.2.0`
-- `android.versionCode = 120`
+- `mobile2` queda en `version = 2.1.0`
+- `android.versionCode = 210`
 
 ## Regla de versionado
 
@@ -111,3 +111,9 @@ Checklist corto para la proxima version:
 - La ultima iteracion del editor biomecanico visual vive en `apps/web` y `apps/api`; no obliga por si sola a generar una APK nueva mientras no cambie el runtime de `apps/mobile2`.
 - La app movil no debe depender de links directos a MinIO si el bucket productivo es privado; la ruta correcta para media queda proxyada por la API bajo `/api/v1/assets/...` y por eso una APK nueva es necesaria cuando cambia esa logica cliente.
 - Si Google login falla en un APK firmado, revisa el SHA-1 real del build release antes de tocar el codigo JS.
+
+## Historial de builds
+
+| Version | versionCode | Fecha       | Tamaño  | Notas |
+|---------|-------------|-------------|---------|-------|
+| 2.1.0   | 210         | 2026-05-02  | 96.3 MB | Motor biomecánico v2: APEX via CoM, penalización tuck, calibración SETUP, deltaPercent en UI, ghost skeleton data. Build optimizado con fingerprint skip + --build-cache. |

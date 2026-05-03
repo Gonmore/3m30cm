@@ -116,6 +116,8 @@ export interface AthleteTechniqueAngleComparison {
   athleteAngleDeg: number;
   referenceAngleDeg: number;
   deltaDeg: number;
+  /** Signed percentage deviation: (athlete - reference) / reference * 100 */
+  deltaPercent: number;
   targetMinDeg: number | null;
   targetMaxDeg: number | null;
   withinTarget: boolean | null;
@@ -127,6 +129,25 @@ export interface AthleteTechniqueComparisonSummary {
   averageDeltaDeg: number | null;
 }
 
+/**
+ * Data needed to overlay a "ghost skeleton" of the reference technique
+ * on top of the athlete's video, synchronised at a chosen key event.
+ * The UI should align referenceFrameIndex from referenceLandmarks with
+ * athleteFrameIndex from the analysis landmarks at the same event type.
+ */
+export interface AthleteGhostSkeletonEventFrame {
+  eventType: string;
+  athleteFrameIndex: number;
+  referenceFrameIndex: number;
+  referenceLandmarks: Array<{ x: number; y: number; z: number; visibility?: number }>;
+}
+
+export interface AthleteGhostSkeletonData {
+  /** Primary sync point — typically TAKE_OFF or TOE_OFF. */
+  primaryEventType: string | null;
+  frames: AthleteGhostSkeletonEventFrame[];
+}
+
 export interface AthleteTechniqueAutoAnalysis {
   landmarks: TechniqueProLandmarks;
   detectedEvents: AutoDetectedTechniqueKeyEvent[];
@@ -134,6 +155,7 @@ export interface AthleteTechniqueAutoAnalysis {
   measurements: ReferenceBiomechanicsMeasurementsPreview;
   angleComparisons: AthleteTechniqueAngleComparison[];
   comparisonSummary: AthleteTechniqueComparisonSummary | null;
+  ghostSkeleton: AthleteGhostSkeletonData | null;
   findings: string[];
   analysisJson: Record<string, unknown>;
 }
@@ -390,6 +412,9 @@ function buildAngleComparisonsForOrientation(input: {
       athleteAngleDeg,
       referenceAngleDeg,
       deltaDeg: roundTo(athleteAngleDeg - referenceAngleDeg, 1),
+      deltaPercent: referenceAngleDeg !== 0
+        ? roundTo(((athleteAngleDeg - referenceAngleDeg) / referenceAngleDeg) * 100, 1)
+        : 0,
       targetMinDeg,
       targetMaxDeg,
       withinTarget: athleteAngleDeg >= targetMinDeg && athleteAngleDeg <= targetMaxDeg,
@@ -617,6 +642,46 @@ export function analyzeAthleteTechniqueVideo(input: {
     angleComparisonResult.summary,
   );
 
+  // Build ghost-skeleton data: expose reference landmark positions at each key
+  // event so the mobile UI can overlay a semi-transparent "ghost" on the athlete
+  // video, synchronised at TAKE_OFF / TOE_OFF (or whichever event is found first).
+  const ghostSkeleton: AthleteGhostSkeletonData | null = (() => {
+    if (!input.referenceLandmarks) {
+      return null;
+    }
+    const referenceEventsByType = buildReferenceEventsByType(input.biomechanicsConfig, input.referenceLandmarks);
+    const athleteEventsByType = buildEventsByType(detectionResult.events);
+    const ghostEventTypes = ["TOE_OFF", "TAKE_OFF", "APEX", "DIP", "LAST_CONTACT", "LANDING"] as const;
+    const frames: AthleteGhostSkeletonEventFrame[] = [];
+    for (const eventType of ghostEventTypes) {
+      const athleteEvent = athleteEventsByType.get(eventType);
+      const referenceEvent = referenceEventsByType.get(eventType);
+      if (!athleteEvent || !referenceEvent) {
+        continue;
+      }
+      const refFrame = input.referenceLandmarks.frames[referenceEvent.frameIndex];
+      if (!refFrame) {
+        continue;
+      }
+      frames.push({
+        eventType,
+        athleteFrameIndex: athleteEvent.frameIndex,
+        referenceFrameIndex: referenceEvent.frameIndex,
+        referenceLandmarks: refFrame.landmarks.map((lm) => ({
+          x: lm.x,
+          y: lm.y,
+          z: lm.z,
+          ...(lm.visibility !== undefined ? { visibility: lm.visibility } : {}),
+        })),
+      });
+    }
+    const primaryEventType = frames.find((f) => f.eventType === "TOE_OFF")?.eventType
+      ?? frames.find((f) => f.eventType === "TAKE_OFF")?.eventType
+      ?? frames[0]?.eventType
+      ?? null;
+    return frames.length > 0 ? { primaryEventType, frames } : null;
+  })();
+
   const analysisJson = {
     schemaVersion: 1,
     analyzedAt: new Date().toISOString(),
@@ -650,6 +715,7 @@ export function analyzeAthleteTechniqueVideo(input: {
     measurements,
     angleComparisons: angleComparisonResult.comparisons,
     comparisonSummary: angleComparisonResult.summary,
+    ghostSkeleton,
     findings,
     analysisJson,
   };

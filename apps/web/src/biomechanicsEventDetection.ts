@@ -741,6 +741,12 @@ export function detectTechniqueKeyEventsWithDebug(
     frame.landmarks[landmarkIndex.LEFT_HIP]?.y,
     frame.landmarks[landmarkIndex.RIGHT_HIP]?.y,
   ])));
+  const comYSeries = smoothSeries(frames.map((frame) => average([
+    frame.landmarks[landmarkIndex.LEFT_HIP]?.y,
+    frame.landmarks[landmarkIndex.RIGHT_HIP]?.y,
+    frame.landmarks[landmarkIndex.LEFT_SHOULDER]?.y,
+    frame.landmarks[landmarkIndex.RIGHT_SHOULDER]?.y,
+  ])));
   const leftHipYSeries = smoothSeries(frames.map((frame) => frame.landmarks[landmarkIndex.LEFT_HIP]?.y ?? 0));
   const rightHipYSeries = smoothSeries(frames.map((frame) => frame.landmarks[landmarkIndex.RIGHT_HIP]?.y ?? 0));
   const hipXSeries = smoothSeries(frames.map((frame) => average([
@@ -764,7 +770,7 @@ export function detectTechniqueKeyEventsWithDebug(
   const hipMaximum = Math.max(...hipYSeries);
   const hipRange = Math.max(hipMaximum - hipMinimum, 0.01);
   const apexSearchStart = Math.max(2, Math.floor(frames.length * 0.15));
-  const apexIndex = findIndexOfMinimum(hipYSeries, apexSearchStart, frames.length - 1);
+  const candidateApexIndex = findIndexOfMinimum(hipYSeries, apexSearchStart, frames.length - 1);
   const leftGround = buildGroundedFlags(leftContactSeries);
   const rightGround = buildGroundedFlags(rightContactSeries);
   const leftFootMotionSeries = buildPointMotionSeries(leftFootPointSeries);
@@ -781,13 +787,18 @@ export function detectTechniqueKeyEventsWithDebug(
   const supportLabels = buildSupportLabels(leftGround, rightGround, leftContactScoreSeries, rightContactScoreSeries);
 
   const allAirborneRuns = collectRuns(anyGroundedFlags, false, 0, frames.length - 1, 1);
-  const airborneRunAroundApex = allAirborneRuns.find((run) => run.start <= apexIndex && run.end >= apexIndex)
+  const airborneRunAroundApex = allAirborneRuns.find((run) => run.start <= candidateApexIndex && run.end >= candidateApexIndex)
     ?? allAirborneRuns.slice().sort((left, right) => {
-      const leftDistance = Math.min(Math.abs(apexIndex - left.start), Math.abs(apexIndex - left.end));
-      const rightDistance = Math.min(Math.abs(apexIndex - right.start), Math.abs(apexIndex - right.end));
+      const leftDistance = Math.min(Math.abs(candidateApexIndex - left.start), Math.abs(candidateApexIndex - left.end));
+      const rightDistance = Math.min(Math.abs(candidateApexIndex - right.start), Math.abs(candidateApexIndex - right.end));
       return leftDistance - rightDistance || right.length - left.length;
     })[0]
     ?? null;
+  // Refine apex to the minimum of full CoM (hips + shoulders) within the confirmed airborne window.
+  // This pins APEX to the true Vy = 0 frame rather than a global hip-Y search over the whole clip.
+  const apexIndex = airborneRunAroundApex
+    ? findIndexOfMinimum(comYSeries, airborneRunAroundApex.start, airborneRunAroundApex.end)
+    : candidateApexIndex;
   const firstAirborneIndex = airborneRunAroundApex?.start
     ?? findFirstRun(anyGroundedFlags.map((isGrounded) => !isGrounded), 0, 2)
     ?? Math.max(Math.min(apexIndex - 1, frames.length - 2), 1);

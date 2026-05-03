@@ -608,3 +608,58 @@ La validacion paso despues del refactor del cliente.
 - la APK `1.2.0` queda preparada a nivel de codigo y versionado
 - antes de distribuir esa APK, el paso operativo que sigue siendo obligatorio es tu `./deploy.sh` manual para que produccion tenga las migraciones aplicadas
 
+---
+
+### 27. Refactoring biomecánico profundo + release 2.1.0
+
+**Objetivo:** refactorizar el módulo de análisis de técnica de salto vertical para mejorar la precisión de detección automática de hitos, implementar doble validación de altura con filtro de confianza, y añadir la base para visualización de "esqueletos fantasma" en la app.
+
+**Cambios aplicados:**
+
+#### apps/web/src/biomechanicsEventDetection.ts
+- APEX ahora se detecta usando la serie de Centro de Masas completa `comYSeries` = promedio de (cadera izq + cadera der + hombro izq + hombro der), que representa mejor el CoM real que solo las caderas.
+- `candidateApexIndex` siembra la búsqueda del tramo aéreo; `apexIndex` final es el mínimo de `comYSeries` dentro de la ventana aérea confirmada, correspondiendo al punto exacto donde $V_y = 0$.
+- Esto elimina falsos positivos de APEX que antes podían caer en la fase de descenso post-aterrizaje.
+
+#### apps/web/src/biomechanicsReferenceMeasurements.ts
+- Se añadieron `LEFT_KNEE` y `RIGHT_KNEE` al mapa de índices de landmarks.
+- Nueva función `measureKneeDropRelativeToHip`: mide la distancia relativa rodilla→cadera en coords. normalizadas.
+- Nueva función `detectLandingTuck`: compara el drop de rodillas en el frame de despegue (TOE_OFF) vs. el frame de aterrizaje (LANDING). Si el atleta recoge las rodillas antes de aterrizar (Δ ≥ 0.06), penaliza la confianza del método FLIGHT_TIME hasta −0.20 y emite una nota explicativa ("salto con trampa").
+- `buildCenterOfMassMethodPreview` ahora prefiere la altura visible del cuerpo en el frame de SETUP como regla de calibración antropométrica, en lugar del máximo global antes del despegue. Esto aprovecha que en SETUP la persona está de pie erguida, dando la referencia más fiable.
+- `buildJumpHeightPreview` integra `detectLandingTuck` para aplicar la penalización antes de consolidad el consenso de altura.
+
+#### apps/mobile2/components/technique/athleteTechniqueAnalysis.ts
+- `AthleteTechniqueAngleComparison` ahora incluye `deltaPercent: number` (desviación porcentual firmada = `(atleta − referencia) / referencia × 100`).
+- Nuevas interfaces: `AthleteGhostSkeletonEventFrame` y `AthleteGhostSkeletonData` que encapsulan, para cada hito clave (TOE_OFF, TAKE_OFF, APEX, DIP, LAST_CONTACT, LANDING), los landmarks de referencia en esa postura junto con los frame indices de atleta y referencia sincronizados.
+- `AthleteTechniqueAutoAnalysis` añade el campo `ghostSkeleton: AthleteGhostSkeletonData | null`.
+- `analyzeAthleteTechniqueVideo` ahora genera el ghost skeleton automáticamente cuando hay `referenceLandmarks`, usando TOE_OFF como punto de sincronización primario.
+
+#### apps/mobile2/components/screens/TecnicaScreen.tsx
+- Nueva función `formatSignedPercent`.
+- Todos los puntos de la UI que muestran `deltaDeg` ahora también muestran `deltaPercent` entre paréntesis (p. ej., `+8.5° (+12%)`) tanto en la tarjeta de comparación de ángulos como en el overlay de eventos de video.
+- `buildUserAngleHighlights` incluye el porcentaje en el texto de hallazgos automáticos.
+
+#### apps/mobile2/scripts/build-android-apk.mjs — Optimización de builds
+- Añadida función `computePrebuildFingerprint`: calcula un SHA-256 de `app.json`, `package.json` y `package-lock.json` raíz. Si el fingerprint no cambió respecto al almacenado en `android/.prebuild-fingerprint`, se salta el costoso `expo prebuild --clean`.
+- Esto evita regenerar el árbol Android nativo en cada build cuando no cambiaron app.json ni dependencias, que era la principal causa de la lentitud excesiva.
+- Añadido `--build-cache` al comando de Gradle para que las task outputs se reutilicen entre compilaciones cuando los inputs no varían.
+- La primera ejecución (o cuando cambia fingerprint) sigue haciendo prebuild completo para garantizar corrección.
+
+#### Versionado
+- `apps/mobile2/app.json`: `version = 2.1.0`, `android.versionCode = 210`.
+- `apps/mobile2/package.json`: `version = 2.1.0`.
+
+**Validación ejecutada (2026-05-02):**
+- `npm --prefix apps/mobile2 run build` → TypeScript clean, 0 errores
+- `echo y | npm --prefix apps/mobile2 run apk:prod` → BUILD SUCCESSFUL en 12m 9s (607 tasks: 607 ejecutadas, 87 from cache)
+- APK generado: `apps/mobile2/android/app/build/outputs/apk/release/app-release.apk` — 96.3 MB
+
+**Resultado:**
+- El portal admin web (`apps/web`) y la app móvil (`apps/mobile2`) comparten la misma lógica mejorada de detección y medición vía el módulo compartido en `apps/web/src/`.
+- La detección de APEX es más precisa: ya no cae en fases de descenso post-aterrizaje.
+- El sistema detecta automáticamente el "salto con trampa" (rodillas recogidas antes de aterrizar) y penaliza la confianza del método de tiempo de vuelo, priorizando el CoM.
+- La calibración de CoM en píxeles→cm usa la postura de pie más fiable (frame de SETUP).
+- Los ángulos comparativos ahora muestran tanto la diferencia absoluta en grados como la diferencia porcentual respecto a la referencia.
+- La app exporta los datos de ghost skeleton listos para que el componente de video superponga el esqueleto de referencia sobre el video del atleta, sincronizado en TOE_OFF.
+- Los builds se vuelven significativamente más rápidos en el segundo ciclo cuando `app.json` y dependencias no cambiaron.
+
