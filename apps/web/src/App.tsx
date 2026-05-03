@@ -54,6 +54,7 @@ const poseLandmarkOptions = [
   { value: "RIGHT_FOOT_INDEX", label: "Punta pie der." },
 ] as const;
 const biomechanicsEventTypeOptions = ["SETUP", "DIP", "ANTEPENULTIMATE_CONTACT", "PRE_PENULTIMATE_FLIGHT", "PENULTIMATE_CONTACT", "LAST_CONTACT", "TAKE_OFF", "TOE_OFF", "FLIGHT", "APEX", "LANDING", "OTHER"] as const;
+const activeBiomechanicsEventTypeOptions = ["SETUP", "DIP", "ANTEPENULTIMATE_CONTACT", "PRE_PENULTIMATE_FLIGHT", "PENULTIMATE_CONTACT", "TOE_OFF", "APEX", "LANDING", "OTHER"] as const;
 const biomechanicsEventSourceOptions = ["AUTO", "MANUAL", "HYBRID"] as const;
 const biomechanicsEventDetectorOptions = ["HIP_FOOT_HEURISTIC_V1"] as const;
 const biomechanicsAngleSampleModeOptions = ["AT_EVENT", "WINDOW_MIN", "WINDOW_MAX", "WINDOW_AVERAGE"] as const;
@@ -943,7 +944,7 @@ function createDefaultHipProgressionCheckDraft(): TechniqueBiomechanicsHipProgre
       createDefaultHipProgressionStepDraft("SETUP", "0", "5"),
       createDefaultHipProgressionStepDraft("ANTEPENULTIMATE_CONTACT", "15", "45"),
       createDefaultHipProgressionStepDraft("PENULTIMATE_CONTACT", "45", "80"),
-      createDefaultHipProgressionStepDraft("LAST_CONTACT", "90", "100"),
+      createDefaultHipProgressionStepDraft("TOE_OFF", "90", "100"),
     ],
     notes: "La cadera debe bajar progresivamente antes del último apoyo, sin colapsar todo el descenso en un solo paso.",
   };
@@ -1307,22 +1308,19 @@ function buildAutoSuggestedAngleCheckDrafts(
     { label: "Rodilla der. en DIP",          pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "DIP", phase: "Dip" },
     { label: "Tronco izq. en DIP",           pointA: "LEFT_SHOULDER",  vertex: "LEFT_HIP",    pointC: "LEFT_KNEE",   anchorEventType: "DIP", phase: "Dip" },
     { label: "Tronco der. en DIP",           pointA: "RIGHT_SHOULDER", vertex: "RIGHT_HIP",   pointC: "RIGHT_KNEE",  anchorEventType: "DIP", phase: "Dip" },
-    // ── LAST_CONTACT ─────────────────────────────────────────────────────────
-    { label: "Rodilla izq. en Último Apoyo", pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "LAST_CONTACT", phase: "Planta" },
-    { label: "Rodilla der. en Último Apoyo", pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "LAST_CONTACT", phase: "Planta" },
-    { label: "Cadera izq. en Último Apoyo",  pointA: "LEFT_SHOULDER",  vertex: "LEFT_HIP",    pointC: "LEFT_KNEE",   anchorEventType: "LAST_CONTACT", phase: "Planta" },
-    { label: "Cadera der. en Último Apoyo",  pointA: "RIGHT_SHOULDER", vertex: "RIGHT_HIP",   pointC: "RIGHT_KNEE",  anchorEventType: "LAST_CONTACT", phase: "Planta" },
-    // ── TAKE_OFF ──────────────────────────────────────────────────────────────
-    { label: "Rodilla izq. en Take-Off",     pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "TAKE_OFF", phase: "Despegue" },
-    { label: "Rodilla der. en Take-Off",     pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "TAKE_OFF", phase: "Despegue" },
     // ── TOE_OFF ──────────────────────────────────────────────────────────────
-    { label: "Rodilla izq. en Toe-Off",      pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "TOE_OFF", phase: "Despegue" },
-    { label: "Rodilla der. en Toe-Off",      pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "TOE_OFF", phase: "Despegue" },
-    { label: "Tobillo izq. en Toe-Off",      pointA: "LEFT_KNEE",      vertex: "LEFT_ANKLE",  pointC: "LEFT_FOOT_INDEX",  anchorEventType: "TOE_OFF", phase: "Despegue" },
-    { label: "Tobillo der. en Toe-Off",      pointA: "RIGHT_KNEE",     vertex: "RIGHT_ANKLE", pointC: "RIGHT_FOOT_INDEX", anchorEventType: "TOE_OFF", phase: "Despegue" },
+    { label: "Rodilla izq. en Salida de Punta", pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",       anchorEventType: "TOE_OFF", phase: "Despegue" },
+    { label: "Rodilla der. en Salida de Punta", pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE",      anchorEventType: "TOE_OFF", phase: "Despegue" },
+    { label: "Tobillo izq. en Salida de Punta", pointA: "LEFT_KNEE",      vertex: "LEFT_ANKLE",  pointC: "LEFT_FOOT_INDEX",  anchorEventType: "TOE_OFF", phase: "Despegue" },
+    { label: "Tobillo der. en Salida de Punta", pointA: "RIGHT_KNEE",     vertex: "RIGHT_ANKLE", pointC: "RIGHT_FOOT_INDEX", anchorEventType: "TOE_OFF", phase: "Despegue" },
     // ── APEX ──────────────────────────────────────────────────────────────────
     { label: "Rodilla izq. en APEX",         pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "APEX", phase: "Vuelo" },
     { label: "Rodilla der. en APEX",         pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "APEX", phase: "Vuelo" },
+    // ── LANDING ───────────────────────────────────────────────────────────────
+    { label: "Rodilla izq. en Aterrizaje",   pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "LANDING", phase: "Aterrizaje" },
+    { label: "Rodilla der. en Aterrizaje",   pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "LANDING", phase: "Aterrizaje" },
+    { label: "Cadera izq. en Aterrizaje",    pointA: "LEFT_SHOULDER",  vertex: "LEFT_HIP",    pointC: "LEFT_KNEE",   anchorEventType: "LANDING", phase: "Aterrizaje" },
+    { label: "Cadera der. en Aterrizaje",    pointA: "RIGHT_SHOULDER", vertex: "RIGHT_HIP",   pointC: "RIGHT_KNEE",  anchorEventType: "LANDING", phase: "Aterrizaje" },
   ];
 
   const drafts: TechniqueBiomechanicsAngleCheckDraft[] = [];
@@ -2328,7 +2326,7 @@ export default function App() {
   const [selectedReferenceFrameIndex, setSelectedReferenceFrameIndex] = useState(0);
   const [hoveredVisualLandmark, setHoveredVisualLandmark] = useState<LandmarkName | null>(null);
   const [pendingAngleLandmarks, setPendingAngleLandmarks] = useState<LandmarkName[]>([]);
-  const [pendingEventType, setPendingEventType] = useState<TechniqueBiomechanicsEventType>("TAKE_OFF");
+  const [pendingEventType, setPendingEventType] = useState<TechniqueBiomechanicsEventType>("TOE_OFF");
   const [selectedFocusPointId, setSelectedFocusPointId] = useState<string | null>(null);
   const [selectedPointCheckId, setSelectedPointCheckId] = useState<string | null>(null);
   const [selectedAngleCheckId, setSelectedAngleCheckId] = useState<string | null>(null);
@@ -2339,6 +2337,26 @@ export default function App() {
   const [isReferenceVideoPlaying, setIsReferenceVideoPlaying] = useState(false);
   const [exclusionsAthleteId, setExclusionsAthleteId] = useState<string>("");
   const [exclusionsDraft, setExclusionsDraft] = useState<string[]>([]);
+
+  type AngleWizardState =
+    | { open: false }
+    | {
+        open: true;
+        phase: "select-events";
+        availableEvents: Array<{ eventType: TechniqueBiomechanicsEventType; label: string }>;
+        selectedEventTypes: TechniqueBiomechanicsEventType[];
+      }
+    | {
+        open: true;
+        phase: "review-angles";
+        groups: Array<{
+          eventType: TechniqueBiomechanicsEventType;
+          eventLabel: string;
+          angles: Array<{ draft: TechniqueBiomechanicsAngleCheckDraft; include: boolean }>;
+        }>;
+        groupIndex: number;
+      };
+  const [angleWizard, setAngleWizard] = useState<AngleWizardState>({ open: false });
 
   const selectedExercise = useMemo(
     () => exercises.find((exercise) => exercise.id === selectedExerciseId) ?? null,
@@ -2728,7 +2746,7 @@ export default function App() {
     setSelectedReferenceFrameIndex(0);
     setHoveredVisualLandmark(null);
     setPendingAngleLandmarks([]);
-    setPendingEventType("TAKE_OFF");
+    setPendingEventType("TOE_OFF");
     setSelectedFocusPointId(null);
     setSelectedPointCheckId(null);
     setSelectedAngleCheckId(null);
@@ -2977,28 +2995,89 @@ export default function App() {
       return;
     }
 
-    const suggested = buildAutoSuggestedAngleCheckDrafts(referenceLandmarks, currentEvents);
-    if (!suggested.length) {
-      setError("No se pudieron sugerir ángulos: no hay eventos con frameIndex válido.");
+    // Only offer events that have a valid frame index and would produce at least one angle suggestion.
+    const eventsWithSuggestions = currentEvents.filter((e) => {
+      const fi = Number(e.frameIndex);
+      return Number.isFinite(fi) && buildAutoSuggestedAngleCheckDrafts(referenceLandmarks, [e]).length > 0;
+    });
+
+    if (!eventsWithSuggestions.length) {
+      setError("Ningún evento detectado produce sugerencias de ángulos (verifica que tengan frameIndex).");
       return;
     }
 
-    // Replace any previously auto-suggested angles (notes start with "Auto-sugerido")
-    // but keep manually created ones.
     setError("");
-    setTemplateTechniqueForm((current) => ({
-      ...current,
-      biomechanics: {
-        ...current.biomechanics,
-        angleChecks: [
-          ...current.biomechanics.angleChecks.filter(
-            (a) => !a.notes.startsWith("Auto-sugerido"),
-          ),
-          ...suggested,
-        ],
-      },
-    }));
-    setMessage(`${suggested.length} ángulo(s) sugeridos automáticamente con ±15° de margen. Revisa cuáles usar y ajusta los rangos objetivo.`);
+    setAngleWizard({
+      open: true,
+      phase: "select-events",
+      availableEvents: eventsWithSuggestions.map((e) => ({
+        eventType: e.eventType as TechniqueBiomechanicsEventType,
+        label: e.label.trim() || formatBiomechanicsEventLabel(e.eventType as TechniqueBiomechanicsEventType),
+      })),
+      selectedEventTypes: eventsWithSuggestions.map((e) => e.eventType as TechniqueBiomechanicsEventType),
+    });
+  }
+
+  function handleAngleWizardNext() {
+    if (!angleWizard.open) return;
+    const referenceLandmarks = selectedTechnique?.proLandmarks;
+    if (!referenceLandmarks) return;
+    const currentEvents = templateTechniqueForm.biomechanics.keyEvents;
+
+    if (angleWizard.phase === "select-events") {
+      if (!angleWizard.selectedEventTypes.length) {
+        setError("Selecciona al menos un evento.");
+        return;
+      }
+      const selectedEvents = currentEvents.filter((e) =>
+        angleWizard.selectedEventTypes.includes(e.eventType as TechniqueBiomechanicsEventType),
+      );
+      const allSuggested = buildAutoSuggestedAngleCheckDrafts(referenceLandmarks, selectedEvents);
+      const groups = angleWizard.selectedEventTypes
+        .map((eventType) => {
+          const eventDraft = currentEvents.find((e) => e.eventType === eventType);
+          return {
+            eventType,
+            eventLabel: (eventDraft?.label.trim() || formatBiomechanicsEventLabel(eventType)),
+            angles: allSuggested
+              .filter((d) => d.anchorEventType === eventType)
+              .map((draft) => ({ draft, include: true })),
+          };
+        })
+        .filter((g) => g.angles.length > 0);
+
+      if (!groups.length) {
+        setError("No se encontraron ángulos para los eventos seleccionados.");
+        return;
+      }
+      setError("");
+      setAngleWizard({ open: true, phase: "review-angles", groups, groupIndex: 0 });
+    } else if (angleWizard.phase === "review-angles") {
+      const nextIndex = angleWizard.groupIndex + 1;
+      if (nextIndex < angleWizard.groups.length) {
+        setAngleWizard({ ...angleWizard, groupIndex: nextIndex });
+      } else {
+        // Finish: collect all included angles and add to form
+        const accepted = angleWizard.groups.flatMap((g) =>
+          g.angles.filter((a) => a.include).map((a) => a.draft),
+        );
+        setTemplateTechniqueForm((current) => ({
+          ...current,
+          biomechanics: {
+            ...current.biomechanics,
+            angleChecks: [
+              ...current.biomechanics.angleChecks.filter(
+                (a) => !a.notes.startsWith("Auto-sugerido"),
+              ),
+              ...accepted,
+            ],
+          },
+        }));
+        setAngleWizard({ open: false });
+        setMessage(`${accepted.length} ángulo(s) agregados. Recuerda guardar la técnica.`);
+      }
+    }
+  }
   }
 
   function handleFocusPointSelect(pointId: string, landmark: LandmarkName) {
@@ -6590,6 +6669,157 @@ export default function App() {
             </div>
           ) : null}
 
+          {angleWizard.open ? (
+            <div
+              className="modal-overlay"
+              role="dialog"
+              aria-modal="true"
+              onClick={(e) => { if (e.target === e.currentTarget) setAngleWizard({ open: false }); }}
+            >
+              <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <div>
+                    <p className="eyebrow">Autodetectar ángulos</p>
+                    {angleWizard.phase === "select-events" ? (
+                      <h2>Paso 1 — Selecciona los eventos</h2>
+                    ) : (
+                      <h2>
+                        Paso 2 — Revisar ángulos:{" "}
+                        {angleWizard.groups[angleWizard.groupIndex]?.eventLabel}
+                        {" "}
+                        <span className="eyebrow">
+                          ({angleWizard.groupIndex + 1}/{angleWizard.groups.length})
+                        </span>
+                      </h2>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => setAngleWizard({ open: false })}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+
+                <div className="modal-body">
+                  {angleWizard.phase === "select-events" ? (
+                    <div className="stack-form">
+                      <p className="helper-text">
+                        Elige los eventos para los cuales se sugerirán ángulos articulares.
+                        Los valores medidos en el video de referencia ±15° se usarán como rango objetivo.
+                      </p>
+                      <div className="detail-list">
+                        {angleWizard.availableEvents.map((ev) => (
+                          <label key={ev.eventType} className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={angleWizard.selectedEventTypes.includes(ev.eventType)}
+                              onChange={(e) => {
+                                setAngleWizard((prev) => {
+                                  if (!prev.open || prev.phase !== "select-events") return prev;
+                                  return {
+                                    ...prev,
+                                    selectedEventTypes: e.target.checked
+                                      ? [...prev.selectedEventTypes, ev.eventType]
+                                      : prev.selectedEventTypes.filter((t) => t !== ev.eventType),
+                                  };
+                                });
+                              }}
+                            />
+                            {ev.label}
+                          </label>
+                        ))}
+                      </div>
+                      <div className="form-actions">
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={() => handleAngleWizardNext()}
+                        >
+                          Siguiente →
+                        </button>
+                      </div>
+                    </div>
+                  ) : angleWizard.phase === "review-angles" ? (
+                    <div className="stack-form">
+                      <p className="helper-text">
+                        Decide qué ángulos incluir para el evento{" "}
+                        <strong>{angleWizard.groups[angleWizard.groupIndex]?.eventLabel}</strong>.
+                        Los que marques como "Incluir" se agregarán al formulario al finalizar.
+                      </p>
+                      <div className="detail-list">
+                        {angleWizard.groups[angleWizard.groupIndex]?.angles.map((item, angleIdx) => (
+                          <div key={item.draft.id} className="detail-card">
+                            <div className="section-header compact-header">
+                              <div>
+                                <strong>{item.draft.label}</strong>
+                                <span className="helper-text">
+                                  {item.draft.pointA} → {item.draft.vertex} → {item.draft.pointC}
+                                  {item.draft.notes.includes("≈")
+                                    ? ` · ${item.draft.notes.match(/≈[^(]+/)?.[0]?.trim()}`
+                                    : ""}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                className={item.include ? "primary-button" : "secondary-button"}
+                                onClick={() => {
+                                  setAngleWizard((prev) => {
+                                    if (!prev.open || prev.phase !== "review-angles") return prev;
+                                    const newGroups = prev.groups.map((g, gi) =>
+                                      gi === prev.groupIndex
+                                        ? {
+                                            ...g,
+                                            angles: g.angles.map((a, ai) =>
+                                              ai === angleIdx ? { ...a, include: !a.include } : a,
+                                            ),
+                                          }
+                                        : g,
+                                    );
+                                    return { ...prev, groups: newGroups };
+                                  });
+                                }}
+                              >
+                                {item.include ? "✓ Incluir" : "Omitir"}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="form-actions">
+                        {angleWizard.groupIndex > 0 ? (
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() =>
+                              setAngleWizard((prev) =>
+                                prev.open && prev.phase === "review-angles"
+                                  ? { ...prev, groupIndex: prev.groupIndex - 1 }
+                                  : prev,
+                              )
+                            }
+                          >
+                            ← Anterior
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={() => handleAngleWizardNext()}
+                        >
+                          {angleWizard.groupIndex + 1 < angleWizard.groups.length
+                            ? "Siguiente evento →"
+                            : "Finalizar y agregar"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {templateModalOpen ? (
             <div className="modal-overlay" onClick={() => setTemplateModalOpen(false)}>
               <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -7130,7 +7360,7 @@ export default function App() {
                   anglePreviewLabel={anglePreviewLabel}
                   canCreateAngle={pendingAngleLandmarks.length === 3}
                   canClearAngleSelection={pendingAngleLandmarks.length > 0}
-                  eventTypeOptions={biomechanicsEventTypeOptions.map((option) => ({ value: option, label: formatBiomechanicsEventLabel(option) }))}
+                  eventTypeOptions={activeBiomechanicsEventTypeOptions.map((option) => ({ value: option, label: formatBiomechanicsEventLabel(option) }))}
                   pendingEventType={pendingEventType}
                   eventChips={eventChips}
                   inspectSummaryChips={inspectSummaryChips}
@@ -8193,7 +8423,7 @@ export default function App() {
                               {
                                 id: createDraftId(),
                                 label: "",
-                                eventType: "TAKE_OFF",
+                                eventType: "TOE_OFF",
                                 frameIndex: "",
                                 frameHint: "",
                                 source: "MANUAL",

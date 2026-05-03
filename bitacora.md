@@ -749,3 +749,38 @@ La validacion paso despues del refactor del cliente.
 - `apps/mobile2/app.json`: `version = 2.1.3`, `android.versionCode = 213`
 - `apps/mobile2/package.json`: `version = 2.1.3`
 
+---
+
+### 31. Depuración de eventos + wizard de ángulos v2.1.4
+
+**Objetivo:** Reducir el ruido de eventos biomecánicos, redefinir TOE_OFF como bilateral, e implementar un wizard modal paso a paso para la autodetección de ángulos.
+
+#### apps/web/src/biomechanicsEventDetection.ts
+- **Eliminados de `AutoDetectedTechniqueEventType` y del output:** `LAST_CONTACT`, `TAKE_OFF`, `FLIGHT`.
+- **TOE_OFF redefinido:** ya no es `firstAirborneIndex - 1` (que podía caer en el aire) sino la **última trama antes del despegue donde ambos pies están simultáneamente en el suelo** (`leftGround.flags[i] && rightGround.flags[i]`). Búsqueda hasta 12 tramas atrás desde `firstAirborneIndex`; fallback a `firstAirborneIndex - 1` si no se encuentra.
+- Los bounds del análisis de carrera de aproximación (`supportRuns`, `airborneRuns`, `fallbackSupportPeaks`) siguen usando `toeOffIndex = firstAirborneIndex - 1` para no perder la fase bilateral en el análisis de apoyos.
+
+#### apps/web/src/App.tsx — opciones de eventos
+- Agregado `activeBiomechanicsEventTypeOptions` (sin LAST_CONTACT, TAKE_OFF, FLIGHT) usado en el selector de tipo de evento al crear eventos manualmente.
+- `biomechanicsEventTypeOptions` se mantiene con todos los tipos para backward compat en dropdowns de anchor/filtro.
+- Valor por defecto de `pendingEventType` y reset cambiado de `TAKE_OFF` a `TOE_OFF`.
+- Botón "+" rápido de nuevo evento cambiado de `TAKE_OFF` a `TOE_OFF`.
+- Progresión de cadera por defecto: último paso cambiado de `LAST_CONTACT` a `TOE_OFF`.
+
+#### apps/web/src/App.tsx — ángulos auto-sugeridos
+- Definiciones actualizadas: eliminados LAST_CONTACT (4 ángulos) y TAKE_OFF (2 ángulos).
+- Agregados 4 ángulos para LANDING (rodillas + caderas).
+- TOE_OFF mantiene 4 ángulos (rodillas + tobillos), ahora llamados "Salida de Punta".
+- Total: 14 ángulos sugeribles (DIP×4, TOE_OFF×4, APEX×2, LANDING×4).
+
+#### apps/web/src/App.tsx — wizard modal de autodetección de ángulos
+- `handleAutoDetectReferenceAngles` ya no aplica ángulos directamente; abre un wizard modal.
+- **Paso 1 — Seleccionar eventos:** checkboxes con todos los eventos que tienen frameIndex y producen sugerencias. Por defecto todos seleccionados.
+- **Paso 2 — Revisar ángulos (evento a evento):** para cada evento seleccionado, muestra los ángulos sugeridos con su valor medido. Cada uno tiene botón toggle "✓ Incluir" / "Omitir". Navegación con "← Anterior" / "Siguiente evento →" / "Finalizar y agregar".
+- Al finalizar: los ángulos marcados como "Incluir" se agregan al formulario (reemplazando auto-sugeridos previos, preservando manuales). Un mensaje confirma cuántos se agregaron.
+- Todo sigue bajo el flujo de "Guardar técnica" — el wizard no guarda nada por sí solo.
+
+#### Versionado
+- `apps/mobile2/app.json`: `version = 2.1.4`, `android.versionCode = 214`
+- `apps/mobile2/package.json`: `version = 2.1.4`
+

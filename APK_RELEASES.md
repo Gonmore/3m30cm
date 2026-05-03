@@ -4,8 +4,8 @@ Guia operativa para generar el APK Android de `apps/mobile2` con una version esp
 
 ## Version actual
 
-- `mobile2` queda en `version = 2.1.3`
-- `android.versionCode = 213`
+- `mobile2` queda en `version = 2.1.4`
+- `android.versionCode = 214`
 
 ## Regla de versionado
 
@@ -119,4 +119,5 @@ Checklist corto para la proxima version:
 | 2.1.0   | 210         | 2026-05-02  | 96.3 MB | Motor biomecánico v2: APEX via CoM, penalización tuck, calibración SETUP, deltaPercent en UI, ghost skeleton data. Build optimizado con fingerprint skip + --build-cache. |
 | 2.1.1   | 211         | 2026-05-03  | —       | Detección de eventos reescrita con ancla LANDING-first (más robusta). Eliminado bloque "programa activo" (video + texto de referencia) de pantalla Hoy. Corrección de separación Hoy vs Técnica. |
 | 2.1.2   | 212         | 2026-05-03  | —       | Fix LAST_CONTACT (ancla en vuelo de aproximación). Medición automática de distancias de paso (antepenúltimo→penúltimo >200cm, penúltimo→último <50cm). Ángulos biomecánicos por defecto al autodetectar eventos en web admin. |
-| 2.1.3   | 213         | 2026-05-03  | —       | Distancias de paso medidas pie a pie (tobillo del pie de apoyo) en vez de cadera. Flujo de ángulos en 2 pasos: autodetectar eventos → autodetectar ángulos (botón separado que mide ángulos reales ±15° en referencia). 16 ángulos sugeridos por evento (DIP, Planta, Take-Off, Toe-Off, APEX). |
+| 2.1.3   | 213         | 2026-05-03  | —       | Distancias de paso medidas pie a pie (tobillo del pie de apoyo). Flujo de ángulos en 2 pasos: autodetectar eventos → autodetectar ángulos (botón separado con valores medidos ±15°). 16 ángulos sugeridos por evento (DIP, Planta, Take-Off, Toe-Off, APEX). |
+| 2.1.4   | 214         | 2026-05-03  | —       | Eliminados eventos LAST_CONTACT, TAKE_OFF y FLIGHT de autodetección y menús. TOE_OFF redefinido como bilateral (ambos pies en punta antes del despegue). Wizard modal para autodetectar ángulos: selección de eventos → revisión uno a uno → incluir/omitir cada ángulo. |

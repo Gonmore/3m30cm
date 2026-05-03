@@ -8,10 +8,7 @@ export type AutoDetectedTechniqueEventType =
   | "ANTEPENULTIMATE_CONTACT"
   | "PRE_PENULTIMATE_FLIGHT"
   | "PENULTIMATE_CONTACT"
-  | "LAST_CONTACT"
-  | "TAKE_OFF"
   | "TOE_OFF"
-  | "FLIGHT"
   | "APEX"
   | "LANDING";
 
@@ -820,11 +817,11 @@ export function detectTechniqueKeyEventsWithDebug(
   const setupIndex = detectSetupIndex(hipXSeries, hipYSeries, dipIndex);
   const takeOffIndex = Math.max(dipIndex + 1, toeOffIndex - 1);
   const travelDirection = inferTravelDirection(hipXSeries, setupIndex, takeOffIndex) as 1 | -1;
-  const flightIndex = Math.min(Math.max(firstAirborneIndex, takeOffIndex + 1), apexIndex);
+  const approachUpperBound = toeOffIndex; // last grounded frame before jump, used as approach analysis bound
   const contactRunMinLength = (referenceLandmarks.fps ?? 15) <= 20 ? 1 : 2;
-  const supportRuns = collectSupportRuns(supportLabels, 0, toeOffIndex, contactRunMinLength);
-  const airborneRuns = collectRuns(anyGroundedFlags, false, 0, toeOffIndex, 1);
-  const fallbackSupportPeaks = collectSupportPeaks(leftContactScoreSeries, rightContactScoreSeries, leftGround, rightGround, toeOffIndex, contactRunMinLength);
+  const supportRuns = collectSupportRuns(supportLabels, 0, approachUpperBound, contactRunMinLength);
+  const airborneRuns = collectRuns(anyGroundedFlags, false, 0, approachUpperBound, 1);
+  const fallbackSupportPeaks = collectSupportPeaks(leftContactScoreSeries, rightContactScoreSeries, leftGround, rightGround, approachUpperBound, contactRunMinLength);
   const alternatingSupportRuns = selectAlternatingSupportRuns(supportRuns);
   const alternatingFallbackPeaks = selectAlternatingSupportPeaks(fallbackSupportPeaks);
   const lastSupportRun = alternatingSupportRuns.last;
@@ -875,8 +872,16 @@ export function detectTechniqueKeyEventsWithDebug(
           : 0),
       )
     : null;
-  const flightConfidence = normalizeConfidence(0.56 + (airborneSpan / Math.max(frames.length, 1)) * 0.6);
-  const takeOffConfidence = normalizeConfidence(0.58 + ((getSeriesValue(hipYSeries, dipIndex) - getSeriesValue(hipYSeries, takeOffIndex)) / hipRange) * 0.4);
+  // TOE_OFF: last frame before the jump where BOTH feet are simultaneously grounded
+  // (bilateral toe contact — athlete rises onto both tiptoes just before lift-off).
+  const bilateralToeOffIndex = (() => {
+    const searchBack = Math.max(0, firstAirborneIndex - 12);
+    for (let i = Math.max(0, firstAirborneIndex - 1); i >= searchBack; i--) {
+      if (leftGround.flags[i] && rightGround.flags[i]) return i;
+    }
+    return Math.max(0, firstAirborneIndex - 1); // fallback
+  })();
+
   const toeOffConfidence = normalizeConfidence(0.62 + (airborneSpan / Math.max(frames.length, 1)) * 0.55);
   const landingConfidence = normalizeConfidence(0.6 + ((getSeriesValue(hipYSeries, landingIndex) - hipMinimum) / hipRange) * 0.25);
 
@@ -912,27 +917,9 @@ export function detectTechniqueKeyEventsWithDebug(
       detector: autoDetectedTechniqueEventDetector,
     } : null,
     {
-      eventType: "LAST_CONTACT",
-      frameIndex: lastContactIndex,
-      confidence: buildContactConfidence(lastContactIndex, leftContactScoreSeries, rightContactScoreSeries, leftGround, rightGround),
-      detector: autoDetectedTechniqueEventDetector,
-    },
-    {
-      eventType: "TAKE_OFF",
-      frameIndex: takeOffIndex,
-      confidence: takeOffConfidence,
-      detector: autoDetectedTechniqueEventDetector,
-    },
-    {
       eventType: "TOE_OFF",
-      frameIndex: toeOffIndex,
+      frameIndex: bilateralToeOffIndex,
       confidence: toeOffConfidence,
-      detector: autoDetectedTechniqueEventDetector,
-    },
-    {
-      eventType: "FLIGHT",
-      frameIndex: flightIndex,
-      confidence: flightConfidence,
       detector: autoDetectedTechniqueEventDetector,
     },
     {
