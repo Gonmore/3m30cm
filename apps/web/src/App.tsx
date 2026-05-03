@@ -9556,9 +9556,11 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              </div>
-        </article>
-      </section>
+              </form>
+            </div>
+          ) : (
+            <p className="helper-text section-spacer">Selecciona un programa para empezar a cargar texto y archivos técnicos.</p>
+          )}
 
         </div>
       </div>
