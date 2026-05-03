@@ -1252,50 +1252,121 @@ function buildAutoDetectedEventNotes(eventType: TechniqueBiomechanicsEventType) 
 }
 
 /**
- * Generates a default set of angle check drafts for a running-approach vertical jump.
- * Only creates checks for events that actually exist in keyEventDrafts.
- * Each check has empty target ranges — the admin still needs to set the objective values.
+ * Measures an angle in degrees from 3 landmark positions in a frame.
+ * Returns null if any landmark is missing or the angle cannot be computed.
  */
-function buildDefaultAngleCheckDrafts(
+function measureAngleDegFromLandmarks(
+  frame: { landmarks: Array<{ x: number; y: number; z?: number }> } | undefined,
+  pointAIndex: number,
+  vertexIndex: number,
+  pointCIndex: number,
+): number | null {
+  const pA = frame?.landmarks[pointAIndex];
+  const pV = frame?.landmarks[vertexIndex];
+  const pC = frame?.landmarks[pointCIndex];
+  if (!pA || !pV || !pC) return null;
+  const vAx = pA.x - pV.x, vAy = pA.y - pV.y;
+  const vCx = pC.x - pV.x, vCy = pC.y - pV.y;
+  const mag = Math.hypot(vAx, vAy) * Math.hypot(vCx, vCy);
+  if (!mag) return null;
+  const cosine = Math.max(-1, Math.min(1, (vAx * vCx + vAy * vCy) / mag));
+  return (Math.acos(cosine) * 180) / Math.PI;
+}
+
+/**
+ * For each detected key event, measures relevant joint angles from the reference
+ * landmarks and creates angle check drafts with ±15° target corridors.
+ * The admin can review and discard any that don't apply to their technique.
+ */
+function buildAutoSuggestedAngleCheckDrafts(
+  landmarks: { frames: Array<{ landmarks: Array<{ x: number; y: number; z?: number }> }> },
   keyEventDrafts: TechniqueBiomechanicsKeyEventDraft[],
 ): TechniqueBiomechanicsAngleCheckDraft[] {
+  const MARGIN = 15;
+
   const getEventId = (eventType: TechniqueBiomechanicsEventType) =>
     keyEventDrafts.find((e) => e.eventType === eventType)?.id ?? "";
 
-  const defaults: Array<{
+  const getFrameIndex = (eventType: TechniqueBiomechanicsEventType): number | null => {
+    const fi = Number(keyEventDrafts.find((e) => e.eventType === eventType)?.frameIndex ?? "");
+    return Number.isFinite(fi) ? fi : null;
+  };
+
+  interface AngleDef {
     label: string;
     pointA: LandmarkName;
     vertex: LandmarkName;
     pointC: LandmarkName;
     anchorEventType: TechniqueBiomechanicsEventType;
-  }> = [
-    { label: "Rodilla izq. en DIP", pointA: "LEFT_HIP", vertex: "LEFT_KNEE", pointC: "LEFT_ANKLE", anchorEventType: "DIP" },
-    { label: "Rodilla der. en DIP", pointA: "RIGHT_HIP", vertex: "RIGHT_KNEE", pointC: "RIGHT_ANKLE", anchorEventType: "DIP" },
-    { label: "Cadera izq. en Último Apoyo", pointA: "LEFT_SHOULDER", vertex: "LEFT_HIP", pointC: "LEFT_KNEE", anchorEventType: "LAST_CONTACT" },
-    { label: "Cadera der. en Último Apoyo", pointA: "RIGHT_SHOULDER", vertex: "RIGHT_HIP", pointC: "RIGHT_KNEE", anchorEventType: "LAST_CONTACT" },
-    { label: "Rodilla izq. en salida", pointA: "LEFT_HIP", vertex: "LEFT_KNEE", pointC: "LEFT_ANKLE", anchorEventType: "TOE_OFF" },
-    { label: "Rodilla der. en salida", pointA: "RIGHT_HIP", vertex: "RIGHT_KNEE", pointC: "RIGHT_ANKLE", anchorEventType: "TOE_OFF" },
+    phase?: string;
+  }
+
+  const definitions: AngleDef[] = [
+    // ── DIP ──────────────────────────────────────────────────────────────────
+    { label: "Rodilla izq. en DIP",          pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "DIP", phase: "Dip" },
+    { label: "Rodilla der. en DIP",          pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "DIP", phase: "Dip" },
+    { label: "Tronco izq. en DIP",           pointA: "LEFT_SHOULDER",  vertex: "LEFT_HIP",    pointC: "LEFT_KNEE",   anchorEventType: "DIP", phase: "Dip" },
+    { label: "Tronco der. en DIP",           pointA: "RIGHT_SHOULDER", vertex: "RIGHT_HIP",   pointC: "RIGHT_KNEE",  anchorEventType: "DIP", phase: "Dip" },
+    // ── LAST_CONTACT ─────────────────────────────────────────────────────────
+    { label: "Rodilla izq. en Último Apoyo", pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "LAST_CONTACT", phase: "Planta" },
+    { label: "Rodilla der. en Último Apoyo", pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "LAST_CONTACT", phase: "Planta" },
+    { label: "Cadera izq. en Último Apoyo",  pointA: "LEFT_SHOULDER",  vertex: "LEFT_HIP",    pointC: "LEFT_KNEE",   anchorEventType: "LAST_CONTACT", phase: "Planta" },
+    { label: "Cadera der. en Último Apoyo",  pointA: "RIGHT_SHOULDER", vertex: "RIGHT_HIP",   pointC: "RIGHT_KNEE",  anchorEventType: "LAST_CONTACT", phase: "Planta" },
+    // ── TAKE_OFF ──────────────────────────────────────────────────────────────
+    { label: "Rodilla izq. en Take-Off",     pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "TAKE_OFF", phase: "Despegue" },
+    { label: "Rodilla der. en Take-Off",     pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "TAKE_OFF", phase: "Despegue" },
+    // ── TOE_OFF ──────────────────────────────────────────────────────────────
+    { label: "Rodilla izq. en Toe-Off",      pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "TOE_OFF", phase: "Despegue" },
+    { label: "Rodilla der. en Toe-Off",      pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "TOE_OFF", phase: "Despegue" },
+    { label: "Tobillo izq. en Toe-Off",      pointA: "LEFT_KNEE",      vertex: "LEFT_ANKLE",  pointC: "LEFT_FOOT_INDEX",  anchorEventType: "TOE_OFF", phase: "Despegue" },
+    { label: "Tobillo der. en Toe-Off",      pointA: "RIGHT_KNEE",     vertex: "RIGHT_ANKLE", pointC: "RIGHT_FOOT_INDEX", anchorEventType: "TOE_OFF", phase: "Despegue" },
+    // ── APEX ──────────────────────────────────────────────────────────────────
+    { label: "Rodilla izq. en APEX",         pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "APEX", phase: "Vuelo" },
+    { label: "Rodilla der. en APEX",         pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "APEX", phase: "Vuelo" },
   ];
 
-  return defaults
-    .filter((def) => getEventId(def.anchorEventType) !== "")
-    .map((def) => ({
+  const drafts: TechniqueBiomechanicsAngleCheckDraft[] = [];
+
+  for (const def of definitions) {
+    const eventId = getEventId(def.anchorEventType);
+    if (!eventId) continue;
+
+    const frameIndex = getFrameIndex(def.anchorEventType);
+    const frame = frameIndex !== null ? landmarks.frames[frameIndex] : undefined;
+    const pAIdx = landmarkIndexByName[def.pointA] ?? -1;
+    const pVIdx = landmarkIndexByName[def.vertex] ?? -1;
+    const pCIdx = landmarkIndexByName[def.pointC] ?? -1;
+    const measuredDeg = measureAngleDegFromLandmarks(frame, pAIdx, pVIdx, pCIdx);
+
+    const targetMinDeg = measuredDeg !== null
+      ? String(Math.max(0, Math.round(measuredDeg - MARGIN)))
+      : "";
+    const targetMaxDeg = measuredDeg !== null
+      ? String(Math.min(360, Math.round(measuredDeg + MARGIN)))
+      : "";
+
+    drafts.push({
       id: createDraftId(),
       label: def.label,
       pointA: def.pointA,
       vertex: def.vertex,
       pointC: def.pointC,
-      plane: "SAGITTAL_2D" as const,
-      anchorEventId: getEventId(def.anchorEventType),
+      plane: "SAGITTAL_2D",
+      anchorEventId: eventId,
       anchorEventType: def.anchorEventType,
       windowStartEventId: "",
       windowEndEventId: "",
-      sampleMode: "AT_EVENT" as const,
-      targetMinDeg: "",
-      targetMaxDeg: "",
-      phase: "",
-      notes: "Auto-generado en autodetección. Configura los ángulos objetivo para esta técnica.",
-    }));
+      sampleMode: "AT_EVENT",
+      targetMinDeg,
+      targetMaxDeg,
+      phase: def.phase ?? "",
+      notes: measuredDeg !== null
+        ? `Auto-sugerido: valor medido en referencia ≈ ${Math.round(measuredDeg)}° (±15° de margen).`
+        : "Auto-sugerido: sin landmarks suficientes en este frame para medir el valor actual.",
+    });
+  }
+
+  return drafts;
 }
 
 function formatSupportLabel(label: AutoDetectedTechniqueSupportLabel) {
@@ -2883,20 +2954,51 @@ export default function App() {
     }
 
     setError("");
-    setTemplateTechniqueForm((current) => {
-      const mergedKeyEvents = mergeAutoDetectedKeyEventDrafts(current.biomechanics.keyEvents, detectedEvents, referenceLandmarks);
-      const shouldAddDefaultAngles = current.biomechanics.angleChecks.length === 0;
-      const defaultAngleChecks = shouldAddDefaultAngles ? buildDefaultAngleCheckDrafts(mergedKeyEvents) : [];
-      return {
-        ...current,
-        biomechanics: {
-          ...current.biomechanics,
-          keyEvents: mergedKeyEvents,
-          angleChecks: [...current.biomechanics.angleChecks, ...defaultAngleChecks],
-        },
-      };
-    });
-    setMessage(`${detectedEvents.length} evento(s) sugeridos automáticamente sobre la referencia profesional.`);
+    setTemplateTechniqueForm((current) => ({
+      ...current,
+      biomechanics: {
+        ...current.biomechanics,
+        keyEvents: mergeAutoDetectedKeyEventDrafts(current.biomechanics.keyEvents, detectedEvents, referenceLandmarks),
+      },
+    }));
+    setMessage(`${detectedEvents.length} evento(s) sugeridos automáticamente. Ahora puedes usar "Autodetectar ángulos" para generar los checks articulares por evento.`);
+  }
+
+  function handleAutoDetectReferenceAngles() {
+    const referenceLandmarks = selectedTechnique?.proLandmarks;
+    if (!referenceLandmarks) {
+      setError("Primero sube y procesa la referencia profesional con landmarks.");
+      return;
+    }
+
+    const currentEvents = templateTechniqueForm.biomechanics.keyEvents;
+    if (!currentEvents.length) {
+      setError("Autodetecta los eventos primero antes de sugerir ángulos.");
+      return;
+    }
+
+    const suggested = buildAutoSuggestedAngleCheckDrafts(referenceLandmarks, currentEvents);
+    if (!suggested.length) {
+      setError("No se pudieron sugerir ángulos: no hay eventos con frameIndex válido.");
+      return;
+    }
+
+    // Replace any previously auto-suggested angles (notes start with "Auto-sugerido")
+    // but keep manually created ones.
+    setError("");
+    setTemplateTechniqueForm((current) => ({
+      ...current,
+      biomechanics: {
+        ...current.biomechanics,
+        angleChecks: [
+          ...current.biomechanics.angleChecks.filter(
+            (a) => !a.notes.startsWith("Auto-sugerido"),
+          ),
+          ...suggested,
+        ],
+      },
+    }));
+    setMessage(`${suggested.length} ángulo(s) sugeridos automáticamente con ±15° de margen. Revisa cuáles usar y ajusta los rangos objetivo.`);
   }
 
   function handleFocusPointSelect(pointId: string, landmark: LandmarkName) {
@@ -7701,6 +7803,21 @@ export default function App() {
                       <p className="eyebrow">Ángulos clave</p>
                       <h3>Comparaciones articulares</h3>
                     </div>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      disabled={!selectedTechnique?.proLandmarks || !templateTechniqueForm.biomechanics.keyEvents.length}
+                      title={
+                        !selectedTechnique?.proLandmarks
+                          ? "Sube la referencia profesional con landmarks primero"
+                          : !templateTechniqueForm.biomechanics.keyEvents.length
+                            ? "Autodetecta los eventos primero"
+                            : "Sugerir ángulos articulares para cada evento detectado (±15°)"
+                      }
+                      onClick={() => handleAutoDetectReferenceAngles()}
+                    >
+                      Autodetectar ángulos
+                    </button>
                     <button
                       type="button"
                       className="ghost-button"

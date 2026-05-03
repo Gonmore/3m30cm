@@ -882,20 +882,39 @@ function buildApproachStepDistancesPreview(
     return null;
   }
 
-  const getHipCenterX = (frameIndex: number): number | null => {
+  /**
+   * Returns the X coordinate of the grounded foot at a given frame.
+   * "Grounded foot" = the ankle with the largest Y value (farthest down in
+   * normalised frame coordinates, i.e. closest to the ground).
+   */
+  const getGroundedFootX = (frameIndex: number): number | null => {
     const frame = landmarks.frames[frameIndex];
     if (!frame) return null;
-    const leftX = frame.landmarks[landmarkIndex.LEFT_HIP]?.x ?? null;
-    const rightX = frame.landmarks[landmarkIndex.RIGHT_HIP]?.x ?? null;
-    if (leftX === null || rightX === null) return null;
-    return (leftX + rightX) / 2;
+    const leftAnkle = frame.landmarks[landmarkIndex.LEFT_ANKLE];
+    const rightAnkle = frame.landmarks[landmarkIndex.RIGHT_ANKLE];
+    if (!leftAnkle || !rightAnkle) return null;
+    return leftAnkle.y >= rightAnkle.y ? leftAnkle.x : rightAnkle.x;
   };
 
-  const hipX_ante = antepenultimateEvent ? getHipCenterX(antepenultimateEvent.frameIndex) : null;
-  const hipX_penu = penultimateEvent ? getHipCenterX(penultimateEvent.frameIndex) : null;
-  const hipX_last = lastContactEvent ? getHipCenterX(lastContactEvent.frameIndex) : null;
+  /**
+   * Returns the horizontal center X of both ankles (used for LAST_CONTACT
+   * where both feet are planting simultaneously).
+   */
+  const getBilateralFootCenterX = (frameIndex: number): number | null => {
+    const frame = landmarks.frames[frameIndex];
+    if (!frame) return null;
+    const leftAnkleX = frame.landmarks[landmarkIndex.LEFT_ANKLE]?.x ?? null;
+    const rightAnkleX = frame.landmarks[landmarkIndex.RIGHT_ANKLE]?.x ?? null;
+    if (leftAnkleX === null || rightAnkleX === null) return null;
+    return (leftAnkleX + rightAnkleX) / 2;
+  };
 
-  // Calibrate: visible body height (normalised 0–1) corresponds to subjectHeightCm in reality.
+  const footX_ante = antepenultimateEvent ? getGroundedFootX(antepenultimateEvent.frameIndex) : null;
+  const footX_penu = penultimateEvent ? getGroundedFootX(penultimateEvent.frameIndex) : null;
+  const footX_last = lastContactEvent ? getBilateralFootCenterX(lastContactEvent.frameIndex) : null;
+
+  // Calibrate: visible body height (normalised 0–1 in Y) corresponds to subjectHeightCm.
+  // The camera is assumed to be far enough that X and Y scales are approximately equal.
   const setupEvent = eventsByType.get("SETUP") ?? null;
   const calibFrameIndex = setupEvent?.frameIndex ?? 0;
   const visibleBodyHeight = getMaxVisibleBodyHeightBeforeFrame(
@@ -903,13 +922,13 @@ function buildApproachStepDistancesPreview(
     Math.min(calibFrameIndex + 30, landmarks.frames.length - 1),
   );
   const calibrated = visibleBodyHeight !== null && visibleBodyHeight > 0 && subjectHeightCm !== null && subjectHeightCm > 0;
-  const pixelsPerCm = calibrated ? (visibleBodyHeight! / subjectHeightCm!) : null;
+  const normalizedUnitsPerCm = calibrated ? (visibleBodyHeight! / subjectHeightCm!) : null;
 
-  const prePenultimateFlightDistanceCm = hipX_ante !== null && hipX_penu !== null && pixelsPerCm !== null
-    ? roundTo(Math.abs(hipX_penu - hipX_ante) / pixelsPerCm)
+  const prePenultimateFlightDistanceCm = footX_ante !== null && footX_penu !== null && normalizedUnitsPerCm !== null
+    ? roundTo(Math.abs(footX_penu - footX_ante) / normalizedUnitsPerCm)
     : null;
-  const lastStepDistanceCm = hipX_penu !== null && hipX_last !== null && pixelsPerCm !== null
-    ? roundTo(Math.abs(hipX_last - hipX_penu) / pixelsPerCm)
+  const lastStepDistanceCm = footX_penu !== null && footX_last !== null && normalizedUnitsPerCm !== null
+    ? roundTo(Math.abs(footX_last - footX_penu) / normalizedUnitsPerCm)
     : null;
 
   return {

@@ -719,3 +719,33 @@ La validacion paso despues del refactor del cliente.
 - `apps/mobile2/app.json`: `version = 2.1.2`, `android.versionCode = 212`
 - `apps/mobile2/package.json`: `version = 2.1.2`
 
+---
+
+### 30. Distancias pie-a-pie + flujo ángulos en 2 pasos v2.1.3
+
+**Objetivo:** corregir la medición de distancia de pasos para que sea pie-a-pie (tobillo del pie de apoyo), y cambiar el flujo de ángulos biomecánicos para que sea un segundo paso explícito con valores medidos en la referencia real.
+
+#### apps/web/src/biomechanicsReferenceMeasurements.ts — distancias pie-a-pie
+- `buildApproachStepDistancesPreview` ahora usa la posición X del tobillo de apoyo en cada evento de contacto:
+  - En ANTEPENULTIMATE y PENULTIMATE: se usa el tobillo con mayor Y (más próximo al suelo = pie de apoyo).
+  - En LAST_CONTACT: se usa el promedio X de ambos tobillos (planta bilateral).
+- Antes se usaba el centro de las caderas, que mide la traslación del COG, no la longitud real del paso.
+- La calibración usa la altura visible del cuerpo normalizada vs. `subjectHeightCm`. La escala X/Y se asume equivalente (cámara lejana).
+
+#### apps/web/src/App.tsx — flujo de ángulos en 2 pasos
+- Eliminada la auto-creación de ángulos al autodetectar eventos (`buildDefaultAngleCheckDrafts` reemplazado).
+- Nueva función `buildAutoSuggestedAngleCheckDrafts(landmarks, keyEventDrafts)`:
+  - Para cada evento detectado (DIP, LAST_CONTACT, TAKE_OFF, TOE_OFF, APEX), sugiere ángulos articulares relevantes.
+  - Mide el ángulo real en el frame de referencia con `measureAngleDegFromLandmarks`.
+  - `targetMinDeg = medido - 15°`, `targetMaxDeg = medido + 15°`.
+  - Total: hasta 16 ángulos sugeridos (2 rodillas + 2 troncos en DIP, 4 en LAST_CONTACT, etc.).
+- Nuevo botón **"Autodetectar ángulos"** en la sección de Ángulos clave:
+  - Deshabilitado si no hay landmarks procesados o si no hay eventos detectados.
+  - Tooltip explicativo.
+  - Reemplaza solo los ángulos previamente auto-sugeridos (notes comienzan con "Auto-sugerido"); los ángulos manuales se preservan.
+- Flujo de uso: (1) Autodetectar eventos → (2) Autodetectar ángulos → (3) El coach revisa y descarta los que no aplican.
+
+#### Versionado
+- `apps/mobile2/app.json`: `version = 2.1.3`, `android.versionCode = 213`
+- `apps/mobile2/package.json`: `version = 2.1.3`
+
