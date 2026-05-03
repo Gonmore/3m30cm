@@ -1169,6 +1169,67 @@ textarea { resize: vertical; }
 .modal-section { display: grid; gap: 14px; padding-top: 20px; border-top: 1px solid var(--line); }
 .modal-section-title { margin-bottom: 4px; }
 
+.angle-wizard-overlay {
+  align-items: center;
+  padding: 24px 16px;
+}
+
+.angle-wizard-panel {
+  width: min(900px, 100%);
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+}
+
+.angle-wizard-video-shell {
+  position: relative;
+  margin-top: 12px;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.angle-wizard-video {
+  width: 100%;
+  display: block;
+  border-radius: 16px;
+}
+
+.angle-wizard-overlay-svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.angle-wizard-overlay-item line {
+  stroke-width: 4;
+}
+
+.angle-wizard-overlay-item circle {
+  stroke: rgba(15, 23, 42, 0.8);
+  stroke-width: 2;
+}
+
+.angle-wizard-overlay-item text {
+  font-size: 20px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: rgba(15, 23, 42, 0.72);
+  stroke-width: 4px;
+}
+
+.angle-wizard-overlay-item.include line,
+.angle-wizard-overlay-item.include circle,
+.angle-wizard-overlay-item.include text {
+  stroke: rgba(16, 185, 129, 0.95);
+  fill: rgba(16, 185, 129, 0.95);
+}
+
+.angle-wizard-overlay-item.omit line,
+.angle-wizard-overlay-item.omit circle,
+.angle-wizard-overlay-item.omit text {
+  stroke: rgba(239, 68, 68, 0.95);
+  fill: rgba(239, 68, 68, 0.95);
+}
+
 /* ── Exercise badges ─────────────────────────────────────────── */
 .exercise-search { width: 100%; margin-bottom: 10px; }
 

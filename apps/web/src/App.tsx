@@ -1303,6 +1303,16 @@ function buildAutoSuggestedAngleCheckDrafts(
   }
 
   const definitions: AngleDef[] = [
+    // ── ANTEPENULTIMATE_CONTACT ─────────────────────────────────────────────
+    { label: "Rodilla izq. en Antepenúltimo", pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "ANTEPENULTIMATE_CONTACT", phase: "Antepenúltimo" },
+    { label: "Rodilla der. en Antepenúltimo", pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "ANTEPENULTIMATE_CONTACT", phase: "Antepenúltimo" },
+    { label: "Cadera izq. en Antepenúltimo",  pointA: "LEFT_SHOULDER",  vertex: "LEFT_HIP",    pointC: "LEFT_KNEE",   anchorEventType: "ANTEPENULTIMATE_CONTACT", phase: "Antepenúltimo" },
+    { label: "Cadera der. en Antepenúltimo",  pointA: "RIGHT_SHOULDER", vertex: "RIGHT_HIP",   pointC: "RIGHT_KNEE",  anchorEventType: "ANTEPENULTIMATE_CONTACT", phase: "Antepenúltimo" },
+    // ── PENULTIMATE_CONTACT ─────────────────────────────────────────────────
+    { label: "Rodilla izq. en Penúltimo",     pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "PENULTIMATE_CONTACT", phase: "Penúltimo" },
+    { label: "Rodilla der. en Penúltimo",     pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "PENULTIMATE_CONTACT", phase: "Penúltimo" },
+    { label: "Cadera izq. en Penúltimo",      pointA: "LEFT_SHOULDER",  vertex: "LEFT_HIP",    pointC: "LEFT_KNEE",   anchorEventType: "PENULTIMATE_CONTACT", phase: "Penúltimo" },
+    { label: "Cadera der. en Penúltimo",      pointA: "RIGHT_SHOULDER", vertex: "RIGHT_HIP",   pointC: "RIGHT_KNEE",  anchorEventType: "PENULTIMATE_CONTACT", phase: "Penúltimo" },
     // ── DIP ──────────────────────────────────────────────────────────────────
     { label: "Rodilla izq. en DIP",          pointA: "LEFT_HIP",       vertex: "LEFT_KNEE",   pointC: "LEFT_ANKLE",  anchorEventType: "DIP", phase: "Dip" },
     { label: "Rodilla der. en DIP",          pointA: "RIGHT_HIP",      vertex: "RIGHT_KNEE",  pointC: "RIGHT_ANKLE", anchorEventType: "DIP", phase: "Dip" },
@@ -2459,6 +2469,61 @@ export default function App() {
 
     return getReferencePoseFrame(selectedTechnique?.proLandmarks, angleWizardActiveEventFrameIndex)?.timestampMs ?? null;
   }, [angleWizardActiveEventFrameIndex, selectedTechnique?.proLandmarks]);
+
+  const angleWizardActiveEventFrame = useMemo(
+    () => getReferencePoseFrame(selectedTechnique?.proLandmarks, angleWizardActiveEventFrameIndex ?? 0),
+    [angleWizardActiveEventFrameIndex, selectedTechnique?.proLandmarks],
+  );
+
+  const angleWizardPreviewOverlays = useMemo(() => {
+    if (!angleWizard.open || angleWizard.phase !== "review-angles") {
+      return [] as Array<{
+        id: string;
+        include: boolean;
+        ax: number;
+        ay: number;
+        vx: number;
+        vy: number;
+        cx: number;
+        cy: number;
+        measuredLabel: string;
+      }>;
+    }
+
+    return angleWizard.groups[angleWizard.groupIndex]?.angles
+      .map((item, index) => {
+        const pointA = getLandmarkPoint(angleWizardActiveEventFrame, item.draft.pointA);
+        const vertex = getLandmarkPoint(angleWizardActiveEventFrame, item.draft.vertex);
+        const pointC = getLandmarkPoint(angleWizardActiveEventFrame, item.draft.pointC);
+        if (!pointA || !vertex || !pointC) {
+          return null;
+        }
+
+        const measuredDeg = measureAngleDegrees(pointA, vertex, pointC);
+        return {
+          id: item.draft.id,
+          include: item.include,
+          ax: pointA.x,
+          ay: pointA.y,
+          vx: clampNumber(vertex.x + (index % 2 === 0 ? -0.01 : 0.01), 0.01, 0.99),
+          vy: clampNumber(vertex.y, 0.01, 0.99),
+          cx: pointC.x,
+          cy: pointC.y,
+          measuredLabel: measuredDeg !== null ? `${measuredDeg}°` : "s/d",
+        };
+      })
+      .filter((overlay): overlay is {
+        id: string;
+        include: boolean;
+        ax: number;
+        ay: number;
+        vx: number;
+        vy: number;
+        cx: number;
+        cy: number;
+        measuredLabel: string;
+      } => Boolean(overlay)) ?? [];
+  }, [angleWizard, angleWizardActiveEventFrame]);
 
   const previewBiomechanicsConfig = useMemo(
     () => serializeTechniqueBiomechanicsForm(
@@ -9441,7 +9506,7 @@ export default function App() {
 
                 {angleWizard.open ? (
                   <div
-                    className="modal-overlay"
+                    className="modal-overlay angle-wizard-overlay"
                     role="dialog"
                     aria-modal="true"
                     onClick={(event) => {
@@ -9450,7 +9515,7 @@ export default function App() {
                       }
                     }}
                   >
-                    <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
+                    <div className="modal-panel angle-wizard-panel" onClick={(event) => event.stopPropagation()}>
                       <div className="modal-header">
                         <div>
                           <p className="eyebrow">Autodetectar ángulos</p>
@@ -9526,17 +9591,35 @@ export default function App() {
                                 <span className="helper-text">
                                   Frame {angleWizardActiveEventFrameIndex !== null ? angleWizardActiveEventFrameIndex + 1 : "-"} · {formatReferenceFrameLabel(angleWizardActiveEventTimestampMs)}
                                 </span>
-                                <video
-                                  key={`angle-wizard-preview-${angleWizardActiveEventFrameIndex}`}
-                                  controls
-                                  preload="metadata"
-                                  style={{ width: "100%", borderRadius: 16, marginTop: 12 }}
-                                  src={selectedReferenceVideoUrl}
-                                  onLoadedMetadata={(event) => {
-                                    event.currentTarget.currentTime = angleWizardActiveEventTimestampMs / 1000;
-                                    event.currentTarget.pause();
-                                  }}
-                                />
+                                <div className="angle-wizard-video-shell">
+                                  <video
+                                    key={`angle-wizard-preview-${angleWizardActiveEventFrameIndex}`}
+                                    controls
+                                    preload="metadata"
+                                    className="angle-wizard-video"
+                                    src={selectedReferenceVideoUrl}
+                                    onLoadedMetadata={(event) => {
+                                      event.currentTarget.currentTime = angleWizardActiveEventTimestampMs / 1000;
+                                      event.currentTarget.pause();
+                                    }}
+                                  />
+                                  <svg className="angle-wizard-overlay-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+                                    {angleWizardPreviewOverlays.map((overlay) => (
+                                      <g key={overlay.id} className={`angle-wizard-overlay-item${overlay.include ? " include" : " omit"}`}>
+                                        <line x1={overlay.ax * 1000} y1={overlay.ay * 1000} x2={overlay.vx * 1000} y2={overlay.vy * 1000} />
+                                        <line x1={overlay.vx * 1000} y1={overlay.vy * 1000} x2={overlay.cx * 1000} y2={overlay.cy * 1000} />
+                                        <circle cx={overlay.vx * 1000} cy={overlay.vy * 1000} r={7} />
+                                        <text x={overlay.vx * 1000 + 10} y={overlay.vy * 1000 - 10}>{overlay.measuredLabel}</text>
+                                      </g>
+                                    ))}
+                                  </svg>
+                                </div>
+                                {angleWizardPreviewOverlays.length ? (
+                                  <div className="chip-row" style={{ marginTop: 8 }}>
+                                    <span className="soft-chip">Verde = incluido</span>
+                                    <span className="soft-chip">Rojo = omitido</span>
+                                  </div>
+                                ) : null}
                                 <div className="chip-row" style={{ marginTop: 10 }}>
                                   <button
                                     type="button"
