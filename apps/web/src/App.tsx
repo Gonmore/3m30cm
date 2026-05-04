@@ -8,6 +8,7 @@ import {
 } from "./biomechanicsEventDetection";
 import { buildReferenceBiomechanicsMeasurementsPreview } from "./biomechanicsReferenceMeasurements";
 import { BiomechanicsVisualEditor } from "./components/BiomechanicsVisualEditor";
+import { JumpHeightDebugModal } from "./components/JumpHeightDebugModal";
 import { extractTechniquePoseSequence, type TechniquePoseFrame, type TechniqueProLandmarks } from "./techniquePoseExtraction";
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
@@ -2326,6 +2327,7 @@ export default function App() {
   const [selectedTemplateCode, setSelectedTemplateCode] = useState<string>(templateCode);
   const [templateForm, setTemplateForm] = useState<TemplateFormState>(emptyTemplateForm);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [jumpHeightDebugOpen, setJumpHeightDebugOpen] = useState(false);
   const [templateTechniques, setTemplateTechniques] = useState<ProgramTechniqueRecord[]>([]);
   const [selectedTechniqueId, setSelectedTechniqueId] = useState<string>("");
   const [templateTechniqueForm, setTemplateTechniqueForm] = useState<TechniqueFormState>(emptyTechniqueForm);
@@ -9405,6 +9407,14 @@ export default function App() {
                             {typeof referenceBiomechanicsPreview.jumpHeight.disagreementCm === "number" ? (
                               <span className="biomechanics-badge">Diferencia: {referenceBiomechanicsPreview.jumpHeight.disagreementCm.toFixed(1)} cm</span>
                             ) : null}
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              style={{ marginLeft: "auto", fontSize: "0.78rem", padding: "4px 12px" }}
+                              onClick={() => setJumpHeightDebugOpen(true)}
+                            >
+                              🔍 Diagnóstico
+                            </button>
                           </div>
                           <div className="biomechanics-debug-list">
                             {referenceBiomechanicsPreview.jumpHeight.methods.length ? referenceBiomechanicsPreview.jumpHeight.methods.map((method) => (
@@ -9426,6 +9436,14 @@ export default function App() {
                             </div>
                           ) : null}
                         </article>
+                      ) : null}
+
+                      {jumpHeightDebugOpen && referenceBiomechanicsPreview.jumpHeight && selectedTechnique?.proLandmarks ? (
+                        <JumpHeightDebugModal
+                          jumpHeight={referenceBiomechanicsPreview.jumpHeight}
+                          landmarks={selectedTechnique.proLandmarks}
+                          onClose={() => setJumpHeightDebugOpen(false)}
+                        />
                       ) : null}
 
                       {referenceBiomechanicsPreview.cameraMotion ? (

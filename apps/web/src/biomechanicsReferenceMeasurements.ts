@@ -92,6 +92,58 @@ export interface ReferenceJumpHeightMethodPreview {
   dipDepthCm?: number | null;
   /** Jump height divided by dip depth (dimensionless efficiency ratio). CENTER_OF_MASS only. */
   takeoffEfficiency?: number | null;
+  /** Debug data for the visual inspector modal. */
+  debug?: ReferenceJumpHeightMethodDebug | null;
+}
+
+/** Raw intermediate values exposed for the visual debug inspector. */
+export interface ReferenceJumpHeightMethodDebug {
+  // FLIGHT_TIME
+  flightTime?: {
+    startEventType: string;
+    startFrameIndex: number;
+    landingFrameIndex: number;
+    apexFrameIndex: number | null;
+    startTimeMs: number | null;
+    landingTimeMs: number | null;
+    apexTimeMs: number | null;
+    playbackFactor: number;
+    ascentTimeSec: number | null;
+    totalFlightTimeSec: number | null;
+    ascentHeightCm: number | null;
+    totalFlightHeightCm: number | null;
+  };
+  // CENTER_OF_MASS
+  centerOfMass?: {
+    dipFrameIndex: number;
+    apexFrameIndex: number;
+    dipRawComY: number | null;
+    apexRawComY: number | null;
+    groundY: number | null;
+    pxPerCm: number | null;
+    scaleSource: "rim" | "body-height";
+    comDelta: number | null;
+    // landmark positions at DIP frame (normalized 0-1)
+    dipLandmarks: { lhipX: number | null; lhipY: number | null; rhipX: number | null; rhipY: number | null; lshX: number | null; lshY: number | null; rshX: number | null; rshY: number | null };
+    // landmark positions at APEX frame
+    apexLandmarks: { lhipX: number | null; lhipY: number | null; rhipX: number | null; rhipY: number | null; lshX: number | null; lshY: number | null; rshX: number | null; rshY: number | null };
+  };
+  // RIM_REFERENCE
+  rimReference?: {
+    apexFrameIndex: number;
+    athleteX: number | null;
+    headY: number | null;
+    heelY: number | null;
+    rimXLeft: number | null;
+    rimYLeft: number | null;
+    rimXRight: number | null;
+    rimYRight: number | null;
+    yRim305AtAthlete: number | null;
+    pxPerCm: number | null;
+    rimClearanceCm: number | null;
+    // all body landmarks at APEX (normalized)
+    apexLandmarks: Array<{ x: number; y: number } | null>;
+  };
 }
 
 export interface ReferenceJumpHeightPreview {
@@ -884,6 +936,22 @@ function buildFlightTimeCandidatePreview(
     playbackSpeedRatio: roundTo(playbackFactor, 3),
     internalDisagreementCm: typeof internalDisagreementCm === "number" ? roundTo(internalDisagreementCm) : null,
     notes,
+    debug: {
+      flightTime: {
+        startEventType: startEvent.eventType,
+        startFrameIndex: startEvent.frameIndex,
+        landingFrameIndex: landingEvent.frameIndex,
+        apexFrameIndex: apexEvent?.frameIndex ?? null,
+        startTimeMs: typeof startTimeSeconds === "number" ? startTimeSeconds * 1000 : null,
+        landingTimeMs: typeof landingTimeSeconds === "number" ? landingTimeSeconds * 1000 : null,
+        apexTimeMs: typeof apexTimeSeconds === "number" ? apexTimeSeconds * 1000 : null,
+        playbackFactor,
+        ascentTimeSec: ascentTimeSeconds,
+        totalFlightTimeSec: totalFlightTimeSeconds,
+        ascentHeightCm: ascentHeightCm !== null ? roundTo(ascentHeightCm) : null,
+        totalFlightHeightCm: totalFlightHeightCm !== null ? roundTo(totalFlightHeightCm) : null,
+      },
+    },
   };
 }
 
@@ -1190,6 +1258,38 @@ function buildCenterOfMassMethodPreview(
     comHeightAboveGroundCm,
     dipDepthCm,
     takeoffEfficiency,
+    debug: {
+      centerOfMass: {
+        dipFrameIndex: dipEvent.frameIndex,
+        apexFrameIndex: apexEvent.frameIndex,
+        dipRawComY: comY_dip,
+        apexRawComY: comY_apex,
+        groundY: groundY_dip,
+        pxPerCm,
+        scaleSource,
+        comDelta,
+        dipLandmarks: {
+          lhipX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_HIP),
+          lhipY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_HIP),
+          rhipX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_HIP),
+          rhipY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_HIP),
+          lshX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
+          lshY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
+          rshX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
+          rshY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
+        },
+        apexLandmarks: {
+          lhipX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_HIP),
+          lhipY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_HIP),
+          rhipX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_HIP),
+          rhipY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_HIP),
+          lshX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
+          lshY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
+          rshX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
+          rshY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
+        },
+      },
+    },
   };
 }
 
@@ -1318,6 +1418,22 @@ function buildRimReferenceMethodPreview(
       confidence: roundTo(Math.max(0.55, Math.min(0.92, 0.55 + rimRef.confidence * 0.37)), 2),
       playbackSpeedRatio: null,
       notes: `Perspectiva por dos extremos del aro. Cabeza en APEX: ${clearanceStr} (línea de 305 cm). Altura = 305 − estatura + borrado = ${roundTo(valueCm)} cm.`,
+      debug: {
+        rimReference: {
+          apexFrameIndex: apexEvent.frameIndex,
+          athleteX,
+          headY,
+          heelY,
+          rimXLeft: xLeft,
+          rimYLeft: yLeft,
+          rimXRight: xRight,
+          rimYRight: yRight,
+          yRim305AtAthlete: yRim305,
+          pxPerCm,
+          rimClearanceCm: roundTo(rimClearanceCm),
+          apexLandmarks: landmarks.frames[apexEvent.frameIndex]?.landmarks ?? [],
+        },
+      },
     };
   }
 

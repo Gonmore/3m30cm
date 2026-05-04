@@ -675,6 +675,173 @@ textarea { resize: vertical; }
   font-size: 0.84rem;
   line-height: 1.45;
 }
+
+/* ── Jump Height Debug Modal (jhdm) ───────────────────────── */
+.jhdm-panel {
+  width: min(860px, 100%);
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  padding: 0;
+}
+.jhdm-consensus-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(42, 157, 143, 0.05);
+}
+.jhdm-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--line);
+  overflow-x: auto;
+}
+.jhdm-tab-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  transition: color 0.15s, border-color 0.15s;
+}
+.jhdm-tab-btn:hover { color: var(--ink); }
+.jhdm-tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.jhdm-tab-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-muted, #94a3b8);
+}
+.jhdm-tab-status-dot[data-status="OK"] { background: #22c55e; }
+.jhdm-tab-status-dot[data-status="MISSING_EVENT"],
+.jhdm-tab-status-dot[data-status="MISSING_LANDMARK"],
+.jhdm-tab-status-dot[data-status="LOW_CONFIDENCE"] { background: #fb923c; }
+.jhdm-tab-status-dot[data-status="PENDING"] { background: #94a3b8; }
+.jhdm-tab-value { font-size: 0.78rem; color: var(--ink-soft); }
+.jhdm-tab-value-fail { color: #fb923c; }
+.jhdm-tab-content { padding: 18px 22px 24px; }
+.jhdm-tab-body { display: grid; gap: 18px; }
+.jhdm-result-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; }
+.jhdm-status-badge[data-status="OK"] { background: rgba(34, 197, 94, 0.15); color: #16a34a; font-weight: 600; }
+.jhdm-status-badge[data-status="MISSING_EVENT"],
+.jhdm-status-badge[data-status="MISSING_LANDMARK"],
+.jhdm-status-badge[data-status="LOW_CONFIDENCE"] { background: rgba(251, 146, 60, 0.15); color: #ea580c; }
+.jhdm-notes {
+  margin: 0;
+  font-size: 0.83rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+.jhdm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.jhdm-table th, .jhdm-table td {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.jhdm-table th {
+  font-weight: 600;
+  width: 38%;
+  background: rgba(0,0,0,0.025);
+  color: var(--ink-soft);
+}
+.jhdm-formula-hint {
+  font-size: 0.77rem;
+  color: var(--ink-muted, #94a3b8);
+  font-family: monospace;
+  margin: 0;
+}
+/* CoM visualization */
+.jhdm-com-viz-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.jhdm-frame-viz {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.jhdm-frame-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin: 0;
+}
+.jhdm-frame-svg {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.03);
+}
+.jhdm-frame-legend {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+}
+.jhdm-legend-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.jhdm-delta-arrow-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 60px;
+}
+.jhdm-delta-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #f59e0b;
+  text-align: center;
+}
+.jhdm-up-arrow { font-size: 2rem; color: #f59e0b; }
+/* Rim visualization */
+.jhdm-rim-viz {
+  display: grid;
+  gap: 8px;
+}
+.jhdm-rim-svg {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.03);
+  display: block;
+}
+.jhdm-rim-result {
+  font-size: 0.85rem;
+  margin: 0;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.jhdm-no-debug {
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+  font-style: italic;
+  margin: 0;
+}
+
 .biomechanics-debug-selected-line {
   color: var(--ink) !important;
   font-weight: 600;
