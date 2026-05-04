@@ -261,14 +261,13 @@ Se creó la infraestructura de despliegue para backend y web (las apps móviles 
 
 ---
 
-### 14. Biomecanica: baseline estricto en TOE_OFF y refinamiento de deteccion
+### 14. Biomecanica: baseline en DIP y referencia de aro simplificada
 
-Se aplico un ajuste biomecanico para evitar subestimaciones cuando la camara rota o se traslada durante el gesto:
+Se ajusto la medicion biomecanica para estabilizar los resultados del salto vertical:
 
-1. `CENTER_OF_MASS` en `apps/web/src/biomechanicsReferenceMeasurements.ts` ya no usa fallback a `DIP`.
-2. `RIM_REFERENCE` en el mismo modulo tampoco usa fallback a `DIP`.
-3. Ambos metodos ahora exigen `TOE_OFF` + `APEX` y toman `TOE_OFF` como baseline unico.
-4. La deteccion automatica de `TOE_OFF` en `apps/web/src/biomechanicsEventDetection.ts` se refino para buscar el ultimo frame posterior a `DIP` donde ambas puntas (`LEFT_FOOT_INDEX` y `RIGHT_FOOT_INDEX`) siguen en apoyo inmediatamente antes del airborne.
+1. `CENTER_OF_MASS` en `apps/web/src/biomechanicsReferenceMeasurements.ts` ahora usa `DIP` como baseline unico.
+2. `CENTER_OF_MASS` escala por estatura del atleta y mide elevacion del centro hasta `APEX`.
+3. `RIM_REFERENCE` se simplifico para usar la cabeza en `APEX` respecto al aro a 305 cm, y convertir salto como `altura_cabeza_en_apex - estatura`.
 
 Validacion ejecutada durante este ajuste:
 
