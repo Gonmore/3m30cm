@@ -910,6 +910,22 @@ function buildFlightTimeCandidatePreview(
       notes: typeof valueCm === "number" && valueCm > 200
         ? `Tiempo de vuelo da ${roundTo(valueCm)} cm, fuera del rango físico. Verifica que DIP/TOE_OFF y LANDING estén correctamente ubicados.`
         : "No se pudo reconstruir un tiempo de vuelo válido para medir la altura.",
+      debug: {
+        flightTime: {
+          startEventType: startEvent.eventType,
+          startFrameIndex: startEvent.frameIndex,
+          landingFrameIndex: landingEvent.frameIndex,
+          apexFrameIndex: apexEvent?.frameIndex ?? null,
+          startTimeMs: typeof startTimeSeconds === "number" ? startTimeSeconds * 1000 : null,
+          landingTimeMs: typeof landingTimeSeconds === "number" ? landingTimeSeconds * 1000 : null,
+          apexTimeMs: typeof apexTimeSeconds === "number" ? apexTimeSeconds * 1000 : null,
+          playbackFactor,
+          ascentTimeSec: ascentTimeSeconds,
+          totalFlightTimeSec: totalFlightTimeSeconds,
+          ascentHeightCm: ascentHeightCm !== null ? roundTo(ascentHeightCm) : null,
+          totalFlightHeightCm: totalFlightHeightCm !== null ? roundTo(totalFlightHeightCm) : null,
+        },
+      },
     };
   }
 
@@ -1091,6 +1107,7 @@ function buildFlightTimeMethodPreview(
     confidence: roundTo(confidence),
     playbackSpeedRatio: selectedCandidate.playbackSpeedRatio,
     notes,
+    debug: selectedCandidate.debug ?? null,
   };
 }
 
@@ -1200,6 +1217,41 @@ function buildCenterOfMassMethodPreview(
 
   // Y crece hacia abajo en imagen; DIP (abajo) > APEX (arriba) → delta > 0
   const comDelta = comY_dip - comY_apex;
+
+  // Helper to build CoM debug block (used in both OK and error returns)
+  const buildComDebug = () => ({
+    centerOfMass: {
+      dipFrameIndex: dipEvent.frameIndex,
+      apexFrameIndex: apexEvent.frameIndex,
+      dipRawComY: comY_dip,
+      apexRawComY: comY_apex,
+      groundY: groundY_dip,
+      pxPerCm,
+      scaleSource,
+      comDelta,
+      dipLandmarks: {
+        lhipX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_HIP),
+        lhipY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_HIP),
+        rhipX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_HIP),
+        rhipY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_HIP),
+        lshX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
+        lshY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
+        rshX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
+        rshY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
+      },
+      apexLandmarks: {
+        lhipX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_HIP),
+        lhipY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_HIP),
+        rhipX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_HIP),
+        rhipY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_HIP),
+        lshX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
+        lshY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
+        rshX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
+        rshY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
+      },
+    },
+  });
+
   if (comDelta <= 0) {
     return {
       method: "CENTER_OF_MASS",
@@ -1208,6 +1260,7 @@ function buildCenterOfMassMethodPreview(
       confidence: null,
       playbackSpeedRatio: null,
       notes: "El centro de masas no subió entre DIP y APEX. Verifica que los eventos estén bien ubicados.",
+      debug: buildComDebug(),
     };
   }
 
@@ -1222,6 +1275,7 @@ function buildCenterOfMassMethodPreview(
       confidence: null,
       playbackSpeedRatio: null,
       notes: `Valor calculado (${roundTo(valueCm)} cm) fuera del rango físico posible (0–200 cm). La calibración de escala puede ser incorrecta.`,
+      debug: buildComDebug(),
     };
   }
   // Altura del CoM sobre el suelo en APEX (aprox., raw — cámara puede haber
@@ -1258,38 +1312,7 @@ function buildCenterOfMassMethodPreview(
     comHeightAboveGroundCm,
     dipDepthCm,
     takeoffEfficiency,
-    debug: {
-      centerOfMass: {
-        dipFrameIndex: dipEvent.frameIndex,
-        apexFrameIndex: apexEvent.frameIndex,
-        dipRawComY: comY_dip,
-        apexRawComY: comY_apex,
-        groundY: groundY_dip,
-        pxPerCm,
-        scaleSource,
-        comDelta,
-        dipLandmarks: {
-          lhipX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_HIP),
-          lhipY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_HIP),
-          rhipX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_HIP),
-          rhipY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_HIP),
-          lshX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
-          lshY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
-          rshX: getRawLandmarkX(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
-          rshY: getRawLandmarkY(landmarks, dipEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
-        },
-        apexLandmarks: {
-          lhipX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_HIP),
-          lhipY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_HIP),
-          rhipX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_HIP),
-          rhipY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_HIP),
-          lshX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
-          lshY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.LEFT_SHOULDER),
-          rshX: getRawLandmarkX(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
-          rshY: getRawLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.RIGHT_SHOULDER),
-        },
-      },
-    },
+    debug: buildComDebug(),
   };
 }
 
@@ -1404,6 +1427,22 @@ function buildRimReferenceMethodPreview(
         confidence: null,
         playbackSpeedRatio: null,
         notes: `Altura calculada (${roundTo(valueCm)} cm) fuera del rango físico (0–200 cm). Verifica la detección del aro y la ubicación del APEX.`,
+        debug: {
+          rimReference: {
+            apexFrameIndex: apexEvent.frameIndex,
+            athleteX,
+            headY,
+            heelY,
+            rimXLeft: xLeft,
+            rimYLeft: yLeft,
+            rimXRight: xRight,
+            rimYRight: yRight,
+            yRim305AtAthlete: yRim305,
+            pxPerCm,
+            rimClearanceCm: roundTo(rimClearanceCm),
+            apexLandmarks: landmarks.frames[apexEvent.frameIndex]?.landmarks ?? [],
+          },
+        },
       };
     }
 
