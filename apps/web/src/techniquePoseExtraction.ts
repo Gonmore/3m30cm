@@ -31,6 +31,12 @@ export interface TechniqueRimReference {
   detected: boolean;
   x: number;
   y: number;
+  /** Leftmost point of the detected rim blob (normalized). Perspective base point (backboard end). */
+  xLeft: number;
+  yLeft: number;
+  /** Rightmost point of the detected rim blob (normalized). Perspective tip point (front of rim). */
+  xRight: number;
+  yRight: number;
   confidence: number;
   referenceFrameIndex: number;
   method: "orange-rim-heuristic";
@@ -80,6 +86,10 @@ interface FrameAnalysis {
   rimCandidate: {
     x: number;
     y: number;
+    xLeft: number;
+    yLeft: number;
+    xRight: number;
+    yRight: number;
     confidence: number;
   } | null;
 }
@@ -115,6 +125,10 @@ function detectRimCandidate(
     score: 0,
     x: 0,
     y: 0,
+    xLeft: 0,
+    yLeft: 0,
+    xRight: 0,
+    yRight: 0,
     confidence: 0,
   };
 
@@ -145,6 +159,10 @@ function detectRimCandidate(
       let maxX = x;
       let minY = y;
       let maxYLocal = y;
+      let leftmostYSum = 0;
+      let leftmostYCount = 0;
+      let rightmostYSum = 0;
+      let rightmostYCount = 0;
 
       while (queue.length) {
         const next = queue.pop();
@@ -156,8 +174,22 @@ function detectRimCandidate(
         area += 1;
         sumX += currentX;
         sumY += currentY;
-        minX = Math.min(minX, currentX);
-        maxX = Math.max(maxX, currentX);
+        if (currentX < minX) {
+          minX = currentX;
+          leftmostYSum = currentY;
+          leftmostYCount = 1;
+        } else if (currentX === minX) {
+          leftmostYSum += currentY;
+          leftmostYCount += 1;
+        }
+        if (currentX > maxX) {
+          maxX = currentX;
+          rightmostYSum = currentY;
+          rightmostYCount = 1;
+        } else if (currentX === maxX) {
+          rightmostYSum += currentY;
+          rightmostYCount += 1;
+        }
         minY = Math.min(minY, currentY);
         maxYLocal = Math.max(maxYLocal, currentY);
 
@@ -208,6 +240,10 @@ function detectRimCandidate(
       best.score = score;
       best.x = sumX / area;
       best.y = sumY / area;
+      best.xLeft = minX;
+      best.yLeft = leftmostYCount > 0 ? leftmostYSum / leftmostYCount : sumY / area;
+      best.xRight = maxX;
+      best.yRight = rightmostYCount > 0 ? rightmostYSum / rightmostYCount : sumY / area;
       best.confidence = clampNumber((area / 120) * (aspectRatio / 3.5) * (1 - Math.abs(coverage - 0.4)), 0.05, 0.95);
     }
   }
@@ -219,6 +255,10 @@ function detectRimCandidate(
   return {
     x: best.x / width,
     y: best.y / height,
+    xLeft: best.xLeft / width,
+    yLeft: best.yLeft / height,
+    xRight: best.xRight / width,
+    yRight: best.yRight / height,
     confidence: Number(best.confidence.toFixed(3)),
   };
 }
@@ -558,9 +598,10 @@ function buildCameraTracking(
 }
 
 function buildRimReference(analyses: FrameAnalysis[]): TechniqueRimReference | null {
+  type RimCandidate = NonNullable<FrameAnalysis["rimCandidate"]>;
   const candidates = analyses
     .map((analysis, frameIndex) => ({ frameIndex, candidate: analysis.rimCandidate }))
-    .filter((entry): entry is { frameIndex: number; candidate: { x: number; y: number; confidence: number } } => Boolean(entry.candidate));
+    .filter((entry): entry is { frameIndex: number; candidate: RimCandidate } => Boolean(entry.candidate));
 
   if (!candidates.length) {
     return null;
@@ -575,6 +616,10 @@ function buildRimReference(analyses: FrameAnalysis[]): TechniqueRimReference | n
 
   const weightedX = top.reduce((total, entry) => total + entry.candidate.x * entry.candidate.confidence, 0) / weightTotal;
   const weightedY = top.reduce((total, entry) => total + entry.candidate.y * entry.candidate.confidence, 0) / weightTotal;
+  const weightedXLeft = top.reduce((total, entry) => total + entry.candidate.xLeft * entry.candidate.confidence, 0) / weightTotal;
+  const weightedYLeft = top.reduce((total, entry) => total + entry.candidate.yLeft * entry.candidate.confidence, 0) / weightTotal;
+  const weightedXRight = top.reduce((total, entry) => total + entry.candidate.xRight * entry.candidate.confidence, 0) / weightTotal;
+  const weightedYRight = top.reduce((total, entry) => total + entry.candidate.yRight * entry.candidate.confidence, 0) / weightTotal;
   const averageConfidence = top.reduce((total, entry) => total + entry.candidate.confidence, 0) / top.length;
   const bestFrame = top[0];
 
@@ -586,6 +631,10 @@ function buildRimReference(analyses: FrameAnalysis[]): TechniqueRimReference | n
     detected: true,
     x: Number(weightedX.toFixed(4)),
     y: Number(weightedY.toFixed(4)),
+    xLeft: Number(weightedXLeft.toFixed(4)),
+    yLeft: Number(weightedYLeft.toFixed(4)),
+    xRight: Number(weightedXRight.toFixed(4)),
+    yRight: Number(weightedYRight.toFixed(4)),
     confidence: Number(averageConfidence.toFixed(3)),
     referenceFrameIndex: bestFrame.frameIndex,
     method: "orange-rim-heuristic",
