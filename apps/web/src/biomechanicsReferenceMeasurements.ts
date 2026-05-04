@@ -86,6 +86,12 @@ export interface ReferenceJumpHeightMethodPreview {
   confidence: number | null;
   playbackSpeedRatio: number | null;
   notes: string | null;
+  /** CoM height above the ground at APEX (cm). CENTER_OF_MASS method only. */
+  comHeightAboveGroundCm?: number | null;
+  /** Drop of CoM from SETUP to DIP (cm). CENTER_OF_MASS method only. */
+  dipDepthCm?: number | null;
+  /** Jump height divided by dip depth (dimensionless efficiency ratio). CENTER_OF_MASS only. */
+  takeoffEfficiency?: number | null;
 }
 
 export interface ReferenceJumpHeightPreview {
@@ -437,18 +443,31 @@ function calculateCenterOfMassHeightFromGround(
   return groundReferenceY - centerOfMassY;
 }
 
-function getRimYAtFrame(landmarks: TechniqueProLandmarks, frameIndex: number) {
-  const rimReference = landmarks.rimReference;
-  if (!rimReference?.detected) {
+/**
+ * Returns the basketball rim's Y position in world (camera-compensated) coordinates.
+ * This is a fixed constant in world space: it doesn't change frame-to-frame.
+ *
+ * The rim was detected at `rimReference.referenceFrameIndex` with a raw (pixel)
+ * Y value. We must decompensate using the camera transform at that frame to
+ * obtain the stable world-coord value, then all subsequent calculations can
+ * simply use this constant alongside other compensated landmark coords.
+ */
+function getRimWorldY(landmarks: TechniqueProLandmarks): number | null {
+  const rimRef = landmarks.rimReference;
+  if (!rimRef?.detected) {
     return null;
   }
 
-  const transform = getCameraTrackingTransform(landmarks, frameIndex);
-  if (!transform || !Number.isFinite(transform.scale) || transform.scale <= 0) {
-    return rimReference.y;
+  // If we have stored camera tracking, convert from detection-frame raw coords
+  // to world coords by applying the inverse transform at the detection frame.
+  const refTransform = landmarks.cameraTracking?.frameTransforms[rimRef.referenceFrameIndex] ?? null;
+  if (!refTransform || !Number.isFinite(refTransform.scale) || refTransform.scale <= 0) {
+    // No transform available: assume detection frame ≈ reference frame (frame 0)
+    return rimRef.y;
   }
 
-  return ((rimReference.y - 0.5) * transform.scale + transform.translationY) + 0.5;
+  // Inverse of forward transform: raw → world
+  return ((rimRef.y - 0.5) - refTransform.translationY) / refTransform.scale + 0.5;
 }
 
 function buildCameraMotionPreview(
@@ -485,7 +504,7 @@ function buildCameraMotionPreview(
       scaleDriftPercent,
       stabilityScore,
       status,
-      notes: `Seguimiento de fondo por parches fuera del atleta. Promedio de puntos rastreados: ${roundTo(averageTrackedPointCount, 1)}.`,
+      notes: `Seguimiento de fondo por parches del plano trasero. Los porcentajes miden cuánto se movió la cámara respecto al tamaño del fotograma: horizontal=${horizontalDriftPercent}% del ancho, vertical=${verticalDriftPercent}% del alto, zoom=${scaleDriftPercent}%. Promedio de puntos rastreados: ${roundTo(averageTrackedPointCount, 1)}.`,
     };
   }
 
@@ -529,7 +548,7 @@ function buildCameraMotionPreview(
     scaleDriftPercent,
     stabilityScore,
     status,
-    notes: "Proxy de cámara derivado de landmarks: deriva horizontal del encuadre, deriva vertical del suelo y cambio aparente de escala. No mide la cámara directamente, pero sirve para ponderar la confianza del Centro de Masas.",
+    notes: `Estimación de cámara derivada de landmarks (sin seguimiento de fondo). Los porcentajes representan fracciones del fotograma: horizontal=${horizontalDriftPercent !== null ? horizontalDriftPercent + "% del ancho" : "s/d"}, vertical=${verticalDriftPercent !== null ? verticalDriftPercent + "% del alto" : "s/d"}, zoom=${scaleDriftPercent !== null ? scaleDriftPercent + "%" : "s/d"}. Valores >5% en vertical indican movimiento de cámara que puede afectar el CoM.`,
   };
 }
 
@@ -965,10 +984,9 @@ function buildCenterOfMassMethodPreview(
 
   const dipEvent = eventsByType.get("DIP") ?? null;
   const apexEvent = eventsByType.get("APEX") ?? null;
-  const landingEvent = eventsByType.get("LANDING") ?? null;
-  const baselineEvent = dipEvent;
+  const setupEvent = eventsByType.get("SETUP") ?? null;
 
-  if (!baselineEvent || !apexEvent) {
+  if (!dipEvent || !apexEvent) {
     return {
       method: "CENTER_OF_MASS",
       status: "MISSING_EVENT",
@@ -979,68 +997,114 @@ function buildCenterOfMassMethodPreview(
     };
   }
 
-  const baselineGroundReferenceY = getGroundReferenceY(landmarks, baselineEvent.frameIndex);
-  const apexGroundReferenceY = interpolateGroundReferenceY(
-    landmarks,
-    apexEvent.frameIndex,
-    baselineEvent.frameIndex,
-    landingEvent?.frameIndex ?? null,
-  );
-  const baselineFrameBodyHeight = calculateVisibleBodyHeight(landmarks, baselineEvent.frameIndex);
-  const normalizedUnitsPerCm = baselineFrameBodyHeight !== null && baselineFrameBodyHeight > 0
-    ? baselineFrameBodyHeight / config.subjectHeightCm
-    : null;
-  const baselineCenterOfMassHeight = calculateCenterOfMassHeightFromGround(
-    landmarks,
-    baselineEvent.frameIndex,
-    baselineGroundReferenceY,
-  );
-  const apexCenterOfMassHeight = calculateCenterOfMassHeightFromGround(
-    landmarks,
-    apexEvent.frameIndex,
-    apexGroundReferenceY,
-  );
-  const cameraMotion = buildCameraMotionPreview(landmarks, eventsByType);
+  // ── Calibración: establecer factor px→cm en el frame DIP ──────────────────
+  // Referencia primaria:  Aro = 305 cm sobre el suelo (ancla métrica absoluta).
+  // Referencia secundaria: Estatura visible del atleta (relativa al video).
+  // Todas las coordenadas son "world" (compensadas por la cámara), por lo que
+  // el aro es un punto FIJO en world-space — no se mueve entre frames.
+  const rimWorldY = getRimWorldY(landmarks);
+  const groundY_dip = getGroundReferenceY(landmarks, dipEvent.frameIndex);
 
-  if (
-    normalizedUnitsPerCm === null
-    || baselineCenterOfMassHeight === null
-    || apexCenterOfMassHeight === null
-  ) {
+  let pxPerCm: number | null = null;
+  let scaleSource: "rim" | "body-height" = "body-height";
+  let scaleConfidence = 0.65;
+
+  if (rimWorldY !== null && groundY_dip !== null) {
+    const rimGroundDelta = groundY_dip - rimWorldY;
+    if (rimGroundDelta > 0.04) {
+      // rimGroundDelta en norm. units representa 305 cm reales
+      pxPerCm = rimGroundDelta / 305;
+      scaleSource = "rim";
+      scaleConfidence = Math.min(0.93, 0.60 + (landmarks.rimReference?.confidence ?? 0) * 0.40);
+    }
+  }
+
+  if (pxPerCm === null) {
+    const bodyHeight = calculateVisibleBodyHeight(landmarks, dipEvent.frameIndex);
+    if (bodyHeight !== null && bodyHeight > 0) {
+      pxPerCm = bodyHeight / config.subjectHeightCm;
+    }
+  }
+
+  if (pxPerCm === null || pxPerCm <= 0) {
     return {
       method: "CENTER_OF_MASS",
       status: "MISSING_LANDMARK",
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: "No se pudieron reconstruir landmarks suficientes para medir el centro de masas respecto al suelo.",
+      notes: "No se pudo establecer la calibración de escala para medir el centro de masas.",
     };
   }
 
-  const centerOfMassDeltaNormalized = apexCenterOfMassHeight - baselineCenterOfMassHeight;
-  if (normalizedUnitsPerCm <= 0 || centerOfMassDeltaNormalized <= 0) {
+  // ── Posición del CoM en world-coords (compensadas de cámara) ─────────────
+  // En world-space: Y_mundo es estable por la compensación de cámara, así que
+  // la diferencia CoM_DIP − CoM_APEX representa el ascenso real del cuerpo.
+  // NO se necesita interpolar el suelo en APEX; el delta del CoM es suficiente.
+  const comY_dip = getApproximateCenterOfMassY(landmarks, dipEvent.frameIndex);
+  const comY_apex = getApproximateCenterOfMassY(landmarks, apexEvent.frameIndex);
+
+  if (comY_dip === null || comY_apex === null) {
+    return {
+      method: "CENTER_OF_MASS",
+      status: "MISSING_LANDMARK",
+      valueCm: null,
+      confidence: null,
+      playbackSpeedRatio: null,
+      notes: "No se pudieron reconstruir landmarks de torso suficientes para medir el centro de masas.",
+    };
+  }
+
+  // Y crece hacia abajo en imagen; DIP (abajo) > APEX (arriba) → delta > 0
+  const comDelta = comY_dip - comY_apex;
+  if (comDelta <= 0) {
     return {
       method: "CENTER_OF_MASS",
       status: "LOW_CONFIDENCE",
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: "La medición del centro de masas no es fiable con los landmarks actuales del video.",
+      notes: "El centro de masas no subió entre DIP y APEX. Verifica que los eventos estén bien ubicados.",
     };
   }
 
-  const valueCm = centerOfMassDeltaNormalized / normalizedUnitsPerCm;
-  const interpolationNote = landingEvent
-    ? "El suelo durante el vuelo se interpoló entre despegue y aterrizaje para reducir el impacto de traslaciones verticales de cámara."
-    : "Se usó una referencia de suelo aproximada; si la cámara se desplaza durante el vuelo, la confianza baja.";
+  const valueCm = comDelta / pxPerCm;
+
+  // ── Campos de salida extendidos ───────────────────────────────────────────
+  // Altura del CoM sobre el suelo en APEX (cm)
+  const comHeightAboveGroundCm = groundY_dip !== null
+    ? roundTo((groundY_dip - comY_apex) / pxPerCm)
+    : null;
+
+  // Profundidad del DIP: cuánto bajó el CoM desde SETUP hasta DIP (cm)
+  let dipDepthCm: number | null = null;
+  if (setupEvent) {
+    const comY_setup = getApproximateCenterOfMassY(landmarks, setupEvent.frameIndex);
+    if (comY_setup !== null) {
+      // comY_dip > comY_setup significa que el CoM bajó → dipDepth positivo
+      dipDepthCm = roundTo((comY_dip - comY_setup) / pxPerCm);
+    }
+  }
+
+  // Eficiencia de despegue: altura ganada / profundidad del DIP
+  const takeoffEfficiency = typeof dipDepthCm === "number" && dipDepthCm > 2
+    ? roundTo(valueCm / dipDepthCm, 2)
+    : null;
+
+  const scaleNote = scaleSource === "rim"
+    ? `Calibración absoluta: aro a 305 cm (confianza aro: ${roundTo((landmarks.rimReference?.confidence ?? 0) * 100)}%).`
+    : `Calibración relativa: estatura visible del atleta (${config.subjectHeightCm} cm).`;
 
   return {
     method: "CENTER_OF_MASS",
     status: "OK",
     valueCm: roundTo(valueCm),
-    confidence: roundTo(Math.max(0.35, Math.min(0.92, (landingEvent ? 0.72 : 0.6) + ((cameraMotion.stabilityScore ?? 0.5) - 0.5) * 0.35)), 2),
+    confidence: roundTo(scaleConfidence, 2),
     playbackSpeedRatio: null,
-    notes: `Medición basada en la elevación del centro del sujeto entre ${baselineEvent.eventType} y APEX, escalada con la estatura del atleta. ${interpolationNote} Estabilidad de cámara estimada: ${cameraMotion.stabilityScore !== null ? cameraMotion.stabilityScore.toFixed(2) : "s/d"}.`,
+    notes: `Elevación del CoM (torso+hombros) desde DIP hasta APEX en world-coords compensadas. ${scaleNote}`,
+    comHeightAboveGroundCm,
+    dipDepthCm,
+    takeoffEfficiency,
   };
 }
 
@@ -1060,8 +1124,12 @@ function buildRimReferenceMethodPreview(
     };
   }
 
-  const rimReference = landmarks.rimReference;
-  if (!rimReference?.detected) {
+  // Rim en world-coords (compensadas de cámara) → punto fijo en el espacio.
+  // getRimWorldY() convierte la posición raw detectada al sistema de referencia
+  // estabilizado, igual que los landmarks compensados. Esto permite mezclar
+  // el aro con getLandmarkY() de forma coherente.
+  const rimWorldY = getRimWorldY(landmarks);
+  if (rimWorldY === null) {
     return {
       method: "RIM_REFERENCE",
       status: "PENDING",
@@ -1072,6 +1140,7 @@ function buildRimReferenceMethodPreview(
     };
   }
 
+  const dipEvent = eventsByType.get("DIP") ?? null;
   const apexEvent = eventsByType.get("APEX") ?? null;
   if (!apexEvent) {
     return {
@@ -1084,39 +1153,54 @@ function buildRimReferenceMethodPreview(
     };
   }
 
-  const apexGroundY = getRawGroundReferenceY(landmarks, apexEvent.frameIndex);
-  const apexHeadY = getRawHeadReferenceY(landmarks, apexEvent.frameIndex);
-  const apexRimY = getRimYAtFrame(landmarks, apexEvent.frameIndex);
-
-  if (
-    apexGroundY === null
-    || apexHeadY === null
-    || apexRimY === null
-  ) {
+  // Suelo de referencia en world-coords: usar DIP (pies en tierra, fiable).
+  // Si no hay DIP, usar el primer frame disponible.
+  const groundRefFrameIndex = dipEvent?.frameIndex ?? 0;
+  const groundY_ref = getGroundReferenceY(landmarks, groundRefFrameIndex);
+  if (groundY_ref === null) {
     return {
       method: "RIM_REFERENCE",
       status: "MISSING_LANDMARK",
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: "No hay datos suficientes de suelo, cabeza o aro para esta medición.",
+      notes: "No se pudo establecer la referencia del suelo para escalar la medición del aro.",
     };
   }
 
-  const apexDenominator = apexGroundY - apexRimY;
-  if (apexDenominator <= 0.005) {
+  const rimGroundDelta = groundY_ref - rimWorldY;
+  if (rimGroundDelta <= 0.04) {
     return {
       method: "RIM_REFERENCE",
       status: "LOW_CONFIDENCE",
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: "El aro quedó demasiado cerca del suelo en coordenadas normalizadas; no se puede escalar con fiabilidad.",
+      notes: "El aro y el suelo están demasiado próximos en world-coords. Verifica que el aro esté bien detectado.",
     };
   }
 
-  const apexHeadHeightCm = ((apexGroundY - apexHeadY) / apexDenominator) * 305;
-  const valueCm = apexHeadHeightCm - config.subjectHeightCm;
+  // Scale absoluta: rimGroundDelta norm_units = 305 cm reales
+  const pxPerCm = rimGroundDelta / 305;
+
+  // Cabeza (NARIZ) en world-coords en APEX
+  const headY_apex = getLandmarkY(landmarks, apexEvent.frameIndex, landmarkIndex.NOSE)
+    ?? getTopVisibleBodyPointY(landmarks, apexEvent.frameIndex);
+  if (headY_apex === null) {
+    return {
+      method: "RIM_REFERENCE",
+      status: "MISSING_LANDMARK",
+      valueCm: null,
+      confidence: null,
+      playbackSpeedRatio: null,
+      notes: "No hay datos de posición de cabeza (nariz) en APEX para esta medición.",
+    };
+  }
+
+  // Altura de la cabeza sobre el suelo en APEX (usando suelo de DIP como referencia)
+  const headHeightCm = (groundY_ref - headY_apex) / pxPerCm;
+  const valueCm = headHeightCm - config.subjectHeightCm;
+
   if (!Number.isFinite(valueCm) || valueCm <= 0) {
     return {
       method: "RIM_REFERENCE",
@@ -1124,18 +1208,18 @@ function buildRimReferenceMethodPreview(
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: "La altura derivada desde el aro no fue consistente en este video.",
+      notes: `Altura calculada (cabeza=${roundTo(headHeightCm)} cm, sujeto=${config.subjectHeightCm} cm) fuera de rango. Revisa la detección del aro y la ubicación del APEX.`,
     };
   }
 
-  const confidenceBase = rimReference.confidence;
+  const rimConfidence = landmarks.rimReference?.confidence ?? 0;
   return {
     method: "RIM_REFERENCE",
     status: "OK",
     valueCm: roundTo(valueCm),
-    confidence: roundTo(Math.max(0.5, Math.min(0.95, 0.55 + confidenceBase * 0.4))),
+    confidence: roundTo(Math.max(0.50, Math.min(0.95, 0.55 + rimConfidence * 0.40))),
     playbackSpeedRatio: null,
-    notes: "Método basado en referencia de aro: altura de cabeza en APEX escalada con aro-suelo (aro = 305 cm) menos estatura del atleta.",
+    notes: `Cabeza en APEX a ${roundTo(headHeightCm)} cm sobre el suelo. Calibrado con aro a 305 cm (confianza aro: ${roundTo(rimConfidence * 100)}%). Altura de salto = cabeza − estatura.`,
   };
 }
 

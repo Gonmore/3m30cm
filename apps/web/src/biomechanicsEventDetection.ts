@@ -762,16 +762,11 @@ export function detectTechniqueKeyEventsWithDebug(
     frame.landmarks[landmarkIndex.RIGHT_HEEL]?.y ?? 0,
     frame.landmarks[landmarkIndex.RIGHT_FOOT_INDEX]?.y ?? 0,
   )));
-  const leftToeSeries = smoothSeries(frames.map((frame) => frame.landmarks[landmarkIndex.LEFT_FOOT_INDEX]?.y ?? 0));
-  const rightToeSeries = smoothSeries(frames.map((frame) => frame.landmarks[landmarkIndex.RIGHT_FOOT_INDEX]?.y ?? 0));
-
   const hipMinimum = Math.min(...hipYSeries);
   const hipMaximum = Math.max(...hipYSeries);
   const hipRange = Math.max(hipMaximum - hipMinimum, 0.01);
   const leftGround = buildGroundedFlags(leftContactSeries);
   const rightGround = buildGroundedFlags(rightContactSeries);
-  const leftToeGround = buildGroundedFlags(leftToeSeries);
-  const rightToeGround = buildGroundedFlags(rightToeSeries);
   const leftFootMotionSeries = buildPointMotionSeries(leftFootPointSeries);
   const rightFootMotionSeries = buildPointMotionSeries(rightFootPointSeries);
   const leftHipToFootSeries = smoothSeries(leftContactSeries.map((value, index) => value - getSeriesValue(leftHipYSeries, index)), 1);
@@ -819,33 +814,15 @@ export function detectTechniqueKeyEventsWithDebug(
   const preAirborneIndex = Math.max(0, firstAirborneIndex - 1);
   const dipIndex = findIndexOfMaximum(hipYSeries, 0, Math.max(preAirborneIndex - 1, 0));
   const setupIndex = detectSetupIndex(hipXSeries, hipYSeries, dipIndex);
-  const bilateralToeOffIndex = (() => {
-    const searchStart = Math.max(0, dipIndex + 1);
-    const searchEnd = Math.max(searchStart, firstAirborneIndex - 1);
-    const nearAirborneThreshold = Math.max(searchStart, firstAirborneIndex - 3);
-
-    for (let index = searchEnd; index >= searchStart; index -= 1) {
-      const bilateralToeGrounded = Boolean(leftToeGround.flags[index]) && Boolean(rightToeGround.flags[index]);
-      if (!bilateralToeGrounded || !Boolean(anyGroundedFlags[index])) {
-        continue;
-      }
-
-      const nextFrameAirborne = index + 1 >= frames.length || !Boolean(anyGroundedFlags[index + 1]);
-      if (index >= nearAirborneThreshold || nextFrameAirborne) {
-        return index;
-      }
+  // TOE_OFF = último frame con cualquier pie en tierra antes de la fase aérea.
+  // Escaneo hacia atrás desde firstAirborneIndex garantiza que siempre se ancle
+  // al último momento de contacto real sin importar qué pie despegó primero.
+  const toeOffIndex = (() => {
+    for (let index = Math.max(0, firstAirborneIndex - 1); index >= dipIndex; index--) {
+      if (anyGroundedFlags[index]) return index;
     }
-
-    for (let index = searchEnd; index >= searchStart; index -= 1) {
-      if (Boolean(leftToeGround.flags[index]) && Boolean(rightToeGround.flags[index])) {
-        return index;
-      }
-    }
-
     return preAirborneIndex;
   })();
-
-  const toeOffIndex = bilateralToeOffIndex;
   const takeOffIndex = Math.max(dipIndex + 1, preAirborneIndex - 1);
   const travelDirection = inferTravelDirection(hipXSeries, setupIndex, takeOffIndex) as 1 | -1;
   const approachUpperBound = toeOffIndex; // last grounded frame before jump, used as approach analysis bound
