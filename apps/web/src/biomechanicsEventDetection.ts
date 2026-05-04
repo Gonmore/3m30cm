@@ -762,12 +762,16 @@ export function detectTechniqueKeyEventsWithDebug(
     frame.landmarks[landmarkIndex.RIGHT_HEEL]?.y ?? 0,
     frame.landmarks[landmarkIndex.RIGHT_FOOT_INDEX]?.y ?? 0,
   )));
+  const leftToeSeries = smoothSeries(frames.map((frame) => frame.landmarks[landmarkIndex.LEFT_FOOT_INDEX]?.y ?? 0));
+  const rightToeSeries = smoothSeries(frames.map((frame) => frame.landmarks[landmarkIndex.RIGHT_FOOT_INDEX]?.y ?? 0));
 
   const hipMinimum = Math.min(...hipYSeries);
   const hipMaximum = Math.max(...hipYSeries);
   const hipRange = Math.max(hipMaximum - hipMinimum, 0.01);
   const leftGround = buildGroundedFlags(leftContactSeries);
   const rightGround = buildGroundedFlags(rightContactSeries);
+  const leftToeGround = buildGroundedFlags(leftToeSeries);
+  const rightToeGround = buildGroundedFlags(rightToeSeries);
   const leftFootMotionSeries = buildPointMotionSeries(leftFootPointSeries);
   const rightFootMotionSeries = buildPointMotionSeries(rightFootPointSeries);
   const leftHipToFootSeries = smoothSeries(leftContactSeries.map((value, index) => value - getSeriesValue(leftHipYSeries, index)), 1);
@@ -812,10 +816,37 @@ export function detectTechniqueKeyEventsWithDebug(
   const firstAirborneIndex = jumpAirborneRun?.start
     ?? findFirstRun(anyGroundedFlags.map((isGrounded) => !isGrounded), 0, 2)
     ?? Math.max(Math.min(apexIndex - 1, frames.length - 2), 1);
-  const toeOffIndex = Math.max(0, firstAirborneIndex - 1);
-  const dipIndex = findIndexOfMaximum(hipYSeries, 0, Math.max(toeOffIndex - 1, 0));
+  const preAirborneIndex = Math.max(0, firstAirborneIndex - 1);
+  const dipIndex = findIndexOfMaximum(hipYSeries, 0, Math.max(preAirborneIndex - 1, 0));
   const setupIndex = detectSetupIndex(hipXSeries, hipYSeries, dipIndex);
-  const takeOffIndex = Math.max(dipIndex + 1, toeOffIndex - 1);
+  const bilateralToeOffIndex = (() => {
+    const searchStart = Math.max(0, dipIndex + 1);
+    const searchEnd = Math.max(searchStart, firstAirborneIndex - 1);
+    const nearAirborneThreshold = Math.max(searchStart, firstAirborneIndex - 3);
+
+    for (let index = searchEnd; index >= searchStart; index -= 1) {
+      const bilateralToeGrounded = Boolean(leftToeGround.flags[index]) && Boolean(rightToeGround.flags[index]);
+      if (!bilateralToeGrounded || !Boolean(anyGroundedFlags[index])) {
+        continue;
+      }
+
+      const nextFrameAirborne = index + 1 >= frames.length || !Boolean(anyGroundedFlags[index + 1]);
+      if (index >= nearAirborneThreshold || nextFrameAirborne) {
+        return index;
+      }
+    }
+
+    for (let index = searchEnd; index >= searchStart; index -= 1) {
+      if (Boolean(leftToeGround.flags[index]) && Boolean(rightToeGround.flags[index])) {
+        return index;
+      }
+    }
+
+    return preAirborneIndex;
+  })();
+
+  const toeOffIndex = bilateralToeOffIndex;
+  const takeOffIndex = Math.max(dipIndex + 1, preAirborneIndex - 1);
   const travelDirection = inferTravelDirection(hipXSeries, setupIndex, takeOffIndex) as 1 | -1;
   const approachUpperBound = toeOffIndex; // last grounded frame before jump, used as approach analysis bound
   const contactRunMinLength = (referenceLandmarks.fps ?? 15) <= 20 ? 1 : 2;
@@ -872,16 +903,6 @@ export function detectTechniqueKeyEventsWithDebug(
           : 0),
       )
     : null;
-  // TOE_OFF: last frame before the jump where BOTH feet are simultaneously grounded
-  // (bilateral toe contact — athlete rises onto both tiptoes just before lift-off).
-  const bilateralToeOffIndex = (() => {
-    const searchBack = Math.max(0, firstAirborneIndex - 12);
-    for (let i = Math.max(0, firstAirborneIndex - 1); i >= searchBack; i--) {
-      if (leftGround.flags[i] && rightGround.flags[i]) return i;
-    }
-    return Math.max(0, firstAirborneIndex - 1); // fallback
-  })();
-
   const toeOffConfidence = normalizeConfidence(0.62 + (airborneSpan / Math.max(frames.length, 1)) * 0.55);
   const landingConfidence = normalizeConfidence(0.6 + ((getSeriesValue(hipYSeries, landingIndex) - hipMinimum) / hipRange) * 0.25);
 
@@ -918,7 +939,7 @@ export function detectTechniqueKeyEventsWithDebug(
     } : null,
     {
       eventType: "TOE_OFF",
-      frameIndex: bilateralToeOffIndex,
+      frameIndex: toeOffIndex,
       confidence: toeOffConfidence,
       detector: autoDetectedTechniqueEventDetector,
     },

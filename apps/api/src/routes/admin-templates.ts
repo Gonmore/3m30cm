@@ -72,6 +72,15 @@ const techniqueCameraTrackingSchema = z.object({
   frameTransforms: z.array(techniqueCameraTrackingFrameSchema).max(10000),
 });
 
+const techniqueRimReferenceSchema = z.object({
+  detected: z.boolean(),
+  x: z.number().finite().min(0).max(1),
+  y: z.number().finite().min(0).max(1),
+  confidence: z.number().finite().min(0).max(1),
+  referenceFrameIndex: z.number().int().nonnegative(),
+  method: z.literal("orange-rim-heuristic"),
+});
+
 const techniqueProLandmarksSchema = z.object({
   schemaVersion: z.literal(1),
   source: z.string().trim().min(1).max(64),
@@ -82,6 +91,7 @@ const techniqueProLandmarksSchema = z.object({
   durationMs: z.number().finite().nonnegative().optional(),
   frames: z.array(techniquePoseFrameSchema).max(10000),
   cameraTracking: techniqueCameraTrackingSchema.nullable().optional(),
+  rimReference: techniqueRimReferenceSchema.nullable().optional(),
 }).superRefine((value, context) => {
   if (value.frameCount !== value.frames.length) {
     context.addIssue({

@@ -258,6 +258,21 @@ Se creó la infraestructura de despliegue para backend y web (las apps móviles 
 
 **Resultado:**
 - El deploy funciona con la red real del servidor sin tocar el script en cada release.
+
+---
+
+### 14. Biomecanica: baseline estricto en TOE_OFF y refinamiento de deteccion
+
+Se aplico un ajuste biomecanico para evitar subestimaciones cuando la camara rota o se traslada durante el gesto:
+
+1. `CENTER_OF_MASS` en `apps/web/src/biomechanicsReferenceMeasurements.ts` ya no usa fallback a `DIP`.
+2. `RIM_REFERENCE` en el mismo modulo tampoco usa fallback a `DIP`.
+3. Ambos metodos ahora exigen `TOE_OFF` + `APEX` y toman `TOE_OFF` como baseline unico.
+4. La deteccion automatica de `TOE_OFF` en `apps/web/src/biomechanicsEventDetection.ts` se refino para buscar el ultimo frame posterior a `DIP` donde ambas puntas (`LEFT_FOOT_INDEX` y `RIGHT_FOOT_INDEX`) siguen en apoyo inmediatamente antes del airborne.
+
+Validacion ejecutada durante este ajuste:
+
+- `npm --prefix apps/web run build`
 - Si en otro entorno la red cambia de nombre, basta con definir `DOCKER_EXTERNAL_NETWORK` en el `.env` remoto.
 
 ---

@@ -9409,7 +9409,7 @@ export default function App() {
                           <div className="biomechanics-debug-list">
                             {referenceBiomechanicsPreview.jumpHeight.methods.length ? referenceBiomechanicsPreview.jumpHeight.methods.map((method) => (
                               <p key={method.method}>
-                                <strong>{method.method === "FLIGHT_TIME" ? "Tiempo de vuelo" : "Centro de Masas"}:</strong>{" "}
+                                <strong>{method.method === "FLIGHT_TIME" ? "Tiempo de vuelo" : method.method === "RIM_REFERENCE" ? "Referencia de aro" : "Centro de Masas"}:</strong>{" "}
                                 {formatMeasurementStatusLabel(method.status)}
                                 {typeof method.valueCm === "number" ? ` · ${method.valueCm.toFixed(1)} cm` : ""}
                                 {typeof method.confidence === "number" ? ` · confianza ${method.confidence.toFixed(2)}` : ""}
