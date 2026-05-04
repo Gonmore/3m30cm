@@ -778,7 +778,7 @@ function buildFlightTimeCandidatePreview(
     ? ascentHeightCm
     : totalFlightHeightCm;
 
-  if (typeof valueCm !== "number" || !Number.isFinite(valueCm) || valueCm <= 0) {
+  if (typeof valueCm !== "number" || !Number.isFinite(valueCm) || valueCm <= 0 || valueCm > 200) {
     return {
       method: "FLIGHT_TIME",
       status: "MISSING_EVENT",
@@ -786,7 +786,9 @@ function buildFlightTimeCandidatePreview(
       confidence: null,
       playbackSpeedRatio: roundTo(playbackFactor, 3),
       internalDisagreementCm: null,
-      notes: "No se pudo reconstruir un tiempo de vuelo válido para medir la altura.",
+      notes: typeof valueCm === "number" && valueCm > 200
+        ? `Tiempo de vuelo da ${roundTo(valueCm)} cm, fuera del rango físico. Verifica que DIP/TOE_OFF y LANDING estén correctamente ubicados.`
+        : "No se pudo reconstruir un tiempo de vuelo válido para medir la altura.",
     };
   }
 
@@ -1070,7 +1072,17 @@ function buildCenterOfMassMethodPreview(
 
   const valueCm = comDelta / pxPerCm;
 
-  // ── Campos de salida extendidos ───────────────────────────────────────────
+  // Sanity-check: un salto vertical humano no puede superar 200 cm (record ~161 cm)
+  if (!Number.isFinite(valueCm) || valueCm <= 0 || valueCm > 200) {
+    return {
+      method: "CENTER_OF_MASS",
+      status: "LOW_CONFIDENCE",
+      valueCm: null,
+      confidence: null,
+      playbackSpeedRatio: null,
+      notes: `Valor calculado (${roundTo(valueCm)} cm) fuera del rango físico posible (0–200 cm). La calibración de escala puede ser incorrecta.`,
+    };
+  }
   // Altura del CoM sobre el suelo en APEX (cm)
   const comHeightAboveGroundCm = groundY_dip !== null
     ? roundTo((groundY_dip - comY_apex) / pxPerCm)
@@ -1169,7 +1181,10 @@ function buildRimReferenceMethodPreview(
   }
 
   const rimGroundDelta = groundY_ref - rimWorldY;
-  if (rimGroundDelta <= 0.04) {
+  // rimGroundDelta debe representar 305 cm. Un atleta de 180-200cm visible ocupa ~0.8-0.95
+  // de la imagen en Y. El aro a 305cm siempre estará claramente por encima del suelo.
+  // Si rimGroundDelta < 0.08 (menos del 8% del frame) la detección del aro falló.
+  if (rimGroundDelta <= 0.08) {
     return {
       method: "RIM_REFERENCE",
       status: "LOW_CONFIDENCE",
@@ -1201,14 +1216,14 @@ function buildRimReferenceMethodPreview(
   const headHeightCm = (groundY_ref - headY_apex) / pxPerCm;
   const valueCm = headHeightCm - config.subjectHeightCm;
 
-  if (!Number.isFinite(valueCm) || valueCm <= 0) {
+  if (!Number.isFinite(valueCm) || valueCm <= 0 || valueCm > 200) {
     return {
       method: "RIM_REFERENCE",
       status: "LOW_CONFIDENCE",
       valueCm: null,
       confidence: null,
       playbackSpeedRatio: null,
-      notes: `Altura calculada (cabeza=${roundTo(headHeightCm)} cm, sujeto=${config.subjectHeightCm} cm) fuera de rango. Revisa la detección del aro y la ubicación del APEX.`,
+      notes: `Altura calculada (cabeza=${roundTo(headHeightCm)} cm, sujeto=${config.subjectHeightCm} cm) fuera de rango físico (0-200 cm). Revisa la detección del aro y la ubicación del APEX.`,
     };
   }
 

@@ -830,7 +830,17 @@ export function detectTechniqueKeyEventsWithDebug(
   const supportRuns = collectSupportRuns(supportLabels, 0, approachUpperBound, contactRunMinLength);
   const airborneRuns = collectRuns(anyGroundedFlags, false, 0, approachUpperBound, 1);
   const fallbackSupportPeaks = collectSupportPeaks(leftContactScoreSeries, rightContactScoreSeries, leftGround, rightGround, approachUpperBound, contactRunMinLength);
-  const alternatingSupportRuns = selectAlternatingSupportRuns(supportRuns);
+
+  // Excluir el run que corresponde al bilateral plant (el run que contiene toeOffIndex).
+  // Ese run es el último apoyo bilateral antes del salto, NO es un paso de aproximación.
+  // Si lo dejamos, el selector alternante lo cuenta como "lastSupportRun" y desplaza
+  // penultimate y antepenultimate un paso hacia atrás.
+  const bilateralPlantRunIndex = supportRuns.length - 1 - [...supportRuns].reverse().findIndex((run) => run.start <= toeOffIndex && run.end >= toeOffIndex - 2);
+  const approachSupportRuns = bilateralPlantRunIndex >= 0 && bilateralPlantRunIndex < supportRuns.length
+    ? supportRuns.slice(0, bilateralPlantRunIndex)
+    : supportRuns;
+
+  const alternatingSupportRuns = selectAlternatingSupportRuns(approachSupportRuns);
   const alternatingFallbackPeaks = selectAlternatingSupportPeaks(fallbackSupportPeaks);
   const lastSupportRun = alternatingSupportRuns.last;
   const penultimateSupportRun = alternatingSupportRuns.penultimate;
