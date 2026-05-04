@@ -1104,7 +1104,7 @@ function buildRimReferenceMethodPreview(
   }
 
   const apexDenominator = apexGroundY - apexRimY;
-  if (apexDenominator <= 0.02) {
+  if (apexDenominator <= 0.005) {
     return {
       method: "RIM_REFERENCE",
       status: "LOW_CONFIDENCE",

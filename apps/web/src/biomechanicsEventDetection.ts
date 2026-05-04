@@ -871,7 +871,7 @@ export function detectTechniqueKeyEventsWithDebug(
     ? Math.min(lastApproachFlightRun.end + 1, toeOffIndex)
     : (lastSupportRun?.start ?? fallbackLastPeak?.frameIndex ?? takeOffIndex);
   const approachTravel = Math.abs(getSeriesValue(hipXSeries, toeOffIndex) - getSeriesValue(hipXSeries, setupIndex));
-  const allowApproachContacts = approachTravel >= 0.06 || supportRuns.length >= 3 || fallbackSupportPeaks.length >= 3;
+  const allowApproachContacts = approachTravel >= 0.03 || supportRuns.length >= 3 || fallbackSupportPeaks.length >= 3;
   const penultimateContactIndex = allowApproachContacts ? (penultimateSupportRun?.start ?? fallbackPenultimatePeak?.frameIndex ?? null) : null;
   const antepenultimateContactIndex = allowApproachContacts ? (antepenultimateSupportRun?.start ?? fallbackAntepenultimatePeak?.frameIndex ?? null) : null;
   const prePenultimateFlightRun = allowApproachContacts && (antepenultimateSupportRun && penultimateSupportRun
