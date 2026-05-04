@@ -6899,7 +6899,7 @@ export default function App() {
       ) : null}
 
       {adminView === "technique" ? (
-      <section className="management-grid">
+      <section className="management-stack">
         <article className="panel-card">
           <div className="section-header">
             <div>
@@ -9428,6 +9428,39 @@ export default function App() {
                         </article>
                       ) : null}
 
+                      {referenceBiomechanicsPreview.cameraMotion ? (
+                        <article className="detail-card program-card biomechanics-preview-card">
+                          <div className="biomechanics-preview-badge-row">
+                            <strong>Estabilidad de cámara</strong>
+                            <span className="biomechanics-badge biomechanics-preview-status">{formatMeasurementStatusLabel(referenceBiomechanicsPreview.cameraMotion.status)}</span>
+                            {typeof referenceBiomechanicsPreview.cameraMotion.stabilityScore === "number" ? (
+                              <span className="biomechanics-badge">Score: {referenceBiomechanicsPreview.cameraMotion.stabilityScore.toFixed(2)}</span>
+                            ) : null}
+                          </div>
+                          <div className="biomechanics-debug-list">
+                            <p>
+                              <strong>Deriva horizontal del encuadre:</strong>{" "}
+                              {typeof referenceBiomechanicsPreview.cameraMotion.horizontalDriftPercent === "number"
+                                ? `${referenceBiomechanicsPreview.cameraMotion.horizontalDriftPercent.toFixed(1)}%`
+                                : "sin datos"}
+                            </p>
+                            <p>
+                              <strong>Deriva vertical del suelo:</strong>{" "}
+                              {typeof referenceBiomechanicsPreview.cameraMotion.verticalDriftPercent === "number"
+                                ? `${referenceBiomechanicsPreview.cameraMotion.verticalDriftPercent.toFixed(1)}%`
+                                : "sin datos"}
+                            </p>
+                            <p>
+                              <strong>Cambio aparente de escala:</strong>{" "}
+                              {typeof referenceBiomechanicsPreview.cameraMotion.scaleDriftPercent === "number"
+                                ? `${referenceBiomechanicsPreview.cameraMotion.scaleDriftPercent.toFixed(1)}%`
+                                : "sin datos"}
+                            </p>
+                          </div>
+                          {referenceBiomechanicsPreview.cameraMotion.notes ? <p className="helper-text">{referenceBiomechanicsPreview.cameraMotion.notes}</p> : null}
+                        </article>
+                      ) : null}
+
                       {referenceBiomechanicsPreview.stepDistances ? (
                         <article className="detail-card program-card biomechanics-preview-card">
                           <div className="biomechanics-preview-badge-row">
@@ -9441,23 +9474,23 @@ export default function App() {
                               <p>
                                 <strong>Antepenúltimo → Penúltimo:</strong>{" "}
                                 {referenceBiomechanicsPreview.stepDistances.prePenultimateFlightDistanceCm.toFixed(1)} cm
-                                {referenceBiomechanicsPreview.stepDistances.prePenultimateFlightDistanceCm < 200
-                                  ? " ⚠️ (recomendado &gt; 200 cm)"
+                                {referenceBiomechanicsPreview.stepDistances.prePenultimateFlightDistanceCm < 140
+                                  ? " ⚠️ (recomendado &gt; 140 cm)"
                                   : " ✓"}
                               </p>
                             ) : (
                               <p>Antepenúltimo → Penúltimo: sin datos (se necesitan ambos eventos)</p>
                             )}
-                            {referenceBiomechanicsPreview.stepDistances.lastStepDistanceCm !== null ? (
+                            {referenceBiomechanicsPreview.stepDistances.penultimateToDipDistanceCm !== null ? (
                               <p>
-                                <strong>Penúltimo → Último apoyo:</strong>{" "}
-                                {referenceBiomechanicsPreview.stepDistances.lastStepDistanceCm.toFixed(1)} cm
-                                {referenceBiomechanicsPreview.stepDistances.lastStepDistanceCm > 50
+                                <strong>Penúltimo → Dip:</strong>{" "}
+                                {referenceBiomechanicsPreview.stepDistances.penultimateToDipDistanceCm.toFixed(1)} cm
+                                {referenceBiomechanicsPreview.stepDistances.penultimateToDipDistanceCm > 50
                                   ? " ⚠️ (recomendado &lt; 50 cm)"
                                   : " ✓"}
                               </p>
                             ) : (
-                              <p>Penúltimo → Último apoyo: sin datos (se necesitan ambos eventos)</p>
+                              <p>Penúltimo → Dip: sin datos (se necesitan ambos eventos)</p>
                             )}
                           </div>
                           {referenceBiomechanicsPreview.stepDistances.notes ? (
@@ -9604,14 +9637,20 @@ export default function App() {
                                     }}
                                   />
                                   <svg className="angle-wizard-overlay-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-                                    {angleWizardPreviewOverlays.map((overlay) => (
-                                      <g key={overlay.id} className={`angle-wizard-overlay-item${overlay.include ? " include" : " omit"}`}>
-                                        <line x1={overlay.ax * 1000} y1={overlay.ay * 1000} x2={overlay.vx * 1000} y2={overlay.vy * 1000} />
-                                        <line x1={overlay.vx * 1000} y1={overlay.vy * 1000} x2={overlay.cx * 1000} y2={overlay.cy * 1000} />
-                                        <circle cx={overlay.vx * 1000} cy={overlay.vy * 1000} r={7} />
-                                        <text x={overlay.vx * 1000 + 10} y={overlay.vy * 1000 - 10}>{overlay.measuredLabel}</text>
-                                      </g>
-                                    ))}
+                                    {angleWizardPreviewOverlays.map((overlay, i) => {
+                                      const onRight = overlay.vx > 0.5;
+                                      const labelX = onRight ? overlay.vx * 1000 - 16 : overlay.vx * 1000 + 16;
+                                      const labelAnchor = onRight ? "end" : "start";
+                                      const labelY = overlay.vy * 1000 - 16 - i * 44;
+                                      return (
+                                        <g key={overlay.id} className={`angle-wizard-overlay-item${overlay.include ? " include" : " omit"}`}>
+                                          <line x1={overlay.ax * 1000} y1={overlay.ay * 1000} x2={overlay.vx * 1000} y2={overlay.vy * 1000} />
+                                          <line x1={overlay.vx * 1000} y1={overlay.vy * 1000} x2={overlay.cx * 1000} y2={overlay.cy * 1000} />
+                                          <circle cx={overlay.vx * 1000} cy={overlay.vy * 1000} r={9} />
+                                          <text x={labelX} y={labelY} textAnchor={labelAnchor} dominantBaseline="auto">{overlay.measuredLabel}</text>
+                                        </g>
+                                      );
+                                    })}
                                   </svg>
                                 </div>
                                 {angleWizardPreviewOverlays.length ? (
@@ -9638,7 +9677,7 @@ export default function App() {
                               <p className="helper-text">No hay vista previa de video para este evento (faltan frame o referencia visible).</p>
                             )}
 
-                            <div className="detail-list">
+                            <div className="detail-list angle-wizard-angle-grid">
                               {angleWizard.groups[angleWizard.groupIndex]?.angles.map((item, angleIdx) => (
                                 <div key={item.draft.id} className="detail-card">
                                   <div className="section-header compact-header">

@@ -98,11 +98,20 @@ export interface ReferenceJumpHeightPreview {
   notes: string | null;
 }
 
+export interface ReferenceCameraMotionPreview {
+  horizontalDriftPercent: number | null;
+  verticalDriftPercent: number | null;
+  scaleDriftPercent: number | null;
+  stabilityScore: number | null;
+  status: MeasurementStatus;
+  notes: string | null;
+}
+
 export interface ReferenceApproachStepDistancesPreview {
   /** Horizontal hip displacement ANTEPENULTIMATE_CONTACT → PENULTIMATE_CONTACT (cm). */
   prePenultimateFlightDistanceCm: number | null;
-  /** Horizontal hip displacement PENULTIMATE_CONTACT → LAST_CONTACT (cm). */
-  lastStepDistanceCm: number | null;
+  /** Horizontal foot displacement PENULTIMATE_CONTACT → DIP (cm). */
+  penultimateToDipDistanceCm: number | null;
   /** Whether the distances are calibrated with the subject's height (false = cm unavailable). */
   calibrated: boolean;
   notes: string | null;
@@ -112,6 +121,7 @@ export interface ReferenceBiomechanicsMeasurementsPreview {
   hipProgressionChecks: ReferenceHipProgressionCheckPreview[];
   jumpHeight: ReferenceJumpHeightPreview | null;
   stepDistances: ReferenceApproachStepDistancesPreview | null;
+  cameraMotion: ReferenceCameraMotionPreview | null;
 }
 
 function average(values: Array<number | null | undefined>) {
@@ -132,8 +142,51 @@ function getFrame(landmarks: TechniqueProLandmarks, frameIndex: number) {
   return landmarks.frames[frameIndex] ?? null;
 }
 
+function getCameraTrackingTransform(landmarks: TechniqueProLandmarks, frameIndex: number) {
+  return landmarks.cameraTracking?.frameTransforms[frameIndex] ?? null;
+}
+
+function getCompensatedPoint(
+  landmarks: TechniqueProLandmarks,
+  frameIndex: number,
+  pointIndex: number,
+) {
+  const point = getFrame(landmarks, frameIndex)?.landmarks[pointIndex] ?? null;
+  if (!point) {
+    return null;
+  }
+
+  const transform = getCameraTrackingTransform(landmarks, frameIndex);
+  if (!transform || !Number.isFinite(transform.scale) || transform.scale <= 0) {
+    return point;
+  }
+
+  const centerX = 0.5;
+  const centerY = 0.5;
+  return {
+    ...point,
+    x: ((point.x - centerX) - transform.translationX) / transform.scale + centerX,
+    y: ((point.y - centerY) - transform.translationY) / transform.scale + centerY,
+  };
+}
+
+function getCompensatedFrameLandmarks(landmarks: TechniqueProLandmarks, frameIndex: number) {
+  const frame = getFrame(landmarks, frameIndex);
+  if (!frame) {
+    return [] as NonNullable<ReturnType<typeof getCompensatedPoint>>[];
+  }
+
+  return frame.landmarks
+    .map((_, pointIndex) => getCompensatedPoint(landmarks, frameIndex, pointIndex))
+    .filter((point): point is NonNullable<ReturnType<typeof getCompensatedPoint>> => Boolean(point));
+}
+
 function getLandmarkY(landmarks: TechniqueProLandmarks, frameIndex: number, pointIndex: number) {
-  return getFrame(landmarks, frameIndex)?.landmarks[pointIndex]?.y ?? null;
+  return getCompensatedPoint(landmarks, frameIndex, pointIndex)?.y ?? null;
+}
+
+function getLandmarkX(landmarks: TechniqueProLandmarks, frameIndex: number, pointIndex: number) {
+  return getCompensatedPoint(landmarks, frameIndex, pointIndex)?.x ?? null;
 }
 
 function getGroundReferenceY(landmarks: TechniqueProLandmarks, frameIndex: number) {
@@ -175,13 +228,17 @@ function getApproximateCenterOfMassY(landmarks: TechniqueProLandmarks, frameInde
   ]);
 }
 
-function getTopVisibleBodyPointY(landmarks: TechniqueProLandmarks, frameIndex: number) {
-  const frame = getFrame(landmarks, frameIndex);
-  if (!frame) {
-    return null;
-  }
+function getApproximateBodyCenterX(landmarks: TechniqueProLandmarks, frameIndex: number) {
+  return average([
+    getLandmarkX(landmarks, frameIndex, landmarkIndex.LEFT_HIP),
+    getLandmarkX(landmarks, frameIndex, landmarkIndex.RIGHT_HIP),
+    getLandmarkX(landmarks, frameIndex, landmarkIndex.LEFT_SHOULDER),
+    getLandmarkX(landmarks, frameIndex, landmarkIndex.RIGHT_SHOULDER),
+  ]);
+}
 
-  const visibleValues = frame.landmarks
+function getTopVisibleBodyPointY(landmarks: TechniqueProLandmarks, frameIndex: number) {
+  const visibleValues = getCompensatedFrameLandmarks(landmarks, frameIndex)
     .map((landmark) => landmark.y)
     .filter((value) => typeof value === "number" && Number.isFinite(value));
 
@@ -271,6 +328,88 @@ function calculateCenterOfMassHeightFromGround(
   }
 
   return groundReferenceY - centerOfMassY;
+}
+
+function buildCameraMotionPreview(
+  landmarks: TechniqueProLandmarks,
+  eventsByType: Map<string, ReferenceMeasurementEventMarker>,
+): ReferenceCameraMotionPreview {
+  const trackedTransforms = landmarks.cameraTracking?.frameTransforms ?? [];
+  if (trackedTransforms.length >= 2) {
+    const horizontalDriftPercent = roundTo(
+      (Math.max(...trackedTransforms.map((frame) => frame.translationX)) - Math.min(...trackedTransforms.map((frame) => frame.translationX))) * 100,
+      1,
+    );
+    const verticalDriftPercent = roundTo(
+      (Math.max(...trackedTransforms.map((frame) => frame.translationY)) - Math.min(...trackedTransforms.map((frame) => frame.translationY))) * 100,
+      1,
+    );
+    const scaleValues = trackedTransforms.map((frame) => frame.scale);
+    const scaleDriftPercent = roundTo((Math.max(...scaleValues) - Math.min(...scaleValues)) * 100, 1);
+    const averageTrackedPointCount = trackedTransforms.reduce((total, frame) => total + frame.trackedPointCount, 0) / trackedTransforms.length;
+    const horizontalPenalty = Math.min(horizontalDriftPercent / 20, 1);
+    const verticalPenalty = Math.min(verticalDriftPercent / 12, 1);
+    const scalePenalty = Math.min(scaleDriftPercent / 18, 1);
+    const trackingPenalty = averageTrackedPointCount >= 10 ? 0 : Math.min((10 - averageTrackedPointCount) / 10, 1);
+    const stabilityScore = roundTo(Math.max(0, 1 - (horizontalPenalty * 0.3 + verticalPenalty * 0.35 + scalePenalty * 0.2 + trackingPenalty * 0.15)), 2);
+    const status: MeasurementStatus = stabilityScore >= 0.75
+      ? "OK"
+      : stabilityScore >= 0.55
+        ? "LOW_CONFIDENCE"
+        : "OUT_OF_RANGE";
+
+    return {
+      horizontalDriftPercent,
+      verticalDriftPercent,
+      scaleDriftPercent,
+      stabilityScore,
+      status,
+      notes: `Seguimiento de fondo por parches fuera del atleta. Promedio de puntos rastreados: ${roundTo(averageTrackedPointCount, 1)}.`,
+    };
+  }
+
+  const setupEvent = eventsByType.get("SETUP") ?? null;
+  const toeOffEvent = eventsByType.get("TOE_OFF") ?? eventsByType.get("TAKE_OFF") ?? null;
+  const apexEvent = eventsByType.get("APEX") ?? null;
+  const landingEvent = eventsByType.get("LANDING") ?? null;
+
+  const framingXs = [toeOffEvent, apexEvent, landingEvent]
+    .map((event) => (event ? getApproximateBodyCenterX(landmarks, event.frameIndex) : null))
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const horizontalDriftPercent = framingXs.length >= 2
+    ? roundTo((Math.max(...framingXs) - Math.min(...framingXs)) * 100, 1)
+    : null;
+
+  const startGroundY = toeOffEvent ? getGroundReferenceY(landmarks, toeOffEvent.frameIndex) : null;
+  const endGroundY = landingEvent ? getGroundReferenceY(landmarks, landingEvent.frameIndex) : null;
+  const verticalDriftPercent = typeof startGroundY === "number" && typeof endGroundY === "number"
+    ? roundTo(Math.abs(endGroundY - startGroundY) * 100, 1)
+    : null;
+
+  const setupHeight = setupEvent ? calculateVisibleBodyHeight(landmarks, setupEvent.frameIndex) : null;
+  const landingHeight = landingEvent ? calculateVisibleBodyHeight(landmarks, landingEvent.frameIndex) : null;
+  const scaleDriftPercent = typeof setupHeight === "number" && typeof landingHeight === "number" && setupHeight > 0
+    ? roundTo((Math.abs(landingHeight - setupHeight) / setupHeight) * 100, 1)
+    : null;
+
+  const horizontalPenalty = typeof horizontalDriftPercent === "number" ? Math.min(horizontalDriftPercent / 20, 1) : 0.35;
+  const verticalPenalty = typeof verticalDriftPercent === "number" ? Math.min(verticalDriftPercent / 12, 1) : 0.35;
+  const scalePenalty = typeof scaleDriftPercent === "number" ? Math.min(scaleDriftPercent / 18, 1) : 0.35;
+  const stabilityScore = roundTo(Math.max(0, 1 - (horizontalPenalty * 0.35 + verticalPenalty * 0.4 + scalePenalty * 0.25)), 2);
+  const status: MeasurementStatus = stabilityScore >= 0.75
+    ? "OK"
+    : stabilityScore >= 0.55
+      ? "LOW_CONFIDENCE"
+      : "OUT_OF_RANGE";
+
+  return {
+    horizontalDriftPercent,
+    verticalDriftPercent,
+    scaleDriftPercent,
+    stabilityScore,
+    status,
+    notes: "Proxy de cámara derivado de landmarks: deriva horizontal del encuadre, deriva vertical del suelo y cambio aparente de escala. No mide la cámara directamente, pero sirve para ponderar la confianza del Centro de Masas.",
+  };
 }
 
 function buildEventsByType(eventMarkers: ReferenceMeasurementEventMarker[]) {
@@ -742,6 +881,7 @@ function buildCenterOfMassMethodPreview(
     apexEvent.frameIndex,
     apexGroundReferenceY,
   );
+  const cameraMotion = buildCameraMotionPreview(landmarks, eventsByType);
 
   if (
     calibrationBodyHeight === null
@@ -779,9 +919,9 @@ function buildCenterOfMassMethodPreview(
     method: "CENTER_OF_MASS",
     status: "OK",
     valueCm: roundTo(valueCm),
-    confidence: toeOffEvent && landingEvent ? 0.72 : 0.6,
+    confidence: roundTo(Math.max(0.35, Math.min(0.92, (toeOffEvent && landingEvent ? 0.72 : 0.6) + ((cameraMotion.stabilityScore ?? 0.5) - 0.5) * 0.35)), 2),
     playbackSpeedRatio: null,
-    notes: `Estimación basada en el CM aproximado ((caderas + hombros) / 4) medido respecto al suelo en SETUP y APEX. ${interpolationNote}`,
+    notes: `Medición basada en la elevación del centro de masas entre SETUP y APEX, escalada con la altura del atleta. ${interpolationNote} Estabilidad de cámara estimada: ${cameraMotion.stabilityScore !== null ? cameraMotion.stabilityScore.toFixed(2) : "s/d"}.`,
   };
 }
 
@@ -854,17 +994,30 @@ function buildJumpHeightPreview(
     ? Math.abs((okMethods[0]?.valueCm ?? 0) - (okMethods[1]?.valueCm ?? 0))
     : 0;
   const toleranceCm = config.consensusToleranceCm ?? 6;
+  const flightTimeOk = okMethods.find((method) => method.method === "FLIGHT_TIME") ?? null;
+  const centerOfMassOk = okMethods.find((method) => method.method === "CENTER_OF_MASS") ?? null;
+  const adjustedConsensusValueCm = motionProfile === "SLOW_MOTION"
+    && flightTimeOk
+    && centerOfMassOk
+    && typeof flightTimeOk.valueCm === "number"
+    && typeof centerOfMassOk.valueCm === "number"
+    && disagreementCm > toleranceCm
+    && centerOfMassOk.valueCm < flightTimeOk.valueCm
+    ? (flightTimeOk.valueCm * 0.7) + (centerOfMassOk.valueCm * 0.3)
+    : consensusValueCm;
   const status = okMethods.length >= 2 && disagreementCm > toleranceCm ? "METHOD_DISAGREEMENT" : "OK";
 
   return {
     motionProfile,
     playbackSpeedRatio: resolvedPlaybackSpeedRatio ?? null,
     methods,
-    consensusValueCm: roundTo(consensusValueCm),
+    consensusValueCm: roundTo(adjustedConsensusValueCm),
     disagreementCm: okMethods.length >= 2 ? roundTo(disagreementCm) : null,
     status,
     notes: status === "METHOD_DISAGREEMENT"
-      ? `La diferencia entre métodos supera la tolerancia de ${roundTo(toleranceCm)} cm.`
+      ? (motionProfile === "SLOW_MOTION"
+        ? `La diferencia entre métodos supera la tolerancia de ${roundTo(toleranceCm)} cm. Se prioriza parcialmente tiempo de vuelo para compensar posible desplazamiento vertical de cámara.`
+        : `La diferencia entre métodos supera la tolerancia de ${roundTo(toleranceCm)} cm.`)
       : "Las mediciones disponibles permiten consolidar una altura de salto de referencia.",
   };
 }
@@ -876,42 +1029,41 @@ function buildApproachStepDistancesPreview(
 ): ReferenceApproachStepDistancesPreview | null {
   const antepenultimateEvent = eventsByType.get("ANTEPENULTIMATE_CONTACT") ?? null;
   const penultimateEvent = eventsByType.get("PENULTIMATE_CONTACT") ?? null;
-  const lastContactEvent = eventsByType.get("LAST_CONTACT") ?? null;
+  const dipEvent = eventsByType.get("DIP") ?? null;
 
   if (!antepenultimateEvent && !penultimateEvent) {
     return null;
   }
 
-  /**
-   * Returns the X coordinate of the grounded foot at a given frame.
-   * "Grounded foot" = the ankle with the largest Y value (farthest down in
-   * normalised frame coordinates, i.e. closest to the ground).
-   */
-  const getGroundedFootX = (frameIndex: number): number | null => {
-    const frame = landmarks.frames[frameIndex];
-    if (!frame) return null;
-    const leftAnkle = frame.landmarks[landmarkIndex.LEFT_ANKLE];
-    const rightAnkle = frame.landmarks[landmarkIndex.RIGHT_ANKLE];
-    if (!leftAnkle || !rightAnkle) return null;
-    return leftAnkle.y >= rightAnkle.y ? leftAnkle.x : rightAnkle.x;
+  const getSupportSide = (frameIndex: number): "LEFT" | "RIGHT" | null => {
+    const leftAnkleY = getLandmarkY(landmarks, frameIndex, landmarkIndex.LEFT_ANKLE);
+    const rightAnkleY = getLandmarkY(landmarks, frameIndex, landmarkIndex.RIGHT_ANKLE);
+    if (leftAnkleY === null || rightAnkleY === null) return null;
+    return leftAnkleY >= rightAnkleY ? "LEFT" : "RIGHT";
   };
 
-  /**
-   * Returns the horizontal center X of both ankles (used for LAST_CONTACT
-   * where both feet are planting simultaneously).
-   */
-  const getBilateralFootCenterX = (frameIndex: number): number | null => {
-    const frame = landmarks.frames[frameIndex];
-    if (!frame) return null;
-    const leftAnkleX = frame.landmarks[landmarkIndex.LEFT_ANKLE]?.x ?? null;
-    const rightAnkleX = frame.landmarks[landmarkIndex.RIGHT_ANKLE]?.x ?? null;
-    if (leftAnkleX === null || rightAnkleX === null) return null;
-    return (leftAnkleX + rightAnkleX) / 2;
+  const getFootXBySide = (frameIndex: number, side: "LEFT" | "RIGHT"): number | null => {
+    return side === "LEFT"
+      ? getLandmarkX(landmarks, frameIndex, landmarkIndex.LEFT_ANKLE)
+      : getLandmarkX(landmarks, frameIndex, landmarkIndex.RIGHT_ANKLE);
   };
 
-  const footX_ante = antepenultimateEvent ? getGroundedFootX(antepenultimateEvent.frameIndex) : null;
-  const footX_penu = penultimateEvent ? getGroundedFootX(penultimateEvent.frameIndex) : null;
-  const footX_last = lastContactEvent ? getBilateralFootCenterX(lastContactEvent.frameIndex) : null;
+  const penultimateSupportSide = penultimateEvent ? getSupportSide(penultimateEvent.frameIndex) : null;
+  const oppositeOfPenultimate = penultimateSupportSide === "LEFT"
+    ? "RIGHT"
+    : penultimateSupportSide === "RIGHT"
+      ? "LEFT"
+      : null;
+
+  const footX_ante = antepenultimateEvent && oppositeOfPenultimate
+    ? getFootXBySide(antepenultimateEvent.frameIndex, oppositeOfPenultimate)
+    : null;
+  const footX_penu = penultimateEvent && penultimateSupportSide
+    ? getFootXBySide(penultimateEvent.frameIndex, penultimateSupportSide)
+    : null;
+  const footX_dip = dipEvent && oppositeOfPenultimate
+    ? getFootXBySide(dipEvent.frameIndex, oppositeOfPenultimate)
+    : null;
 
   // Calibrate: visible body height (normalised 0–1 in Y) corresponds to subjectHeightCm.
   // The camera is assumed to be far enough that X and Y scales are approximately equal.
@@ -927,13 +1079,13 @@ function buildApproachStepDistancesPreview(
   const prePenultimateFlightDistanceCm = footX_ante !== null && footX_penu !== null && normalizedUnitsPerCm !== null
     ? roundTo(Math.abs(footX_penu - footX_ante) / normalizedUnitsPerCm)
     : null;
-  const lastStepDistanceCm = footX_penu !== null && footX_last !== null && normalizedUnitsPerCm !== null
-    ? roundTo(Math.abs(footX_last - footX_penu) / normalizedUnitsPerCm)
+  const penultimateToDipDistanceCm = footX_penu !== null && footX_dip !== null && normalizedUnitsPerCm !== null
+    ? roundTo(Math.abs(footX_dip - footX_penu) / normalizedUnitsPerCm)
     : null;
 
   return {
     prePenultimateFlightDistanceCm,
-    lastStepDistanceCm,
+    penultimateToDipDistanceCm,
     calibrated,
     notes: !calibrated
       ? "Configura la altura del sujeto en 'Medición de altura del salto' para obtener distancias en cm."
@@ -980,6 +1132,7 @@ export function buildReferenceBiomechanicsMeasurementsPreview(
         }
         : null,
       stepDistances: null,
+      cameraMotion: null,
     };
   }
 
@@ -990,5 +1143,6 @@ export function buildReferenceBiomechanicsMeasurementsPreview(
       ? buildJumpHeightPreview(jumpHeightMeasurement, landmarks, eventMarkers, motionProfile)
       : null,
     stepDistances: buildApproachStepDistancesPreview(landmarks, eventsByType, jumpHeightMeasurement?.subjectHeightCm ?? null),
+    cameraMotion: buildCameraMotionPreview(landmarks, eventsByType),
   };
 }

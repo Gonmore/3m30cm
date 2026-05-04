@@ -56,6 +56,22 @@ const techniquePoseFrameSchema = z.object({
   landmarks: z.array(techniquePoseLandmarkSchema).length(33),
 });
 
+const techniqueCameraTrackingFrameSchema = z.object({
+  timestampMs: z.number().finite().nonnegative(),
+  translationX: z.number().finite(),
+  translationY: z.number().finite(),
+  scale: z.number().finite().positive(),
+  trackedPointCount: z.number().int().nonnegative(),
+});
+
+const techniqueCameraTrackingSchema = z.object({
+  method: z.literal("background-patch-tracking"),
+  analysisWidth: z.number().int().positive(),
+  analysisHeight: z.number().int().positive(),
+  referenceFrameIndex: z.number().int().nonnegative(),
+  frameTransforms: z.array(techniqueCameraTrackingFrameSchema).max(10000),
+});
+
 const techniqueProLandmarksSchema = z.object({
   schemaVersion: z.literal(1),
   source: z.string().trim().min(1).max(64),
@@ -65,6 +81,7 @@ const techniqueProLandmarksSchema = z.object({
   frameCount: z.number().int().nonnegative().max(10000),
   durationMs: z.number().finite().nonnegative().optional(),
   frames: z.array(techniquePoseFrameSchema).max(10000),
+  cameraTracking: techniqueCameraTrackingSchema.nullable().optional(),
 }).superRefine((value, context) => {
   if (value.frameCount !== value.frames.length) {
     context.addIssue({
