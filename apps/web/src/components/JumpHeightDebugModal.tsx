@@ -5,6 +5,58 @@ import type {
 } from "../biomechanicsReferenceMeasurements";
 import type { RimAnnotation, TechniqueProLandmarks } from "../techniquePoseExtraction";
 
+// ── Local types mirroring API MasterReference ──────────────────────────────────
+
+interface JointAngles {
+  leftKneeDeg: number | null;
+  rightKneeDeg: number | null;
+  leftHipDeg: number | null;
+  rightHipDeg: number | null;
+}
+
+interface ParabolaFrame {
+  frameIndex: number;
+  timestampMs: number;
+  comHeightCm: number;
+}
+
+interface Kinematics {
+  parabola: ParabolaFrame[];
+  jointAngles: {
+    dip: JointAngles | null;
+    takeoff: JointAngles | null;
+    apex: JointAngles | null;
+  };
+}
+
+interface Calibration {
+  normPerCmV: number;
+  normPerCmH: number;
+  groundY_norm: number;
+  rimCenterY_norm: number;
+  scaleSource: string;
+}
+
+interface MasterReference {
+  schemaVersion: 2;
+  calibration: Calibration;
+  jumpHeight: {
+    consensusValueCm: number | null;
+    disagreementCm: number | null;
+    status: string;
+    motionProfile: string | null;
+    playbackSpeedRatio: number | null;
+    notes: string | null;
+    methods: Array<{
+      method: string;
+      status: string;
+      valueCm: number | null;
+    }>;
+  };
+  kinematics: Kinematics;
+  computedAt: string;
+}
+
 interface Props {
   jumpHeight: ReferenceJumpHeightPreview;
   landmarks: TechniqueProLandmarks;
@@ -13,12 +65,13 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "FLIGHT_TIME" | "CENTER_OF_MASS" | "RIM_REFERENCE";
+type Tab = "FLIGHT_TIME" | "CENTER_OF_MASS" | "RIM_REFERENCE" | "KINEMATICS";
 
 const TAB_LABELS: Record<Tab, string> = {
   FLIGHT_TIME: "Tiempo de vuelo",
   CENTER_OF_MASS: "Centro de Masas",
   RIM_REFERENCE: "Referencia de aro",
+  KINEMATICS: "Cinemática",
 };
 
 function fmt(v: number | null | undefined, decimals = 2): string {
@@ -57,6 +110,33 @@ function Skeleton({
         return <line key={`${a}-${b}`} x1={px(A.x)} y1={py(A.y)} x2={px(B.x)} y2={py(B.y)} stroke="#94a3b8" strokeWidth={2} />;
       })}
       {lms.map((lm, i) => lm ? <circle key={i} cx={px(lm.x)} cy={py(lm.y)} r={2.5} fill="#60a5fa" /> : null)}
+    </g>
+  );
+}
+
+/** Yellow rim annotation overlay reusable in any tab SVG. */
+function RimOverlay({
+  rimAnnotation, vw, vh,
+}: {
+  rimAnnotation: RimAnnotation;
+  vw: number; vh: number;
+}) {
+  const px = (x: number) => x * vw;
+  const py = (y: number) => y * vh;
+  const xL = px(rimAnnotation.xLeft);
+  const yL = py(rimAnnotation.yLeft);
+  const xR = px(rimAnnotation.xRight);
+  const yR = py(rimAnnotation.yRight);
+  const xMid = (xL + xR) / 2;
+  const yMid = (yL + yR) / 2;
+  return (
+    <g>
+      <line x1={xL} y1={yL} x2={xR} y2={yR} stroke="#f59e0b" strokeWidth={3} strokeDasharray="6 3" />
+      <circle cx={xL} cy={yL} r={7} fill="#f59e0b" stroke="#fff" strokeWidth={2} />
+      <circle cx={xR} cy={yR} r={7} fill="#fb923c" stroke="#fff" strokeWidth={2} />
+      <text x={xMid} y={yMid - 10} fontSize={10} fill="#f59e0b" fontWeight="700" textAnchor="middle">
+        Aro manual (45.72 cm)
+      </text>
     </g>
   );
 }
@@ -117,10 +197,11 @@ function FlightTimeTab({ method }: { method: ReferenceJumpHeightMethodPreview })
 
 // ── Tab 2: Center of Mass ─────────────────────────────────────────────────────
 function CenterOfMassTab({
-  method, landmarks,
+  method, landmarks, rimAnnotation,
 }: {
   method: ReferenceJumpHeightMethodPreview;
   landmarks: TechniqueProLandmarks;
+  rimAnnotation?: RimAnnotation | null;
 }) {
   const d = method.debug?.centerOfMass;
   const VW = 420; const VH = 290;
@@ -187,6 +268,7 @@ function CenterOfMassTab({
           </>
         )}
         {!d && <text x={VW / 2} y={VH / 2} textAnchor="middle" fill="#94a3b8" fontSize={13}>Sin evento DIP o APEX</text>}
+        {rimAnnotation && <RimOverlay rimAnnotation={rimAnnotation} vw={VW} vh={VH} />}
         <g transform={`translate(6,${VH - 18})`}>
           <circle cx={5} cy={5} r={4} fill="#3b82f6" /><text x={14} y={9} fill="#3b82f6" fontSize={9}>CoM inicial (DIP)</text>
           <circle cx={110} cy={5} r={4} fill="#ef4444" /><text x={119} y={9} fill="#ef4444" fontSize={9}>CoM en APEX</text>
@@ -222,10 +304,11 @@ function CenterOfMassTab({
 
 // ── Tab 3: Rim Reference ───────────────────────────────────────────────────────
 function RimReferenceTab({
-  method, landmarks,
+  method, landmarks, rimAnnotation,
 }: {
   method: ReferenceJumpHeightMethodPreview;
   landmarks: TechniqueProLandmarks;
+  rimAnnotation?: RimAnnotation | null;
 }) {
   const d = method.debug?.rimReference;
   const VW = 440; const VH = 300;
@@ -334,6 +417,7 @@ function RimReferenceTab({
           <text x={VW / 2} y={VH / 2} textAnchor="middle" fill="#94a3b8" fontSize={13}>Sin evento APEX o sin extremos del aro</text>
         )}
 
+        {rimAnnotation && <RimOverlay rimAnnotation={rimAnnotation} vw={VW} vh={VH} />}
         <g transform={`translate(6,${VH - 18})`}>
           <rect x={0} y={1} width={12} height={3} fill="#fbbf24" /><text x={16} y={8} fill="#fb923c" fontSize={9}>Segmento 305cm</text>
           <rect x={115} y={1} width={12} height={3} fill="#60a5fa" /><text x={131} y={8} fill="#60a5fa" fontSize={9}>Atleta vertical</text>
@@ -371,17 +455,210 @@ function RimReferenceTab({
   );
 }
 
+// ── Tab 4: Kinematics ─────────────────────────────────────────────────────────
+function fmtDeg(v: number | null | undefined): string {
+  return typeof v === "number" ? `${v.toFixed(1)}°` : "—";
+}
+
+function KinematicsTab({ kinematics }: { kinematics: Kinematics }) {
+  const { parabola, jointAngles } = kinematics;
+
+  // ── SVG line chart ──────────────────────────────────────────────────────────
+  const CW = 520; const CH = 200;
+  const ML = 52; const MR = 16; const MT = 16; const MB = 36; // margins
+  const plotW = CW - ML - MR;
+  const plotH = CH - MT - MB;
+
+  const hasParabola = parabola.length >= 2;
+
+  const minFrame = hasParabola ? parabola[0]!.frameIndex : 0;
+  const maxFrame = hasParabola ? parabola[parabola.length - 1]!.frameIndex : 1;
+  const frameRange = Math.max(1, maxFrame - minFrame);
+
+  const allCm = parabola.map((p) => p.comHeightCm);
+  const minCm = hasParabola ? Math.max(0, Math.min(...allCm) - 5) : 0;
+  const maxCm = hasParabola ? Math.max(...allCm) + 8 : 120;
+  const cmRange = Math.max(1, maxCm - minCm);
+
+  const sx = (fi: number) => ML + ((fi - minFrame) / frameRange) * plotW;
+  const sy = (cm: number) => MT + plotH - ((cm - minCm) / cmRange) * plotH;
+
+  // Build SVG path
+  const pathD = parabola
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${sx(p.frameIndex).toFixed(1)} ${sy(p.comHeightCm).toFixed(1)}`)
+    .join(" ");
+
+  // Apex frame = max comHeightCm
+  const apexPoint = hasParabola ? parabola.reduce((best, p) => p.comHeightCm > best.comHeightCm ? p : best, parabola[0]!) : null;
+
+  // Y-axis tick values
+  const yTickStep = cmRange > 80 ? 20 : cmRange > 40 ? 10 : cmRange > 20 ? 5 : 2;
+  const firstTick = Math.ceil(minCm / yTickStep) * yTickStep;
+  const yTicks: number[] = [];
+  for (let v = firstTick; v <= maxCm; v += yTickStep) yTicks.push(v);
+
+  // ── Table columns ───────────────────────────────────────────────────────────
+  const angleRows: Array<{ label: string; getValue: (a: JointAngles) => string }> = [
+    { label: "Rodilla derecha", getValue: (a) => fmtDeg(a.rightKneeDeg) },
+    { label: "Rodilla izquierda", getValue: (a) => fmtDeg(a.leftKneeDeg) },
+    { label: "Cadera derecha", getValue: (a) => fmtDeg(a.rightHipDeg) },
+    { label: "Cadera izquierda", getValue: (a) => fmtDeg(a.leftHipDeg) },
+  ];
+
+  const hasAngles = jointAngles.dip || jointAngles.takeoff || jointAngles.apex;
+
+  return (
+    <div className="jhdm-tab-body">
+      <div className="jhdm-section-title">Parábola del Centro de Masa (CoM)</div>
+
+      {hasParabola ? (
+        <div style={{ overflowX: "auto" }}>
+          <svg viewBox={`0 0 ${CW} ${CH}`} width="100%" style={{ display: "block" }}>
+            {/* Plot background */}
+            <rect x={ML} y={MT} width={plotW} height={plotH} fill="rgba(0,0,0,0.02)" stroke="#e2e8f0" strokeWidth={1} rx={4} />
+
+            {/* Y-axis grid + labels */}
+            {yTicks.map((v) => (
+              <g key={v}>
+                <line x1={ML} y1={sy(v)} x2={ML + plotW} y2={sy(v)} stroke="#e2e8f0" strokeWidth={1} />
+                <text x={ML - 4} y={sy(v) + 4} textAnchor="end" fontSize={9} fill="#94a3b8">{v}</text>
+              </g>
+            ))}
+            {/* Y-axis label */}
+            <text
+              transform={`translate(${ML - 40},${MT + plotH / 2}) rotate(-90)`}
+              textAnchor="middle" fontSize={10} fill="#64748b"
+            >
+              CoM (cm sobre suelo)
+            </text>
+
+            {/* X-axis labels */}
+            <text x={ML} y={CH - 4} fontSize={9} fill="#94a3b8">f{minFrame + 1}</text>
+            <text x={ML + plotW} y={CH - 4} textAnchor="end" fontSize={9} fill="#94a3b8">f{maxFrame + 1}</text>
+            <text x={ML + plotW / 2} y={CH - 4} textAnchor="middle" fontSize={10} fill="#64748b">Frame</text>
+
+            {/* Apex vertical */}
+            {apexPoint && (
+              <g>
+                <line
+                  x1={sx(apexPoint.frameIndex)} y1={MT}
+                  x2={sx(apexPoint.frameIndex)} y2={MT + plotH}
+                  stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="5 3"
+                />
+                <text x={sx(apexPoint.frameIndex) + 3} y={MT + 12} fontSize={9} fill="#f59e0b" fontWeight="700">
+                  APEX f{apexPoint.frameIndex + 1}
+                </text>
+              </g>
+            )}
+            {/* TOE-OFF line (first parabola frame) */}
+            {hasParabola && (
+              <g>
+                <line
+                  x1={sx(minFrame)} y1={MT}
+                  x2={sx(minFrame)} y2={MT + plotH}
+                  stroke="#22c55e" strokeWidth={1.5} strokeDasharray="5 3"
+                />
+                <text x={sx(minFrame) + 3} y={MT + 22} fontSize={9} fill="#22c55e" fontWeight="700">TOE-OFF</text>
+              </g>
+            )}
+            {/* LANDING line (last parabola frame) */}
+            {hasParabola && (
+              <g>
+                <line
+                  x1={sx(maxFrame)} y1={MT}
+                  x2={sx(maxFrame)} y2={MT + plotH}
+                  stroke="#ef4444" strokeWidth={1.5} strokeDasharray="5 3"
+                />
+                <text x={sx(maxFrame) - 3} y={MT + 22} textAnchor="end" fontSize={9} fill="#ef4444" fontWeight="700">LAND.</text>
+              </g>
+            )}
+
+            {/* Parabola line */}
+            <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth={2.5} strokeLinejoin="round" />
+
+            {/* Apex dot */}
+            {apexPoint && (
+              <>
+                <circle cx={sx(apexPoint.frameIndex)} cy={sy(apexPoint.comHeightCm)} r={5} fill="#f59e0b" stroke="#fff" strokeWidth={1.5} />
+                <text
+                  x={sx(apexPoint.frameIndex) + 8}
+                  y={sy(apexPoint.comHeightCm) - 4}
+                  fontSize={10} fill="#f59e0b" fontWeight="700"
+                >
+                  {apexPoint.comHeightCm.toFixed(1)} cm
+                </text>
+              </>
+            )}
+
+            {/* Takeoff dot */}
+            {hasParabola && (
+              <circle cx={sx(minFrame)} cy={sy(parabola[0]!.comHeightCm)} r={5} fill="#22c55e" stroke="#fff" strokeWidth={1.5} />
+            )}
+            {/* Landing dot */}
+            {hasParabola && (
+              <circle cx={sx(maxFrame)} cy={sy(parabola[parabola.length - 1]!.comHeightCm)} r={5} fill="#ef4444" stroke="#fff" strokeWidth={1.5} />
+            )}
+          </svg>
+        </div>
+      ) : (
+        <p className="jhdm-no-debug-hint">
+          Sin datos de parábola — se necesita un evento TOE_OFF y LANDING con frameIndex para calcular la curva.
+        </p>
+      )}
+
+      {/* Joint angles table */}
+      <div className="jhdm-section-title" style={{ marginTop: 20 }}>Ángulos articulares en eventos clave</div>
+      {hasAngles ? (
+        <table className="jhdm-table">
+          <thead>
+            <tr>
+              <th>Articulación</th>
+              <th>DIP</th>
+              <th>Despegue</th>
+              <th>Apex</th>
+            </tr>
+          </thead>
+          <tbody>
+            {angleRows.map(({ label, getValue }) => (
+              <tr key={label}>
+                <th>{label}</th>
+                <td>{jointAngles.dip ? getValue(jointAngles.dip) : "—"}</td>
+                <td>{jointAngles.takeoff ? getValue(jointAngles.takeoff) : "—"}</td>
+                <td>{jointAngles.apex ? getValue(jointAngles.apex) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="jhdm-no-debug-hint">
+          Sin ángulos articulares — se necesitan los eventos DIP, TOE_OFF y APEX con frameIndex.
+        </p>
+      )}
+
+      {/* Calibration info */}
+    </div>
+  );
+}
+
 // ── Main Modal ─────────────────────────────────────────────────────────────────
-export function JumpHeightDebugModal({ jumpHeight, landmarks, onClose }: Props) {
+export function JumpHeightDebugModal({ jumpHeight, landmarks, masterReference, rimAnnotation, onClose }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("FLIGHT_TIME");
+
+  const mr = (masterReference as MasterReference | null | undefined) ?? null;
+  const kinematics = mr?.kinematics ?? null;
 
   const methodByTab: Record<Tab, ReferenceJumpHeightMethodPreview | null> = {
     FLIGHT_TIME: jumpHeight.methods.find((m) => m.method === "FLIGHT_TIME") ?? null,
     CENTER_OF_MASS: jumpHeight.methods.find((m) => m.method === "CENTER_OF_MASS") ?? null,
     RIM_REFERENCE: jumpHeight.methods.find((m) => m.method === "RIM_REFERENCE") ?? null,
+    KINEMATICS: null,
   };
 
   const activeMethod = methodByTab[activeTab];
+
+  // Consensus bar: prefer masterReference data when available (server-authoritative)
+  const consensusCm = mr?.jumpHeight.consensusValueCm ?? jumpHeight.consensusValueCm;
+  const disagreementCm = mr?.jumpHeight.disagreementCm ?? jumpHeight.disagreementCm;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -395,32 +672,45 @@ export function JumpHeightDebugModal({ jumpHeight, landmarks, onClose }: Props) 
         </div>
 
         <div className="jhdm-consensus-bar">
-          {typeof jumpHeight.consensusValueCm === "number" ? (
-            <span className="biomechanics-badge" style={{ fontWeight: 700 }}>Consenso: {jumpHeight.consensusValueCm.toFixed(1)} cm</span>
+          {typeof consensusCm === "number" ? (
+            <span className="biomechanics-badge" style={{ fontWeight: 700 }}>
+              Consenso: {consensusCm.toFixed(1)} cm
+              {mr ? <span style={{ fontSize: "0.75em", opacity: 0.7, marginLeft: 4 }}>(servidor)</span> : null}
+            </span>
           ) : (
             <span className="biomechanics-badge" style={{ color: "#dc2626" }}>Sin consenso</span>
           )}
-          {typeof jumpHeight.disagreementCm === "number" && (
-            <span className="biomechanics-badge">Diferencia: {jumpHeight.disagreementCm.toFixed(1)} cm</span>
+          {typeof disagreementCm === "number" && (
+            <span className="biomechanics-badge">Diferencia: {disagreementCm.toFixed(1)} cm</span>
           )}
           {typeof jumpHeight.playbackSpeedRatio === "number" && (
             <span className="biomechanics-badge">Ratio temporal: {jumpHeight.playbackSpeedRatio.toFixed(2)}</span>
           )}
+          {mr && (
+            <span className="biomechanics-badge" style={{ marginLeft: "auto", fontSize: "0.78rem" }}>
+              ✓ Biorreferencia calculada · {new Date(mr.computedAt).toLocaleDateString("es")}
+            </span>
+          )}
         </div>
 
         <div className="jhdm-tabs">
-          {(["FLIGHT_TIME", "CENTER_OF_MASS", "RIM_REFERENCE"] as Tab[]).map((tab) => {
+          {(["FLIGHT_TIME", "CENTER_OF_MASS", "RIM_REFERENCE", "KINEMATICS"] as Tab[]).map((tab) => {
             const m = methodByTab[tab];
+            const isKin = tab === "KINEMATICS";
             const isOk = m?.status === "OK";
+            const hasKin = kinematics !== null && kinematics.parabola.length > 0;
             return (
               <button key={tab} type="button"
                 className={`jhdm-tab-btn${activeTab === tab ? " active" : ""}`}
                 onClick={() => setActiveTab(tab)}
               >
                 <span className="jhdm-tab-name">{TAB_LABELS[tab]}</span>
-                <span className="jhdm-tab-status-dot" data-status={m?.status ?? "PENDING"} />
+                {!isKin && <span className="jhdm-tab-status-dot" data-status={m?.status ?? "PENDING"} />}
+                {isKin && <span className="jhdm-tab-status-dot" data-status={hasKin ? "OK" : "PENDING"} />}
                 <span className={`jhdm-tab-value${isOk ? "" : " jhdm-tab-value-fail"}`}>
-                  {isOk && typeof m?.valueCm === "number" ? `${m.valueCm.toFixed(1)} cm` : (m?.status ?? "—")}
+                  {isKin
+                    ? (hasKin ? `${kinematics.parabola.length} frames` : "—")
+                    : (isOk && typeof m?.valueCm === "number" ? `${m.valueCm.toFixed(1)} cm` : (m?.status ?? "—"))}
                 </span>
               </button>
             );
@@ -428,11 +718,19 @@ export function JumpHeightDebugModal({ jumpHeight, landmarks, onClose }: Props) 
         </div>
 
         <div className="jhdm-tab-content">
-          {activeMethod ? (
+          {activeTab === "KINEMATICS" ? (
+            kinematics ? (
+              <KinematicsTab kinematics={kinematics} />
+            ) : (
+              <p className="jhdm-no-debug-hint">
+                Sin datos de cinemática — primero calcula la Biorreferencia usando el botón "⚡ Calcular Biorreferencia".
+              </p>
+            )
+          ) : activeMethod ? (
             <>
               {activeTab === "FLIGHT_TIME" && <FlightTimeTab method={activeMethod} />}
-              {activeTab === "CENTER_OF_MASS" && <CenterOfMassTab method={activeMethod} landmarks={landmarks} />}
-              {activeTab === "RIM_REFERENCE" && <RimReferenceTab method={activeMethod} landmarks={landmarks} />}
+              {activeTab === "CENTER_OF_MASS" && <CenterOfMassTab method={activeMethod} landmarks={landmarks} rimAnnotation={rimAnnotation ?? null} />}
+              {activeTab === "RIM_REFERENCE" && <RimReferenceTab method={activeMethod} landmarks={landmarks} rimAnnotation={rimAnnotation ?? null} />}
             </>
           ) : (
             <p style={{ color: "var(--ink-soft)", fontStyle: "italic" }}>Este método no está presente.</p>

@@ -825,6 +825,17 @@ textarea { resize: vertical; }
   font-style: italic;
   margin: 0;
 }
+.jhdm-table thead th {
+  background: rgba(0,0,0,0.03);
+  font-weight: 700;
+  text-align: center;
+}
+.jhdm-table thead th:first-child {
+  text-align: left;
+}
+.jhdm-table td {
+  text-align: center;
+}
 
 
 /* ── Rim Annotation Tool (rat) ────────────────────────────────────────── */

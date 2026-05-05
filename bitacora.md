@@ -14,6 +14,66 @@
 
 ## Registro de trabajo
 
+### 2. Refactor arquitectural: anotación manual del aro + BiometricSpaceConverter
+
+Se realizó una refactorización mayor que desvincula a MediaPipe de cualquier responsabilidad de detectar el aro. MediaPipe queda como extractor puro de 33 puntos clave del cuerpo humano; la calibración métrica pasa al servidor usando anotación manual de dos clics sobre el aro.
+
+#### Cambios por archivo
+
+**`packages/shared/src/index.ts`**
+- 6 interfaces nuevas: `RimAnnotation`, `BiomechanicsCalibration`, `BiomechanicsParabolaFrame`, `BiomechanicsJointAngles`, `BiomechanicsKinematics`, `BiomechanicsMasterReference` (schemaVersion 2)
+
+**`apps/web/src/techniquePoseExtraction.ts`**
+- Eliminada `detectRimCandidate()` (~130 líneas de detección de píxeles naranjas)
+- Eliminada `buildRimReference()` y campo `rimCandidate` en `FrameAnalysis`
+- `rimReference` queda como `@deprecated` para retrocompatibilidad; ya no se genera en nuevas extracciones
+- Agregada interfaz `RimAnnotation` y campo `rimAnnotation?: RimAnnotation | null` en `TechniqueProLandmarks`
+
+**`apps/api/src/lib/biometricSpaceConverter.ts`** _(nuevo)_
+- Clase `BiometricSpaceConverter`: calibra escala real con NBA (305 cm altura, 45.72 cm diámetro interior)
+- `toMetricY(y_norm)` → cm sobre suelo; `getProjectedRimAtFrame(fi)` → aro proyectado por cameraTracking
+- `CalibrationError` si la anotación no es geométricamente válida
+
+**`apps/api/src/lib/jumpHeightAnalyzer.ts`** _(nuevo)_
+- `analyze(input): MasterReference` — 3 métodos: FLIGHT_TIME, CENTER_OF_MASS, RIM_REFERENCE
+- CoM usa `converter.normPerCmV`; RIM usa `converter.getProjectedRimAtFrame(apex)`
+- Kinematics: parábola CoM (TOE_OFF→LANDING) + ángulos articulares (rodilla/cadera) en DIP/despegue/apex
+
+**`apps/api/src/routes/admin-templates.ts`**
+- `rimAnnotationSchema` (Zod), campo en `techniqueProLandmarksSchema` y `techniqueBiomechanicsConfigSchema`
+- Endpoint nuevo: `POST /admin/program-templates/:code/techniques/:techniqueId/biomechanics/analyze`
+  - Valida payload → llama `analyzeBiomechanics()` → persiste `masterReference` → devuelve `{ masterReference }`
+  - HTTP 422 `INVALID_CALIBRATION` si la anotación no tiene sentido geométrico
+
+**`apps/web/src/components/RimAnnotationTool.tsx`** _(nuevo)_
+- SVG interactivo 2 clics: borde izquierdo (tablero) → auto-avance → borde derecho (punta)
+- Overlay skeleton + puntos amarillo/naranja + línea "45.72 cm"
+- Preview calibración en tiempo real (`normPerCmV`, `normPerCmH`)
+
+**`apps/web/src/App.tsx`**
+- Estados: `rimAnnotation`, `masterReference`, `biomechanicsAnalyzing`
+- `useEffect` sincroniza desde `biomechanicsConfig` al cambiar técnica
+- Botón "⚡ Calcular Biorreferencia" → `POST /biomechanics/analyze`
+- `RimAnnotationTool` y `JumpHeightDebugModal` reciben las nuevas props
+
+**`apps/web/src/components/JumpHeightDebugModal.tsx`**
+- 4º tab **"Cinemática"**: gráfico SVG parábola CoM + tabla ángulos articulares
+- Overlay `RimOverlay` (puntos amarillos + línea "45.72 cm") en tabs CoM y RIM
+- Barra de consenso muestra datos del servidor si `masterReference` disponible
+
+**`apps/web/src/styles.css`**
+- Bloque `.rat-*` para `RimAnnotationTool`
+- `.jhdm-table thead` para tabla de ángulos en tab Cinemática
+
+#### Razón del cambio
+El sistema anterior producía CoM=538 cm y RIM=352 cm por usar detección de píxeles naranjas sin referencia métrica fija. Con anotación manual de dos puntos el servidor calibra con precisión usando las constantes oficiales de la NBA.
+
+#### Validación
+- `npx tsc --noEmit` pasa sin errores en `apps/api` y `apps/web`
+- Branch: `bio`
+
+---
+
 ### 0.1. Ajuste de muestreo para analisis tecnico en mobile2
 
 Se ajustó el analizador de video del atleta en `apps/mobile2` para aumentar la resolución temporal del gesto:
