@@ -65,6 +65,7 @@ export function RimAnnotationTool({ landmarks, videoUrl, existingAnnotation, onA
   const [annotation, setAnnotation] = useState<RimAnnotation | null>(existingAnnotation ?? null);
   const [mode, setMode] = useState<ClickTarget>("left");
   const [frameDataUrl, setFrameDataUrl] = useState<string | null>(null);
+  const [videoDims, setVideoDims] = useState<{ w: number; h: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -89,6 +90,13 @@ export function RimAnnotationTool({ landmarks, videoUrl, existingAnnotation, onA
     video.currentTime = ts / 1000;
   }, [videoUrl, frameIndex, landmarks.frames]);
 
+  /** Read video natural dimensions when metadata is available. */
+  const handleVideoMetadata = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    setVideoDims({ w: video.videoWidth, h: video.videoHeight });
+  }, []);
+
   /** Called by the hidden <video> when it finishes seeking — draws the frame to an offscreen canvas. */
   const handleVideoSeeked = useCallback(() => {
     const video = videoRef.current;
@@ -107,9 +115,13 @@ export function RimAnnotationTool({ landmarks, videoUrl, existingAnnotation, onA
     }
   }, []);
 
+  // Use actual video dimensions for coordinate mapping; fall back to 16:9 default
+  const svgW = videoDims?.w ?? VW;
+  const svgH = videoDims?.h ?? VH;
+
   const lms = (landmarks.frames[frameIndex]?.landmarks as Array<{ x: number; y: number }> | undefined) ?? [];
-  const px = (x: number) => x * VW;
-  const py = (y: number) => y * VH;
+  const px = (x: number) => x * svgW;
+  const py = (y: number) => y * svgH;
 
   const handleSvgClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
@@ -192,6 +204,7 @@ export function RimAnnotationTool({ landmarks, videoUrl, existingAnnotation, onA
           muted
           playsInline
           style={{ display: "none" }}
+          onLoadedMetadata={handleVideoMetadata}
           onSeeked={handleVideoSeeked}
         />
       )}
@@ -266,23 +279,23 @@ export function RimAnnotationTool({ landmarks, videoUrl, existingAnnotation, onA
         </span>
       </div>
 
-      {/* SVG canvas */}
+      {/* SVG canvas — viewBox matches actual video dimensions so skeleton aligns pixel-perfect */}
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${VW} ${VH}`}
+        viewBox={`0 0 ${svgW} ${svgH}`}
         width="100%"
         style={{ cursor: "crosshair", border: "1px solid var(--line)", borderRadius: 10, background: "#111", display: "block" }}
         onClick={handleSvgClick}
       >
-        {/* Video frame background */}
+        {/* Video frame background — stretched to fill viewBox (no letter-boxing) so coordinates match */}
         {frameDataUrl && (
           <image
             href={frameDataUrl}
             x={0}
             y={0}
-            width={VW}
-            height={VH}
-            preserveAspectRatio="xMidYMid meet"
+            width={svgW}
+            height={svgH}
+            preserveAspectRatio="none"
           />
         )}
 
@@ -336,7 +349,7 @@ export function RimAnnotationTool({ landmarks, videoUrl, existingAnnotation, onA
 
         {/* Crosshair hint */}
         {!annotation && (
-          <text x={VW / 2} y={VH / 2} fontSize={13} fill={frameDataUrl ? "#facc15" : "#94a3b8"} textAnchor="middle" dominantBaseline="middle">
+          <text x={svgW / 2} y={svgH / 2} fontSize={svgH * 0.04} fill={frameDataUrl ? "#facc15" : "#94a3b8"} textAnchor="middle" dominantBaseline="middle">
             Haz clic en el aro para anotarlo
           </text>
         )}
