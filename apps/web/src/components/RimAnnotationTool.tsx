@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { RimAnnotation, TechniqueProLandmarks } from "../techniquePoseExtraction";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { RimAnnotation, TechniquePoseFrame, TechniqueProLandmarks } from "../techniquePoseExtraction";
 
 // NBA regulation rim inner diameter
 const RIM_INNER_DIAMETER_CM = 45.72;
@@ -8,6 +8,8 @@ const RIM_HEIGHT_CM = 305;
 
 interface Props {
   landmarks: TechniqueProLandmarks;
+  /** URL of the reference video. When provided, actual video frames are shown as background. */
+  videoUrl?: string | null;
   existingAnnotation?: RimAnnotation | null;
   onAnnotationChange: (annotation: RimAnnotation | null) => void;
 }
@@ -29,18 +31,81 @@ function fmt4(v: number): string {
   return v.toFixed(4);
 }
 
-export function RimAnnotationTool({ landmarks, existingAnnotation, onAnnotationChange }: Props) {
-  const [frameIndex, setFrameIndex] = useState(0);
+/** Returns the frame index with the lowest average hip Y (= highest point in frame = apex). */
+function findApexFrameIndex(frames: TechniquePoseFrame[]): number {
+  let bestIdx = 0;
+  let minHipY = Infinity;
+  for (let i = 0; i < frames.length; i++) {
+    const lms = frames[i]?.landmarks as Array<{ x: number; y: number }> | undefined;
+    if (!lms) continue;
+    const lh = lms[23]?.y;
+    const rh = lms[24]?.y;
+    const avg =
+      typeof lh === "number" && typeof rh === "number"
+        ? (lh + rh) / 2
+        : typeof lh === "number"
+          ? lh
+          : typeof rh === "number"
+            ? rh
+            : null;
+    if (avg !== null && avg < minHipY) {
+      minHipY = avg;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+export function RimAnnotationTool({ landmarks, videoUrl, existingAnnotation, onAnnotationChange }: Props) {
+  const apexFrameIndex = useMemo(() => findApexFrameIndex(landmarks.frames), [landmarks.frames]);
+
+  const [frameIndex, setFrameIndex] = useState(() =>
+    existingAnnotation != null ? existingAnnotation.frameIndex : apexFrameIndex,
+  );
   const [annotation, setAnnotation] = useState<RimAnnotation | null>(existingAnnotation ?? null);
   const [mode, setMode] = useState<ClickTarget>("left");
+  const [frameDataUrl, setFrameDataUrl] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const totalFrames = landmarks.frames.length;
 
-  // Sync with external prop
+  // When landmarks change (new technique), reset to apex
+  useEffect(() => {
+    setFrameIndex(existingAnnotation != null ? existingAnnotation.frameIndex : apexFrameIndex);
+  }, [landmarks, apexFrameIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync annotation with external prop
   useEffect(() => {
     setAnnotation(existingAnnotation ?? null);
   }, [existingAnnotation]);
+
+  // Seek hidden video to the current frame's timestamp whenever frameIndex or videoUrl changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl) { setFrameDataUrl(null); return; }
+    const ts = landmarks.frames[frameIndex]?.timestampMs;
+    if (typeof ts !== "number") return;
+    video.currentTime = ts / 1000;
+  }, [videoUrl, frameIndex, landmarks.frames]);
+
+  /** Called by the hidden <video> when it finishes seeking — draws the frame to an offscreen canvas. */
+  const handleVideoSeeked = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.videoWidth === 0) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+    try {
+      setFrameDataUrl(canvas.toDataURL("image/jpeg", 0.9));
+    } catch {
+      // CORS restriction — fall back to skeleton-only
+      setFrameDataUrl(null);
+    }
+  }, []);
 
   const lms = (landmarks.frames[frameIndex]?.landmarks as Array<{ x: number; y: number }> | undefined) ?? [];
   const px = (x: number) => x * VW;
@@ -117,6 +182,20 @@ export function RimAnnotationTool({ landmarks, existingAnnotation, onAnnotationC
 
   return (
     <div className="rim-annotation-tool">
+      {/* Hidden video for frame extraction */}
+      {videoUrl && (
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          crossOrigin="anonymous"
+          preload="auto"
+          muted
+          playsInline
+          style={{ display: "none" }}
+          onSeeked={handleVideoSeeked}
+        />
+      )}
+
       {/* Frame navigator */}
       <div className="rat-frame-nav">
         <button
@@ -127,7 +206,12 @@ export function RimAnnotationTool({ landmarks, existingAnnotation, onAnnotationC
         >
           ‹
         </button>
-        <span className="rat-frame-label">Frame {frameIndex + 1} / {totalFrames}</span>
+        <span className="rat-frame-label">
+          Frame {frameIndex + 1} / {totalFrames}
+          {frameIndex === apexFrameIndex && (
+            <span style={{ marginLeft: 6, fontSize: "0.78rem", color: "#f59e0b", fontWeight: 700 }}>⬆ Apex</span>
+          )}
+        </span>
         <button
           type="button"
           className="secondary-button"
@@ -135,6 +219,15 @@ export function RimAnnotationTool({ landmarks, existingAnnotation, onAnnotationC
           disabled={frameIndex === totalFrames - 1}
         >
           ›
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          style={{ marginLeft: 8 }}
+          onClick={() => setFrameIndex(apexFrameIndex)}
+          title="Ir al apex (punto más alto del salto)"
+        >
+          ⬆ Apex
         </button>
         <button
           type="button"
@@ -178,11 +271,23 @@ export function RimAnnotationTool({ landmarks, existingAnnotation, onAnnotationC
         ref={svgRef}
         viewBox={`0 0 ${VW} ${VH}`}
         width="100%"
-        style={{ cursor: "crosshair", border: "1px solid var(--line)", borderRadius: 10, background: "rgba(0,0,0,0.04)", display: "block" }}
+        style={{ cursor: "crosshair", border: "1px solid var(--line)", borderRadius: 10, background: "#111", display: "block" }}
         onClick={handleSvgClick}
       >
-        {/* Skeleton */}
-        <g opacity={0.35}>
+        {/* Video frame background */}
+        {frameDataUrl && (
+          <image
+            href={frameDataUrl}
+            x={0}
+            y={0}
+            width={VW}
+            height={VH}
+            preserveAspectRatio="xMidYMid meet"
+          />
+        )}
+
+        {/* Skeleton — brighter when video frame present, dimmer without */}
+        <g opacity={frameDataUrl ? 0.75 : 0.45}>
           {POSE_CONNECTIONS.map(([a, b]) => {
             const A = lms[a]; const B = lms[b];
             if (!A || !B) return null;
@@ -190,12 +295,14 @@ export function RimAnnotationTool({ landmarks, existingAnnotation, onAnnotationC
               <line key={`${a}-${b}`}
                 x1={px(A.x)} y1={py(A.y)}
                 x2={px(B.x)} y2={py(B.y)}
-                stroke="#94a3b8" strokeWidth={2}
+                stroke={frameDataUrl ? "#ffffff" : "#94a3b8"}
+                strokeWidth={frameDataUrl ? 1.5 : 2}
               />
             );
           })}
           {lms.map((lm, i) => lm
-            ? <circle key={i} cx={px(lm.x)} cy={py(lm.y)} r={2.5} fill="#60a5fa" />
+            ? <circle key={i} cx={px(lm.x)} cy={py(lm.y)} r={2.5}
+                fill={frameDataUrl ? "#facc15" : "#60a5fa"} />
             : null)}
         </g>
 
@@ -229,7 +336,7 @@ export function RimAnnotationTool({ landmarks, existingAnnotation, onAnnotationC
 
         {/* Crosshair hint */}
         {!annotation && (
-          <text x={VW / 2} y={VH / 2} fontSize={13} fill="#94a3b8" textAnchor="middle" dominantBaseline="middle">
+          <text x={VW / 2} y={VH / 2} fontSize={13} fill={frameDataUrl ? "#facc15" : "#94a3b8"} textAnchor="middle" dominantBaseline="middle">
             Haz clic en el aro para anotarlo
           </text>
         )}
@@ -262,6 +369,9 @@ export function RimAnnotationTool({ landmarks, existingAnnotation, onAnnotationC
 
       {/* Info */}
       <p className="rat-info">
+        {!videoUrl && (
+          <span style={{ color: "#f59e0b", fontWeight: 600 }}>⚠ Sin video: solo se muestra el skeleton. Para ver el fotograma real asegúrate de que el video esté enlazado. </span>
+        )}
         El aro debe marcarse sobre un frame donde el atleta esté visible.
         El borde <strong>izquierdo</strong> es el extremo del lado del tablero;
         el <strong>derecho</strong> es la punta delantera del aro (de cara a la cámara).

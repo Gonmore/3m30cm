@@ -9415,6 +9415,7 @@ export default function App() {
                             </p>
                             <RimAnnotationTool
                               landmarks={selectedTechnique.proLandmarks}
+                              videoUrl={selectedReferenceVideoUrl}
                               existingAnnotation={rimAnnotation}
                               onAnnotationChange={(a) => setRimAnnotation(a)}
                             />
