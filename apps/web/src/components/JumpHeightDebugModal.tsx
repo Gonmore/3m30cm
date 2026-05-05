@@ -3,11 +3,13 @@ import type {
   ReferenceJumpHeightMethodPreview,
   ReferenceJumpHeightPreview,
 } from "../biomechanicsReferenceMeasurements";
-import type { TechniqueProLandmarks } from "../techniquePoseExtraction";
+import type { RimAnnotation, TechniqueProLandmarks } from "../techniquePoseExtraction";
 
 interface Props {
   jumpHeight: ReferenceJumpHeightPreview;
   landmarks: TechniqueProLandmarks;
+  masterReference?: unknown;
+  rimAnnotation?: RimAnnotation | null;
   onClose: () => void;
 }
 

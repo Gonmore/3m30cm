@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { env } from "../config/env.js";
 import { prisma } from "../config/prisma.js";
+import { analyze as analyzeBiomechanics, CalibrationError } from "../lib/jumpHeightAnalyzer.js";
 import { deleteProgramTechniqueMedia, uploadProgramTechniqueMedia } from "../lib/minio.js";
 import { ensureTemplateTechniqueStructure } from "../lib/program-template-techniques.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
@@ -85,6 +86,15 @@ const techniqueRimReferenceSchema = z.object({
   method: z.literal("orange-rim-heuristic"),
 });
 
+const rimAnnotationSchema = z.object({
+  frameIndex: z.number().int().nonnegative(),
+  xLeft: z.number().finite().min(0).max(1),
+  yLeft: z.number().finite().min(0).max(1),
+  xRight: z.number().finite().min(0).max(1),
+  yRight: z.number().finite().min(0).max(1),
+  annotatedAt: z.string().datetime(),
+});
+
 const techniqueProLandmarksSchema = z.object({
   schemaVersion: z.literal(1),
   source: z.string().trim().min(1).max(64),
@@ -96,6 +106,7 @@ const techniqueProLandmarksSchema = z.object({
   frames: z.array(techniquePoseFrameSchema).max(10000),
   cameraTracking: techniqueCameraTrackingSchema.nullable().optional(),
   rimReference: techniqueRimReferenceSchema.nullable().optional(),
+  rimAnnotation: rimAnnotationSchema.nullable().optional(),
 }).superRefine((value, context) => {
   if (value.frameCount !== value.frames.length) {
     context.addIssue({
@@ -481,6 +492,8 @@ const techniqueBiomechanicsConfigSchema = z.object({
     manualOverrideAllowed: true,
     normalizationMode: "AUTO",
   }),
+  rimAnnotation: rimAnnotationSchema.nullable().optional(),
+  masterReference: z.unknown().nullable().optional(), // BiomechanicsMasterReference from analyze endpoint
   coachNotes: z.string().trim().nullable().optional(),
 }).superRefine((value, context) => {
   const centerOfMassMethodEnabled = value.jumpHeightMeasurement.centerOfMassMethodEnabled
@@ -931,6 +944,97 @@ adminTemplatesRouter.delete("/program-templates/:code/techniques/:techniqueId", 
     res.status(500).json({ message: "Failed to delete technique" });
   }
 });
+
+// ── Biomechanics: authoritative analysis with manual rim annotation ────────────
+
+const biomechanicsAnalyzeBodySchema = z.object({
+  landmarks: techniqueProLandmarksSchema,
+  rimAnnotation: rimAnnotationSchema,
+  keyEvents: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+    eventType: z.string(),
+    frameIndex: z.number().int().nullable(),
+  })).max(20),
+  config: z.object({
+    enabled: z.boolean().default(true),
+    subjectHeightCm: z.number().finite().positive().nullable(),
+    playbackSpeedRatio: z.number().finite().positive().max(1).nullable(),
+    flightTimeMethodEnabled: z.boolean().default(true),
+    centerOfMassMethodEnabled: z.boolean().default(true),
+    consensusToleranceCm: z.number().finite().positive().nullable(),
+  }),
+  persistResult: z.boolean().default(true),
+});
+
+adminTemplatesRouter.post(
+  "/program-templates/:code/techniques/:techniqueId/biomechanics/analyze",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      const techniqueId = getStringParam(req.params.techniqueId);
+      if (!code || !techniqueId) {
+        res.status(400).json({ message: "Program template code and technique id are required" });
+        return;
+      }
+
+      const template = await prisma.programTemplate.findUnique({ where: { code }, select: { id: true } });
+      if (!template) {
+        res.status(404).json({ message: "Program template not found" });
+        return;
+      }
+
+      const technique = await prisma.programTemplateTechnique.findUnique({ where: { id: techniqueId } });
+      if (!technique || technique.programTemplateId !== template.id) {
+        res.status(404).json({ message: "Technique not found" });
+        return;
+      }
+
+      const payload = biomechanicsAnalyzeBodySchema.parse(req.body);
+
+      const masterReference = analyzeBiomechanics({
+        landmarks: payload.landmarks as Parameters<typeof analyzeBiomechanics>[0]["landmarks"],
+        rimAnnotation: payload.rimAnnotation,
+        keyEvents: payload.keyEvents,
+        config: {
+          enabled: payload.config.enabled,
+          subjectHeightCm: payload.config.subjectHeightCm,
+          playbackSpeedRatio: payload.config.playbackSpeedRatio,
+          flightTimeMethodEnabled: payload.config.flightTimeMethodEnabled,
+          centerOfMassMethodEnabled: payload.config.centerOfMassMethodEnabled,
+          consensusToleranceCm: payload.config.consensusToleranceCm,
+        },
+      });
+
+      // Persist the result inside biomechanicsConfig.masterReference if requested
+      if (payload.persistResult) {
+        const existingConfig = (technique.biomechanicsConfig ?? {}) as Record<string, unknown>;
+        const updatedConfig: Record<string, unknown> = {
+          ...existingConfig,
+          rimAnnotation: payload.rimAnnotation,
+          masterReference,
+        };
+        await prisma.programTemplateTechnique.update({
+          where: { id: techniqueId },
+          data: { biomechanicsConfig: updatedConfig as Prisma.InputJsonValue },
+        });
+      }
+
+      res.json({ masterReference });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid request payload", issues: error.issues });
+        return;
+      }
+      if (error instanceof CalibrationError) {
+        res.status(422).json({ error: "INVALID_CALIBRATION", message: error.message });
+        return;
+      }
+      console.error("Failed to analyze biomechanics", error);
+      res.status(500).json({ message: "Failed to run biomechanics analysis" });
+    }
+  },
+);
 
 adminTemplatesRouter.post("/program-templates/:code/techniques/:techniqueId/measurements", async (req: Request, res: Response) => {
   try {

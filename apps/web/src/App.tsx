@@ -9,7 +9,8 @@ import {
 import { buildReferenceBiomechanicsMeasurementsPreview } from "./biomechanicsReferenceMeasurements";
 import { BiomechanicsVisualEditor } from "./components/BiomechanicsVisualEditor";
 import { JumpHeightDebugModal } from "./components/JumpHeightDebugModal";
-import { extractTechniquePoseSequence, type TechniquePoseFrame, type TechniqueProLandmarks } from "./techniquePoseExtraction";
+import { RimAnnotationTool } from "./components/RimAnnotationTool";
+import { extractTechniquePoseSequence, type RimAnnotation, type TechniquePoseFrame, type TechniqueProLandmarks } from "./techniquePoseExtraction";
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
 const apiBaseUrl = configuredApiBaseUrl.replace(/\/$/, "");
@@ -2328,6 +2329,9 @@ export default function App() {
   const [templateForm, setTemplateForm] = useState<TemplateFormState>(emptyTemplateForm);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [jumpHeightDebugOpen, setJumpHeightDebugOpen] = useState(false);
+  const [rimAnnotation, setRimAnnotation] = useState<RimAnnotation | null>(null);
+  const [masterReference, setMasterReference] = useState<unknown>(null);
+  const [biomechanicsAnalyzing, setBiomechanicsAnalyzing] = useState(false);
   const [templateTechniques, setTemplateTechniques] = useState<ProgramTechniqueRecord[]>([]);
   const [selectedTechniqueId, setSelectedTechniqueId] = useState<string>("");
   const [templateTechniqueForm, setTemplateTechniqueForm] = useState<TechniqueFormState>(emptyTechniqueForm);
@@ -2389,6 +2393,13 @@ export default function App() {
     () => templateTechniques.find((technique) => technique.id === selectedTechniqueId) ?? null,
     [templateTechniques, selectedTechniqueId],
   );
+
+  // Sync rimAnnotation and masterReference from persisted biomechanicsConfig when technique changes
+  useEffect(() => {
+    const config = selectedTechnique?.biomechanicsConfig as Record<string, unknown> | null | undefined;
+    setRimAnnotation((config?.rimAnnotation as RimAnnotation | null) ?? null);
+    setMasterReference(config?.masterReference ?? null);
+  }, [selectedTechnique?.id]);
 
   const selectedTechniqueReferenceAsset = useMemo(() => {
     const referenceMediaAssetId = normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMediaAssetId;
@@ -9394,6 +9405,79 @@ export default function App() {
                       ))}
 
                       {referenceBiomechanicsPreview.jumpHeight ? (
+                        <>
+                        {/* Rim annotation tool */}
+                        {selectedTechnique?.proLandmarks ? (
+                          <article className="detail-card program-card">
+                            <strong>Anotación del aro (calibración manual)</strong>
+                            <p className="helper-text" style={{ marginBottom: 8 }}>
+                              Marca los dos bordes del aro en un frame con el atleta visible. Se usará para calcular la biometría real.
+                            </p>
+                            <RimAnnotationTool
+                              landmarks={selectedTechnique.proLandmarks}
+                              existingAnnotation={rimAnnotation}
+                              onAnnotationChange={(a) => setRimAnnotation(a)}
+                            />
+                            <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                              <button
+                                type="button"
+                                className="primary-button"
+                                disabled={!rimAnnotation || biomechanicsAnalyzing}
+                                onClick={async () => {
+                                  if (!rimAnnotation || !selectedTechnique?.proLandmarks) return;
+                                  const technique = selectedTechnique;
+                                  const config = normalizeTechniqueBiomechanicsConfig(technique.biomechanicsConfig);
+                                  setBiomechanicsAnalyzing(true);
+                                  try {
+                                    const token = localStorage.getItem(tokenStorageKey);
+                                    const resp = await fetch(
+                                      `${apiBaseUrl}/admin/program-templates/${encodeURIComponent(selectedTemplateCode)}/techniques/${encodeURIComponent(technique.id)}/biomechanics/analyze`,
+                                      {
+                                        method: "POST",
+                                        headers: {
+                                          "Content-Type": "application/json",
+                                          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                                        },
+                                        body: JSON.stringify({
+                                          landmarks: technique.proLandmarks,
+                                          rimAnnotation,
+                                          keyEvents: config.keyEvents ?? [],
+                                          config: {
+                                            enabled: config.jumpHeightMeasurement?.enabled ?? true,
+                                            subjectHeightCm: config.jumpHeightMeasurement?.subjectHeightCm ?? null,
+                                            playbackSpeedRatio: config.jumpHeightMeasurement?.playbackSpeedRatio ?? null,
+                                            flightTimeMethodEnabled: config.jumpHeightMeasurement?.flightTimeMethodEnabled ?? true,
+                                            centerOfMassMethodEnabled: config.jumpHeightMeasurement?.centerOfMassMethodEnabled ?? true,
+                                            consensusToleranceCm: config.jumpHeightMeasurement?.consensusToleranceCm ?? null,
+                                          },
+                                          persistResult: true,
+                                        }),
+                                      },
+                                    );
+                                    if (!resp.ok) {
+                                      const data = await resp.json().catch(() => ({}));
+                                      alert(`Error al calcular biorreferencia: ${data.message ?? resp.status}`);
+                                      return;
+                                    }
+                                    const data = await resp.json();
+                                    setMasterReference(data.masterReference);
+                                  } catch (err) {
+                                    alert(`Error de red: ${String(err)}`);
+                                  } finally {
+                                    setBiomechanicsAnalyzing(false);
+                                  }
+                                }}
+                              >
+                                {biomechanicsAnalyzing ? "Calculando…" : "⚡ Calcular Biorreferencia"}
+                              </button>
+                              {masterReference ? (
+                                <span style={{ fontSize: "0.8rem", color: "var(--ink-soft)" }}>
+                                  ✓ Biorreferencia calculada
+                                </span>
+                              ) : null}
+                            </div>
+                          </article>
+                        ) : null}
                         <article className="detail-card program-card biomechanics-preview-card">
                           <div className="biomechanics-preview-badge-row">
                             <strong>Altura del salto</strong>
@@ -9436,12 +9520,14 @@ export default function App() {
                             </div>
                           ) : null}
                         </article>
-                      ) : null}
+                      </>) : null}
 
                       {jumpHeightDebugOpen && referenceBiomechanicsPreview.jumpHeight && selectedTechnique?.proLandmarks ? (
                         <JumpHeightDebugModal
                           jumpHeight={referenceBiomechanicsPreview.jumpHeight}
                           landmarks={selectedTechnique.proLandmarks}
+                          masterReference={masterReference as never}
+                          rimAnnotation={rimAnnotation}
                           onClose={() => setJumpHeightDebugOpen(false)}
                         />
                       ) : null}

@@ -209,3 +209,88 @@ export interface AthleteBiomechanicsAnalysisContract {
   measuredChecks: AthleteBiomechanicsMeasuredChecks;
   jumpHeightMeasurement: AthleteBiomechanicsJumpHeightMeasurement | null;
 }
+
+// ── Manual Rim Annotation & Spatial Calibration (schemaVersion 2) ─────────────
+
+/** Manual annotation of the basketball hoop rim in a video frame. */
+export interface RimAnnotation {
+  /** Frame index where the admin annotated the rim endpoints. */
+  frameIndex: number;
+  /** Left (backboard-end) rim edge, normalized 0–1. */
+  xLeft: number;
+  yLeft: number;
+  /** Right (front/tip) rim edge, normalized 0–1. */
+  xRight: number;
+  yRight: number;
+  /** ISO 8601 timestamp when the annotation was saved. */
+  annotatedAt: string;
+}
+
+/** Bi-axial spatial calibration derived from a two-point manual rim annotation. */
+export interface BiomechanicsCalibration {
+  /** Normalized units per cm, vertical axis (rim height 305 cm vs ground at DIP frame). */
+  normPerCmV: number;
+  /** Normalized units per cm, horizontal axis (rim inner diameter 45.72 cm). */
+  normPerCmH: number;
+  /** Ground Y position (normalized 0–1) at the DIP frame. */
+  groundY_norm: number;
+  /** Rim center Y (normalized 0–1) projected to the DIP frame. */
+  rimCenterY_norm: number;
+  /** How this calibration was derived. */
+  scaleSource: "rim-manual-2pt";
+}
+
+/** Single frame in the CoM height parabola. */
+export interface BiomechanicsParabolaFrame {
+  frameIndex: number;
+  timestampMs: number;
+  /** Center-of-mass height in cm above the DIP-frame ground reference. */
+  comHeightCm: number;
+}
+
+/** Joint angles (degrees) at one biomechanics milestone. */
+export interface BiomechanicsJointAngles {
+  leftKneeDeg: number | null;
+  rightKneeDeg: number | null;
+  leftHipDeg: number | null;
+  rightHipDeg: number | null;
+}
+
+/** Kinematic analysis: CoM parabola + joint angles at DIP / take-off / apex. */
+export interface BiomechanicsKinematics {
+  /** CoM height (cm above ground) for each frame from take-off to landing. */
+  parabola: BiomechanicsParabolaFrame[];
+  /** Articulation angles at key events. */
+  jointAngles: {
+    dip: BiomechanicsJointAngles | null;
+    takeoff: BiomechanicsJointAngles | null;
+    apex: BiomechanicsJointAngles | null;
+  };
+}
+
+/** Authoritative jump analysis produced by the API analyze endpoint. */
+export interface BiomechanicsMasterReference {
+  schemaVersion: 2;
+  calibration: BiomechanicsCalibration;
+  jumpHeight: {
+    motionProfile: "REAL_TIME" | "SLOW_MOTION" | null;
+    playbackSpeedRatio: number | null;
+    methods: Array<{
+      method: "FLIGHT_TIME" | "CENTER_OF_MASS" | "RIM_REFERENCE";
+      status: string;
+      valueCm: number | null;
+      confidence: number | null;
+      playbackSpeedRatio: number | null;
+      notes: string | null;
+      comHeightAboveGroundCm?: number | null;
+      dipDepthCm?: number | null;
+      takeoffEfficiency?: number | null;
+    }>;
+    consensusValueCm: number | null;
+    disagreementCm: number | null;
+    status: string;
+    notes: string | null;
+  };
+  kinematics: BiomechanicsKinematics;
+  computedAt: string;
+}

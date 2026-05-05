@@ -42,6 +42,20 @@ export interface TechniqueRimReference {
   method: "orange-rim-heuristic";
 }
 
+/** Manual two-point annotation of the basketball rim by the admin. */
+export interface RimAnnotation {
+  /** Frame index where the admin annotated the rim endpoints. */
+  frameIndex: number;
+  /** Left (backboard-end) rim edge, normalized 0–1. */
+  xLeft: number;
+  yLeft: number;
+  /** Right (front/tip) rim edge, normalized 0–1. */
+  xRight: number;
+  yRight: number;
+  /** ISO 8601 timestamp when the annotation was saved. */
+  annotatedAt: string;
+}
+
 export interface TechniqueProLandmarks {
   schemaVersion: 1;
   source: string;
@@ -52,7 +66,10 @@ export interface TechniqueProLandmarks {
   durationMs: number;
   frames: TechniquePoseFrame[];
   cameraTracking?: TechniqueCameraTracking | null;
+  /** @deprecated Use rimAnnotation (manual two-point annotation) instead. */
   rimReference?: TechniqueRimReference | null;
+  /** Manual two-point annotation of the basketball rim by the admin. */
+  rimAnnotation?: RimAnnotation | null;
 }
 
 interface TechniquePoseExtractionOptions {
@@ -83,15 +100,6 @@ interface FrameAnalysis {
   width: number;
   height: number;
   exclusionBox: FrameAnalysisBox | null;
-  rimCandidate: {
-    x: number;
-    y: number;
-    xLeft: number;
-    yLeft: number;
-    xRight: number;
-    yRight: number;
-    confidence: number;
-  } | null;
 }
 
 interface TrackingPoint {
@@ -112,156 +120,6 @@ const analysisWidth = 160;
 const maxTrackingPoints = 24;
 const trackingSearchRadius = 6;
 const trackingPatchRadius = 2;
-
-function detectRimCandidate(
-  imageData: ImageData,
-  width: number,
-  height: number,
-  exclusionBox: FrameAnalysisBox | null,
-) {
-  const maxY = Math.floor(height * 0.78);
-  const visited = new Uint8Array(width * height);
-  const best = {
-    score: 0,
-    x: 0,
-    y: 0,
-    xLeft: 0,
-    yLeft: 0,
-    xRight: 0,
-    yRight: 0,
-    confidence: 0,
-  };
-
-  const isOrangePixel = (x: number, y: number) => {
-    if (y > maxY || isInsideExclusionBox(x, y, exclusionBox, 10)) {
-      return false;
-    }
-    const pixelIndex = (y * width + x) * 4;
-    const red = imageData.data[pixelIndex] ?? 0;
-    const green = imageData.data[pixelIndex + 1] ?? 0;
-    const blue = imageData.data[pixelIndex + 2] ?? 0;
-    return red > 130 && green > 60 && green < 205 && blue < 125 && red > green + 16;
-  };
-
-  for (let y = 0; y < maxY; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const seedIndex = y * width + x;
-      if (visited[seedIndex] || !isOrangePixel(x, y)) {
-        continue;
-      }
-
-      const queue: Array<[number, number]> = [[x, y]];
-      visited[seedIndex] = 1;
-      let area = 0;
-      let sumX = 0;
-      let sumY = 0;
-      let minX = x;
-      let maxX = x;
-      let minY = y;
-      let maxYLocal = y;
-      let leftmostYSum = 0;
-      let leftmostYCount = 0;
-      let rightmostYSum = 0;
-      let rightmostYCount = 0;
-
-      while (queue.length) {
-        const next = queue.pop();
-        if (!next) {
-          continue;
-        }
-
-        const [currentX, currentY] = next;
-        area += 1;
-        sumX += currentX;
-        sumY += currentY;
-        if (currentX < minX) {
-          minX = currentX;
-          leftmostYSum = currentY;
-          leftmostYCount = 1;
-        } else if (currentX === minX) {
-          leftmostYSum += currentY;
-          leftmostYCount += 1;
-        }
-        if (currentX > maxX) {
-          maxX = currentX;
-          rightmostYSum = currentY;
-          rightmostYCount = 1;
-        } else if (currentX === maxX) {
-          rightmostYSum += currentY;
-          rightmostYCount += 1;
-        }
-        minY = Math.min(minY, currentY);
-        maxYLocal = Math.max(maxYLocal, currentY);
-
-        const neighbors: Array<[number, number]> = [
-          [currentX - 1, currentY],
-          [currentX + 1, currentY],
-          [currentX, currentY - 1],
-          [currentX, currentY + 1],
-        ];
-
-        for (const [neighborX, neighborY] of neighbors) {
-          if (neighborX < 0 || neighborY < 0 || neighborX >= width || neighborY >= maxY) {
-            continue;
-          }
-
-          const neighborIndex = neighborY * width + neighborX;
-          if (visited[neighborIndex] || !isOrangePixel(neighborX, neighborY)) {
-            continue;
-          }
-
-          visited[neighborIndex] = 1;
-          queue.push([neighborX, neighborY]);
-        }
-      }
-
-      if (area < 12) {
-        continue;
-      }
-
-      const componentWidth = maxX - minX + 1;
-      const componentHeight = maxYLocal - minY + 1;
-      const aspectRatio = componentWidth / Math.max(componentHeight, 1);
-      if (componentHeight > 22 || aspectRatio < 1.3 || aspectRatio > 8) {
-        continue;
-      }
-
-      const coverage = area / Math.max(componentWidth * componentHeight, 1);
-      if (coverage < 0.12 || coverage > 0.78) {
-        continue;
-      }
-
-      const yBias = 1 - (minY / Math.max(height, 1));
-      const score = area * aspectRatio * (0.7 + yBias * 0.3);
-      if (score <= best.score) {
-        continue;
-      }
-
-      best.score = score;
-      best.x = sumX / area;
-      best.y = sumY / area;
-      best.xLeft = minX;
-      best.yLeft = leftmostYCount > 0 ? leftmostYSum / leftmostYCount : sumY / area;
-      best.xRight = maxX;
-      best.yRight = rightmostYCount > 0 ? rightmostYSum / rightmostYCount : sumY / area;
-      best.confidence = clampNumber((area / 120) * (aspectRatio / 3.5) * (1 - Math.abs(coverage - 0.4)), 0.05, 0.95);
-    }
-  }
-
-  if (best.score <= 0) {
-    return null;
-  }
-
-  return {
-    x: best.x / width,
-    y: best.y / height,
-    xLeft: best.xLeft / width,
-    yLeft: best.yLeft / height,
-    xRight: best.xRight / width,
-    yRight: best.yRight / height,
-    confidence: Number(best.confidence.toFixed(3)),
-  };
-}
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -334,7 +192,7 @@ function captureFrameAnalysis(
     width: canvas.width,
     height: canvas.height,
     exclusionBox,
-    rimCandidate: detectRimCandidate(imageData, canvas.width, canvas.height, exclusionBox),
+
   };
 }
 
@@ -597,50 +455,6 @@ function buildCameraTracking(
   };
 }
 
-function buildRimReference(analyses: FrameAnalysis[]): TechniqueRimReference | null {
-  type RimCandidate = NonNullable<FrameAnalysis["rimCandidate"]>;
-  const candidates = analyses
-    .map((analysis, frameIndex) => ({ frameIndex, candidate: analysis.rimCandidate }))
-    .filter((entry): entry is { frameIndex: number; candidate: RimCandidate } => Boolean(entry.candidate));
-
-  if (!candidates.length) {
-    return null;
-  }
-
-  const sortedByConfidence = candidates.slice().sort((left, right) => right.candidate.confidence - left.candidate.confidence);
-  const top = sortedByConfidence.slice(0, Math.min(8, sortedByConfidence.length));
-  const weightTotal = top.reduce((total, entry) => total + entry.candidate.confidence, 0);
-  if (weightTotal <= 0) {
-    return null;
-  }
-
-  const weightedX = top.reduce((total, entry) => total + entry.candidate.x * entry.candidate.confidence, 0) / weightTotal;
-  const weightedY = top.reduce((total, entry) => total + entry.candidate.y * entry.candidate.confidence, 0) / weightTotal;
-  const weightedXLeft = top.reduce((total, entry) => total + entry.candidate.xLeft * entry.candidate.confidence, 0) / weightTotal;
-  const weightedYLeft = top.reduce((total, entry) => total + entry.candidate.yLeft * entry.candidate.confidence, 0) / weightTotal;
-  const weightedXRight = top.reduce((total, entry) => total + entry.candidate.xRight * entry.candidate.confidence, 0) / weightTotal;
-  const weightedYRight = top.reduce((total, entry) => total + entry.candidate.yRight * entry.candidate.confidence, 0) / weightTotal;
-  const averageConfidence = top.reduce((total, entry) => total + entry.candidate.confidence, 0) / top.length;
-  const bestFrame = top[0];
-
-  if (!bestFrame || averageConfidence < 0.12) {
-    return null;
-  }
-
-  return {
-    detected: true,
-    x: Number(weightedX.toFixed(4)),
-    y: Number(weightedY.toFixed(4)),
-    xLeft: Number(weightedXLeft.toFixed(4)),
-    yLeft: Number(weightedYLeft.toFixed(4)),
-    xRight: Number(weightedXRight.toFixed(4)),
-    yRight: Number(weightedYRight.toFixed(4)),
-    confidence: Number(averageConfidence.toFixed(3)),
-    referenceFrameIndex: bestFrame.frameIndex,
-    method: "orange-rim-heuristic",
-  };
-}
-
 function loadVideoFile(file: File) {
   const objectUrl = URL.createObjectURL(file);
   const video = document.createElement("video");
@@ -781,7 +595,6 @@ export async function extractTechniquePoseSequence(
     }
 
     const cameraTracking = buildCameraTracking(frames, frameAnalyses);
-    const rimReference = buildRimReference(frameAnalyses);
 
     return {
       schemaVersion: 1,
@@ -793,7 +606,6 @@ export async function extractTechniquePoseSequence(
       durationMs,
       frames,
       cameraTracking,
-      rimReference,
     };
   } finally {
     URL.revokeObjectURL(objectUrl);
