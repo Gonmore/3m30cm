@@ -9432,7 +9432,7 @@ export default function App() {
                                   try {
                                     const token = localStorage.getItem(tokenStorageKey);
                                     const resp = await fetch(
-                                      `${apiBaseUrl}/admin/program-templates/${encodeURIComponent(selectedTemplateCode)}/techniques/${encodeURIComponent(technique.id)}/biomechanics/analyze`,
+                                      `${apiBaseUrl}/api/v1/admin/program-templates/${encodeURIComponent(selectedTemplateCode)}/techniques/${encodeURIComponent(technique.id)}/biomechanics/analyze`,
                                       {
                                         method: "POST",
                                         headers: {
