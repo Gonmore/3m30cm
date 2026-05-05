@@ -2568,6 +2568,43 @@ export default function App() {
     ],
   );
 
+  // When a masterReference (server-computed) is present, overlay its jump height
+  // results on top of the client-side preview so RIM_REFERENCE shows the real value.
+  const effectiveJumpHeight = useMemo(() => {
+    const base = referenceBiomechanicsPreview.jumpHeight;
+    if (!base) return null;
+    type MrShape = {
+      jumpHeight: {
+        consensusValueCm: number | null;
+        disagreementCm: number | null;
+        status: string;
+        notes: string | null;
+        methods: Array<{ method: string; status: string; valueCm: number | null }>;
+      };
+    };
+    const mr = masterReference as MrShape | null | undefined;
+    if (!mr?.jumpHeight) return base;
+    // Replace methods with server values; preserve client debug payload where present
+    const mergedMethods = mr.jumpHeight.methods.map((sm) => {
+      const client = base.methods.find((bm) => bm.method === sm.method);
+      return {
+        ...(client ?? { confidence: null, playbackSpeedRatio: null }),
+        method: sm.method as "FLIGHT_TIME" | "CENTER_OF_MASS" | "RIM_REFERENCE",
+        status: sm.status as typeof base.status,
+        valueCm: sm.valueCm,
+        notes: sm.status !== "OK" ? (client?.notes ?? null) : null,
+      };
+    });
+    return {
+      ...base,
+      methods: mergedMethods,
+      consensusValueCm: mr.jumpHeight.consensusValueCm,
+      disagreementCm: mr.jumpHeight.disagreementCm,
+      status: mr.jumpHeight.status as typeof base.status,
+      notes: mr.jumpHeight.notes ?? base.notes,
+    };
+  }, [referenceBiomechanicsPreview.jumpHeight, masterReference]);
+
   const focusPointLandmarkSet = useMemo(
     () => new Set(templateTechniqueForm.biomechanics.focusPoints.map((point) => point.landmark)),
     [templateTechniqueForm.biomechanics.focusPoints],
@@ -9482,15 +9519,15 @@ export default function App() {
                         <article className="detail-card program-card biomechanics-preview-card">
                           <div className="biomechanics-preview-badge-row">
                             <strong>Altura del salto</strong>
-                            <span className="biomechanics-badge biomechanics-preview-status">{formatMeasurementStatusLabel(referenceBiomechanicsPreview.jumpHeight.status)}</span>
-                            {typeof referenceBiomechanicsPreview.jumpHeight.playbackSpeedRatio === "number" ? (
-                              <span className="biomechanics-badge">Ratio temporal: {referenceBiomechanicsPreview.jumpHeight.playbackSpeedRatio.toFixed(2)}</span>
+                            <span className="biomechanics-badge biomechanics-preview-status">{formatMeasurementStatusLabel(effectiveJumpHeight?.status ?? referenceBiomechanicsPreview.jumpHeight.status)}</span>
+                            {typeof effectiveJumpHeight?.playbackSpeedRatio === "number" ? (
+                              <span className="biomechanics-badge">Ratio temporal: {effectiveJumpHeight.playbackSpeedRatio.toFixed(2)}</span>
                             ) : null}
-                            {typeof referenceBiomechanicsPreview.jumpHeight.consensusValueCm === "number" ? (
-                              <span className="biomechanics-badge">Consenso: {referenceBiomechanicsPreview.jumpHeight.consensusValueCm.toFixed(1)} cm</span>
+                            {typeof effectiveJumpHeight?.consensusValueCm === "number" ? (
+                              <span className="biomechanics-badge">Consenso: {effectiveJumpHeight.consensusValueCm.toFixed(1)} cm</span>
                             ) : null}
-                            {typeof referenceBiomechanicsPreview.jumpHeight.disagreementCm === "number" ? (
-                              <span className="biomechanics-badge">Diferencia: {referenceBiomechanicsPreview.jumpHeight.disagreementCm.toFixed(1)} cm</span>
+                            {typeof effectiveJumpHeight?.disagreementCm === "number" ? (
+                              <span className="biomechanics-badge">Diferencia: {effectiveJumpHeight.disagreementCm.toFixed(1)} cm</span>
                             ) : null}
                             <button
                               type="button"
@@ -9502,7 +9539,7 @@ export default function App() {
                             </button>
                           </div>
                           <div className="biomechanics-debug-list">
-                            {referenceBiomechanicsPreview.jumpHeight.methods.length ? referenceBiomechanicsPreview.jumpHeight.methods.map((method) => (
+                            {(effectiveJumpHeight?.methods ?? []).length ? (effectiveJumpHeight?.methods ?? []).map((method) => (
                               <p key={method.method}>
                                 <strong>{method.method === "FLIGHT_TIME" ? "Tiempo de vuelo" : method.method === "RIM_REFERENCE" ? "Referencia de aro" : "Centro de Masas"}:</strong>{" "}
                                 {formatMeasurementStatusLabel(method.status)}
@@ -9512,10 +9549,10 @@ export default function App() {
                               </p>
                             )) : <p>No hay métodos activos para esta medición.</p>}
                           </div>
-                          {referenceBiomechanicsPreview.jumpHeight.notes ? <p className="helper-text">{referenceBiomechanicsPreview.jumpHeight.notes}</p> : null}
-                          {referenceBiomechanicsPreview.jumpHeight.methods.some((method) => method.notes) ? (
+                          {effectiveJumpHeight?.notes ? <p className="helper-text">{effectiveJumpHeight.notes}</p> : null}
+                          {effectiveJumpHeight?.methods.some((method) => method.notes) ? (
                             <div className="biomechanics-debug-list">
-                              {referenceBiomechanicsPreview.jumpHeight.methods.map((method) => (
+                              {effectiveJumpHeight.methods.map((method) => (
                                 method.notes ? <p key={`${method.method}-note`}>{method.notes}</p> : null
                               ))}
                             </div>
@@ -9523,9 +9560,9 @@ export default function App() {
                         </article>
                       </>) : null}
 
-                      {jumpHeightDebugOpen && referenceBiomechanicsPreview.jumpHeight && selectedTechnique?.proLandmarks ? (
+                      {jumpHeightDebugOpen && effectiveJumpHeight && selectedTechnique?.proLandmarks ? (
                         <JumpHeightDebugModal
-                          jumpHeight={referenceBiomechanicsPreview.jumpHeight}
+                          jumpHeight={effectiveJumpHeight}
                           landmarks={selectedTechnique.proLandmarks}
                           masterReference={masterReference as never}
                           rimAnnotation={rimAnnotation}
