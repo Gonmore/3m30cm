@@ -3972,10 +3972,15 @@ export default function App() {
         title: templateTechniqueForm.title,
         description: templateTechniqueForm.description || null,
         measurementInstructions: templateTechniqueForm.measurementInstructions || null,
-        biomechanicsConfig: serializeTechniqueBiomechanicsForm(
-          templateTechniqueForm.biomechanics,
-          normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMediaAssetId,
-        ),
+        biomechanicsConfig: {
+          ...serializeTechniqueBiomechanicsForm(
+            templateTechniqueForm.biomechanics,
+            normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMediaAssetId,
+          ),
+          // Persist manual rim annotation and server-computed master reference
+          rimAnnotation: rimAnnotation ?? undefined,
+          masterReference: masterReference ?? undefined,
+        },
         comparisonEnabled: templateTechniqueForm.comparisonEnabled,
       };
 
