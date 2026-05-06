@@ -14,6 +14,40 @@
 
 ## Registro de trabajo
 
+### 5. Fix mobile2: keep-awake, FPS 15, modal del aro, preload MediaPipe (2026-05-06)
+
+Commit: `4dedada`
+
+**Problemas resueltos:**
+
+| Problema | Causa | Fix |
+|---|---|---|
+| Pantalla se apaga y WebView pausa (queda en frame 120 para siempre) | Sin keep-awake durante extracción | `activateKeepAwakeAsync("pose-analysis")` en `useEffect` tied a `analysisBusy` |
+| Eventos detectados completamente distintos al web admin | mobile2 usaba 30fps/480 frames; algoritmo calibrado para **15fps** (`contactRunMinLength`, `minJumpFrames`, `smoothSeries radius` dependen del fps) | Cambiar defaults: `targetFps = 15`, `maxFrames = 240` |
+| Modal "anotar el aro" nunca aparecía | Condición era `biomechanicsConfig?.rimAnnotation` (solo si admin configuró referencia) | Cambiar a `biomechanicsConfig` (siempre que haya contrato biomecánico) |
+| "Preparando extracción..." tardaba mucho | MediaPipe descarga desde CDN solo cuando llega el primer request | Pre-cargar MediaPipe al montar el WebView, enviar `ready` recién cuando carga; montar WebView tan pronto como existe `biomechanicsConfig` |
+
+**Archivos modificados:**
+- `apps/mobile2/components/technique/TechniqueVideoPoseAnalyzer.tsx`: defaults 15fps/240, HTML pre-carga MediaPipe antes de enviar `ready`
+- `apps/mobile2/components/screens/TecnicaScreen.tsx`: keep-awake, WebView siempre montado con biomechanicsConfig, condición del modal corregida, mensaje de status mejorado
+
+---
+
+### 4. APK build v2.1.4 (2026-05-06) — análisis biomecánico del atleta
+
+**Build exitoso**: `BUILD SUCCESSFUL in 13m 35s` (Gradle 8.14.3, 722 tasks: 416 ejecutadas, 278 de caché)
+
+APK generado: `apps/mobile2/android/app/build/outputs/apk/release/app-release.apk` (96.3 MB)
+
+Incluye la feature completa de análisis biomecánico del atleta (commit `5e349ce`): modal de anotación del aro, endpoint de atleta en API, tarjeta de resultados con métodos CoM/FT/Rim.
+
+**Configuración del build:**
+- SDK compileSdk/targetSdk: 36, minSdk: 24
+- Kotlin: 2.1.20, Expo SDK 54, Metro: 1153 módulos
+- Prebuild completo (fingerprint cambió `60dcf5ddcbe68eb3 → 7df516e48b40e8bc`)
+
+---
+
 ### 3. Análisis biomecánico del atleta en mobile2 con anotación del aro y comparación vs referencia
 
 Commit: `5e349ce`
