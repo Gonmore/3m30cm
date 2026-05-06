@@ -34,6 +34,8 @@ const analyzerHtml = String.raw`<!doctype html>
       const mediaPipePoseCdnBaseUrl = "https://cdn.jsdelivr.net/npm/@mediapipe/pose";
       let poseConstructorPromise = null;
       let busy = false;
+      let currentGeneration = 0;
+      let currentRequestId = null;
 
       function postMessage(payload) {
         if (!window.ReactNativeWebView || typeof window.ReactNativeWebView.postMessage !== "function") {
@@ -237,22 +239,32 @@ const analyzerHtml = String.raw`<!doctype html>
           return;
         }
 
-        if (busy) {
-          postMessage({ type: "error", requestId: request.requestId, message: "El analizador todavía está procesando otro video." });
+        // Ignorar si es exactamente la misma solicitud que ya está corriendo (doble inyección).
+        if (busy && currentRequestId === request.requestId) {
           return;
         }
 
+        // Nueva solicitud (o tras Fast Refresh donde React reinicia su estado pero la
+        // WebView persiste con busy=true). Incrementar generación descarta los resultados
+        // de cualquier tarea anterior sin que ésta pueda resetear busy al terminar.
+        currentGeneration += 1;
+        const myGeneration = currentGeneration;
+        currentRequestId = request.requestId;
         busy = true;
         try {
           await extractPoseSequence(request);
         } catch (error) {
-          postMessage({
-            type: "error",
-            requestId: request.requestId,
-            message: error instanceof Error ? error.message : "No se pudo analizar el video del atleta.",
-          });
+          if (myGeneration === currentGeneration) {
+            postMessage({
+              type: "error",
+              requestId: request.requestId,
+              message: error instanceof Error ? error.message : "No se pudo analizar el video del atleta.",
+            });
+          }
         } finally {
-          busy = false;
+          if (myGeneration === currentGeneration) {
+            busy = false;
+          }
         }
       };
 
