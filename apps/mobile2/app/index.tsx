@@ -3482,6 +3482,8 @@ export default function HomeScreen() {
           selectedTechniqueId={selectedTechniqueEntry?.id ?? null}
           loading={loading || refreshing}
           submitting={techniqueSaving}
+          accessToken={accessToken}
+          apiBaseUrl={apiBaseUrl}
           onSelectTechnique={setSelectedTechniqueId}
           onRefresh={() => void refreshAthleteArea()}
           onSubmitMetric={(payload) => void handleSaveTechniqueMetric(payload)}

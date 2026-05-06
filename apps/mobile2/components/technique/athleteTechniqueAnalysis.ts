@@ -98,6 +98,39 @@ export interface MobileTechniqueBiomechanicsOrientationPolicy {
   allowMirror?: boolean | null;
 }
 
+/** Manual two-point annotation of the basketball rim by the athlete in their own video. */
+export interface AthleteRimAnnotation {
+  frameIndex: number;
+  xLeft: number;
+  yLeft: number;
+  xRight: number;
+  yRight: number;
+  annotatedAt: string;
+}
+
+/** Result returned by the server /biomechanics/analyze endpoint. */
+export interface ServerBiomechanicsResult {
+  masterReference: {
+    schemaVersion: 2;
+    jumpHeight: {
+      consensusValueCm: number | null;
+      disagreementCm: number | null;
+      status: string;
+      notes: string | null;
+      methods: Array<{ method: string; status: string; valueCm: number | null }>;
+    };
+    kinematics: {
+      parabola: Array<{ frameIndex: number; timestampMs: number; comHeightCm: number }>;
+      jointAngles: {
+        dip: { leftKneeDeg: number | null; rightKneeDeg: number | null; leftHipDeg: number | null; rightHipDeg: number | null } | null;
+        takeoff: { leftKneeDeg: number | null; rightKneeDeg: number | null; leftHipDeg: number | null; rightHipDeg: number | null } | null;
+        apex: { leftKneeDeg: number | null; rightKneeDeg: number | null; leftHipDeg: number | null; rightHipDeg: number | null } | null;
+      };
+    };
+    computedAt: string;
+  };
+}
+
 export interface MobileTechniqueBiomechanicsConfig {
   referenceMotionProfile?: MobileTechniqueReferenceMotionProfile | null;
   hipProgressionChecks?: MobileTechniqueBiomechanicsHipProgressionCheck[];
@@ -105,6 +138,56 @@ export interface MobileTechniqueBiomechanicsConfig {
   keyEvents?: Array<{ id?: string | null; eventType: string; label?: string | null; frameIndex?: number | null }>;
   angleChecks?: MobileTechniqueBiomechanicsAngleCheck[];
   orientationPolicy?: MobileTechniqueBiomechanicsOrientationPolicy | null;
+  /** Persisted from admin: reference rim annotation for calibration comparison */
+  rimAnnotation?: AthleteRimAnnotation | null;
+  /** Persisted from admin: reference masterReference for benchmark values */
+  masterReference?: ServerBiomechanicsResult["masterReference"] | null;
+}
+
+/**
+ * Call the server biomechanics/analyze endpoint with the athlete's landmarks and rim annotation.
+ * Returns the masterReference object or throws on error.
+ */
+export async function callBiomechanicsAnalyze(input: {
+  apiBaseUrl: string;
+  accessToken: string;
+  templateCode: string;
+  techniqueId: string;
+  landmarks: TechniqueProLandmarks;
+  rimAnnotation: AthleteRimAnnotation | null;
+  config: MobileTechniqueBiomechanicsConfig | null | undefined;
+}): Promise<ServerBiomechanicsResult> {
+  const { apiBaseUrl, accessToken, templateCode, techniqueId, landmarks, rimAnnotation, config } = input;
+  const jh = config?.jumpHeightMeasurement;
+  const resp = await fetch(
+    `${apiBaseUrl}/api/v1/athlete/program-templates/${encodeURIComponent(templateCode)}/techniques/${encodeURIComponent(techniqueId)}/biomechanics/analyze`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        landmarks,
+        rimAnnotation: rimAnnotation ?? null,
+        keyEvents: config?.keyEvents ?? [],
+        config: {
+          enabled: jh?.enabled ?? true,
+          subjectHeightCm: jh?.subjectHeightCm ?? null,
+          playbackSpeedRatio: jh?.playbackSpeedRatio ?? null,
+          flightTimeMethodEnabled: jh?.flightTimeMethodEnabled ?? true,
+          centerOfMassMethodEnabled: jh?.centerOfMassMethodEnabled ?? true,
+          consensusToleranceCm: jh?.consensusToleranceCm ?? null,
+        },
+        persistResult: false,
+      }),
+    },
+  );
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({})) as { message?: string; error?: string };
+    throw new Error(data.message ?? data.error ?? `Error ${resp.status}`);
+  }
+  return resp.json() as Promise<ServerBiomechanicsResult>;
 }
 
 export interface AthleteTechniqueAngleComparison {

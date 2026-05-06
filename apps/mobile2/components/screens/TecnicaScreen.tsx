@@ -12,8 +12,11 @@ import { R, S } from "@mobile/components/tokens";
 import TechniqueVideoPoseAnalyzer from "../technique/TechniqueVideoPoseAnalyzer";
 import {
   analyzeAthleteTechniqueVideo,
+  callBiomechanicsAnalyze,
+  type AthleteRimAnnotation,
   type AthleteTechniqueAutoAnalysis,
   type MobileTechniqueBiomechanicsConfig,
+  type ServerBiomechanicsResult,
 } from "../technique/athleteTechniqueAnalysis";
 import type { TechniqueProLandmarks } from "../../../web/src/techniquePoseExtraction";
 
@@ -83,6 +86,8 @@ interface TecnicaScreenProps {
   selectedTechniqueId: string | null;
   loading: boolean;
   submitting: boolean;
+  accessToken?: string | null;
+  apiBaseUrl?: string | null;
   onSelectTechnique: (techniqueId: string) => void;
   onRefresh: () => void;
   onSubmitMetric: (payload: {
@@ -292,6 +297,8 @@ export default function TecnicaScreen({
   selectedTechniqueId,
   loading,
   submitting,
+  accessToken,
+  apiBaseUrl,
   onSelectTechnique,
   onRefresh,
   onSubmitMetric,
@@ -318,6 +325,15 @@ export default function TecnicaScreen({
   const [showAnalysisJson, setShowAnalysisJson] = useState(false);
   const [showCorrectionsViewer, setShowCorrectionsViewer] = useState(false);
   const athleteVideoRef = useRef<Video | null>(null);
+  // Rim annotation state
+  const [pendingLandmarks, setPendingLandmarks] = useState<TechniqueProLandmarks | null>(null);
+  const [showRimAnnotation, setShowRimAnnotation] = useState(false);
+  const [rimAnnotation, setRimAnnotation] = useState<AthleteRimAnnotation | null>(null);
+  const [rimPoint1, setRimPoint1] = useState<{ x: number; y: number } | null>(null);
+  const [rimPoint2, setRimPoint2] = useState<{ x: number; y: number } | null>(null);
+  const [serverAnalyzing, setServerAnalyzing] = useState(false);
+  const [serverResult, setServerResult] = useState<ServerBiomechanicsResult | null>(null);
+  const [serverError, setServerError] = useState("");
 
   const selectedMeasurement = useMemo(
     () => selectedTechnique?.measurementDefinitions.find((entry) => entry.id === selectedMeasurementId)
@@ -436,6 +452,14 @@ export default function TecnicaScreen({
     setSelectedVisualEventType(null);
     setShowAnalysisJson(false);
     setShowCorrectionsViewer(false);
+    setPendingLandmarks(null);
+    setShowRimAnnotation(false);
+    setRimAnnotation(null);
+    setRimPoint1(null);
+    setRimPoint2(null);
+    setServerAnalyzing(false);
+    setServerResult(null);
+    setServerError("");
   }, [selectedTechnique?.id]);
 
   useEffect(() => {
@@ -570,12 +594,77 @@ export default function TecnicaScreen({
 
       setAutoAnalysis(analysis);
       setAnalysisError("");
+
+      // Offer rim annotation step if the technique has a rim-annotated reference
+      if (selectedTechnique.biomechanicsConfig?.rimAnnotation) {
+        setPendingLandmarks(landmarks);
+        setRimPoint1(null);
+        setRimPoint2(null);
+        setShowRimAnnotation(true);
+      }
     } catch (error) {
       setAutoAnalysis(null);
       setAnalysisError(error instanceof Error ? error.message : "No se pudo analizar la biomecánica del atleta.");
     } finally {
       setAnalysisBusy(false);
     }
+  }
+
+  async function runServerAnalysis(landmarks: TechniqueProLandmarks, annotation: AthleteRimAnnotation | null) {
+    if (!selectedTechnique || !accessToken || !apiBaseUrl) {
+      return;
+    }
+    const templateCode = technique?.template.code;
+    if (!templateCode) {
+      return;
+    }
+    setServerAnalyzing(true);
+    setServerError("");
+    try {
+      const result = await callBiomechanicsAnalyze({
+        apiBaseUrl,
+        accessToken,
+        templateCode,
+        techniqueId: selectedTechnique.id,
+        landmarks,
+        rimAnnotation: annotation,
+        config: selectedTechnique.biomechanicsConfig,
+      });
+      setServerResult(result);
+    } catch (err) {
+      setServerError(err instanceof Error ? err.message : "Error del servidor al analizar biomecánica.");
+    } finally {
+      setServerAnalyzing(false);
+    }
+  }
+
+  function handleConfirmRimAnnotation() {
+    const lm = pendingLandmarks;
+    if (!lm) {
+      return;
+    }
+    const ann: AthleteRimAnnotation | null = rimPoint1 && rimPoint2
+      ? {
+          frameIndex: 0,
+          xLeft: Math.min(rimPoint1.x, rimPoint2.x),
+          yLeft: rimPoint1.x <= rimPoint2.x ? rimPoint1.y : rimPoint2.y,
+          xRight: Math.max(rimPoint1.x, rimPoint2.x),
+          yRight: rimPoint1.x <= rimPoint2.x ? rimPoint2.y : rimPoint1.y,
+          annotatedAt: new Date().toISOString(),
+        }
+      : null;
+    setRimAnnotation(ann);
+    setShowRimAnnotation(false);
+    void runServerAnalysis(lm, ann);
+  }
+
+  function handleSkipRimAnnotation() {
+    const lm = pendingLandmarks;
+    if (!lm) {
+      return;
+    }
+    setShowRimAnnotation(false);
+    void runServerAnalysis(lm, null);
   }
 
   function handleSaveAutomaticJumpMetric() {
@@ -793,6 +882,53 @@ export default function TecnicaScreen({
                       </View>
                     </View>
 
+                    {/* ── Server analysis: RIM_REFERENCE + consensus ── */}
+                    {serverAnalyzing ? (
+                      <View style={styles.analysisStatusCard}>
+                        <ActivityIndicator color={C.amber} />
+                        <Text style={styles.metricLabel}>Calculando con servidor...</Text>
+                        <Text style={styles.helperText}>Enviando pose y anotación del aro para obtener RIM_REFERENCE y consenso.</Text>
+                      </View>
+                    ) : null}
+                    {serverError ? <Text style={styles.analysisErrorText}>{serverError}</Text> : null}
+                    {serverResult ? (
+                      <View style={styles.serverResultCard}>
+                        <Text style={styles.serverResultTitle}>Resultado del servidor</Text>
+                        <View style={styles.jumpMethodRow}>
+                          {serverResult.masterReference.jumpHeight.methods.map((m) => (
+                            <View key={m.method} style={[styles.jumpMethodBadge, m.status === "OK" ? styles.jumpMethodBadgeOk : styles.jumpMethodBadgePending]}>
+                              <Text style={styles.jumpMethodBadgeLabel}>{m.method === "CENTER_OF_MASS" ? "CoM" : m.method === "FLIGHT_TIME" ? "FT" : "Rim"}</Text>
+                              <Text style={styles.jumpMethodBadgeValue}>{typeof m.valueCm === "number" ? `${m.valueCm.toFixed(1)} cm` : "-"}</Text>
+                            </View>
+                          ))}
+                        </View>
+                        {typeof serverResult.masterReference.jumpHeight.consensusValueCm === "number" ? (
+                          <View style={styles.consensusRow}>
+                            <Text style={styles.consensusLabel}>Consenso</Text>
+                            <Text style={styles.consensusValue}>{serverResult.masterReference.jumpHeight.consensusValueCm.toFixed(1)} cm</Text>
+                          </View>
+                        ) : null}
+                        {(() => {
+                          const refConsensus = selectedTechnique.biomechanicsConfig?.masterReference?.jumpHeight.consensusValueCm;
+                          const myConsensus = serverResult.masterReference.jumpHeight.consensusValueCm;
+                          if (typeof refConsensus === "number" && typeof myConsensus === "number") {
+                            const delta = myConsensus - refConsensus;
+                            const pct = (myConsensus / refConsensus) * 100;
+                            return (
+                              <View style={styles.vsReferenceRow}>
+                                <Text style={styles.vsReferenceLabel}>vs referencia ({refConsensus.toFixed(1)} cm)</Text>
+                                <Text style={[styles.vsReferenceDelta, delta >= 0 ? styles.vsReferencePositive : styles.vsReferenceNegative]}>
+                                  {delta >= 0 ? "+" : ""}{delta.toFixed(1)} cm ({pct.toFixed(0)}%)
+                                </Text>
+                              </View>
+                            );
+                          }
+                          return null;
+                        })()}
+                        <Text style={styles.metricMeta}>Estado: {formatMeasurementStatus(serverResult.masterReference.jumpHeight.status)}</Text>
+                      </View>
+                    ) : null}
+
                     <View style={styles.metricCard}>
                       <Text style={styles.metricLabel}>Comparación por eventos</Text>
                       {angleComparisonGroups.length ? angleComparisonGroups.map((group) => (
@@ -1002,6 +1138,63 @@ export default function TecnicaScreen({
             />
           ) : null}
 
+          {/* ── Rim Annotation Modal ── */}
+          <Modal visible={showRimAnnotation} animationType="slide" presentationStyle="fullScreen" onRequestClose={handleSkipRimAnnotation}>
+            <View style={styles.rimModalScreen}>
+              <View style={styles.rimModalHeader}>
+                <Text style={styles.rimModalTitle}>Anotar el aro</Text>
+                <Pressable style={styles.rimModalSkip} onPress={handleSkipRimAnnotation}>
+                  <Text style={styles.rimModalSkipText}>Saltear</Text>
+                </Pressable>
+              </View>
+              <View style={styles.rimModalBody}>
+                <Text style={styles.rimModalHint}>
+                  Tocá dos veces para marcar los bordes del aro: primero el borde izquierdo y luego el borde derecho.
+                  Con el aro anotado el servidor puede calcular la altura de salto usando la referencia visual (RIM_REFERENCE).
+                </Text>
+                <View
+                  style={styles.rimTapArea}
+                  onTouchEnd={(e) => {
+                    const { locationX, locationY } = e.nativeEvent;
+                    if (!rimPoint1) {
+                      setRimPoint1({ x: locationX, y: locationY });
+                    } else if (!rimPoint2) {
+                      setRimPoint2({ x: locationX, y: locationY });
+                    } else {
+                      // third tap resets
+                      setRimPoint1({ x: locationX, y: locationY });
+                      setRimPoint2(null);
+                    }
+                  }}
+                >
+                  {rimPoint1 ? (
+                    <View style={[styles.rimDot, { left: rimPoint1.x - 10, top: rimPoint1.y - 10, backgroundColor: "#f5b324" }]} />
+                  ) : null}
+                  {rimPoint2 ? (
+                    <View style={[styles.rimDot, { left: rimPoint2.x - 10, top: rimPoint2.y - 10, backgroundColor: "#e76f51" }]} />
+                  ) : null}
+                  {!rimPoint1 ? (
+                    <Text style={styles.rimTapPrompt}>Toca para marcar el borde IZQUIERDO del aro</Text>
+                  ) : !rimPoint2 ? (
+                    <Text style={styles.rimTapPrompt}>Ahora toca el borde DERECHO del aro</Text>
+                  ) : (
+                    <Text style={styles.rimTapPrompt}>Ambos bordes marcados. Toca para resetear si querés ajustar.</Text>
+                  )}
+                </View>
+                <View style={styles.rimModalActions}>
+                  <Pressable
+                    style={[styles.primaryButton, { flex: 1 }]}
+                    onPress={handleConfirmRimAnnotation}
+                  >
+                    <Text style={styles.primaryButtonText}>
+                      {rimPoint1 && rimPoint2 ? "Confirmar aro" : "Continuar sin aro"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
           <Modal visible={showCorrectionsViewer} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setShowCorrectionsViewer(false)}>
             <View style={styles.viewerModalScreen}>
               <View style={styles.viewerModalHeader}>
@@ -1190,6 +1383,35 @@ function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
     angleAthleteMarkerOk: { backgroundColor: C.teal },
     angleAthleteMarkerWarn: { backgroundColor: C.danger },
     angleComparisonMeta: { color: C.textMuted, fontSize: 12, lineHeight: 17 },
+    // Server result card
+    serverResultCard: { backgroundColor: C.surfaceRaise, borderRadius: R.lg, padding: S.md, gap: S.sm, borderWidth: 2, borderColor: C.amberBorder },
+    serverResultTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
+    jumpMethodRow: { flexDirection: "row", gap: S.sm, flexWrap: "wrap" },
+    jumpMethodBadge: { borderRadius: R.lg, padding: S.sm, alignItems: "center", minWidth: 70, gap: 2 },
+    jumpMethodBadgeOk: { backgroundColor: C.amberDim, borderWidth: 1, borderColor: C.amberBorder },
+    jumpMethodBadgePending: { backgroundColor: C.surfaceRaise, borderWidth: 1, borderColor: C.border },
+    jumpMethodBadgeLabel: { color: C.textMuted, fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
+    jumpMethodBadgeValue: { color: C.amber, fontSize: 16, fontWeight: "900" },
+    consensusRow: { flexDirection: "row", alignItems: "center", gap: S.sm },
+    consensusLabel: { color: C.textSub, fontSize: 13, fontWeight: "700" },
+    consensusValue: { color: C.amber, fontSize: 24, fontWeight: "900" },
+    vsReferenceRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: S.sm },
+    vsReferenceLabel: { color: C.textMuted, fontSize: 12 },
+    vsReferenceDelta: { fontSize: 15, fontWeight: "800" },
+    vsReferencePositive: { color: C.teal },
+    vsReferenceNegative: { color: C.danger },
+    // Rim annotation modal
+    rimModalScreen: { flex: 1, backgroundColor: C.bg },
+    rimModalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: S.md, borderBottomWidth: 1, borderBottomColor: C.border },
+    rimModalTitle: { color: C.text, fontSize: 18, fontWeight: "800" },
+    rimModalSkip: { paddingHorizontal: S.md, paddingVertical: 10 },
+    rimModalSkipText: { color: C.textSub, fontSize: 14, fontWeight: "700" },
+    rimModalBody: { flex: 1, gap: S.md, padding: S.md },
+    rimModalHint: { color: C.textSub, fontSize: 13, lineHeight: 20 },
+    rimTapArea: { flex: 1, borderRadius: R.lg, borderWidth: 2, borderColor: C.border, backgroundColor: C.surfaceRaise, position: "relative", justifyContent: "center", alignItems: "center" },
+    rimTapPrompt: { color: C.textMuted, fontSize: 14, textAlign: "center", paddingHorizontal: S.lg },
+    rimDot: { position: "absolute", width: 20, height: 20, borderRadius: R.full, opacity: 0.9 },
+    rimModalActions: { flexDirection: "row", gap: S.sm },
     openCorrectionsButton: { backgroundColor: C.amber, borderRadius: R.xl, paddingVertical: 16, paddingHorizontal: S.md, gap: 4 },
     openCorrectionsButtonText: { color: C.bg, fontSize: 18, fontWeight: "900", textAlign: "center" },
     openCorrectionsButtonMeta: { color: C.bg, fontSize: 12, lineHeight: 17, textAlign: "center", opacity: 0.86 },

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { prisma } from "../config/prisma.js";
 import { atLocalMidday, buildTrainingDaysJson, buildWeekdaysJson, generatePersonalProgram, parseWeekdaysJson } from "../lib/athlete-programs.js";
 import { buildSeriesProtocolGuidance } from "../lib/exercise-series.js";
+import { analyze as analyzeBiomechanics, CalibrationError } from "../lib/jumpHeightAnalyzer.js";
 import { uploadAvatarMedia } from "../lib/minio.js";
 import { ensureTemplateTechniqueStructure } from "../lib/program-template-techniques.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
@@ -2022,3 +2023,117 @@ athleteRouter.post("/technique/metrics", async (req: AuthenticatedRequest, res: 
     res.status(500).json({ message: "Failed to save athlete technique metric" });
   }
 });
+
+// ── Biomechanics: athlete self-analysis (no persist) ─────────────────────────
+
+const athleteBiomechanicsRimAnnotationSchema = z.object({
+  frameIndex: z.number().int().nonnegative(),
+  xLeft: z.number().finite().min(0).max(1),
+  yLeft: z.number().finite().min(0).max(1),
+  xRight: z.number().finite().min(0).max(1),
+  yRight: z.number().finite().min(0).max(1),
+  annotatedAt: z.string().datetime(),
+});
+
+const athleteBiomechanicsPoseLandmarkSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  z: z.number().finite(),
+  visibility: z.number().finite().min(0).max(1).optional(),
+  presence: z.number().finite().min(0).max(1).optional(),
+});
+
+const athleteBiomechanicsPoseFrameSchema = z.object({
+  timestampMs: z.number().finite().nonnegative(),
+  landmarks: z.array(athleteBiomechanicsPoseLandmarkSchema).length(33),
+});
+
+const athleteBiomechanicsLandmarksSchema = z.object({
+  schemaVersion: z.literal(1),
+  source: z.string().trim().min(1).max(64),
+  keypointsModel: z.string().trim().min(1).max(64),
+  normalization: z.string().trim().min(1).max(128),
+  fps: z.number().finite().positive().max(240),
+  frameCount: z.number().int().nonnegative().max(10000),
+  durationMs: z.number().finite().nonnegative().optional(),
+  frames: z.array(athleteBiomechanicsPoseFrameSchema).max(10000),
+}).superRefine((value, ctx) => {
+  if (value.frameCount !== value.frames.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "frameCount must match frames.length", path: ["frameCount"] });
+  }
+});
+
+const athleteBiomechanicsAnalyzeBodySchema = z.object({
+  landmarks: athleteBiomechanicsLandmarksSchema,
+  rimAnnotation: athleteBiomechanicsRimAnnotationSchema.nullable().optional(),
+  keyEvents: z.array(z.object({
+    id: z.string().optional().nullable(),
+    label: z.string().optional().nullable(),
+    eventType: z.string(),
+    frameIndex: z.number().int().nullable().optional(),
+  })).max(20).optional(),
+  config: z.object({
+    enabled: z.boolean().default(true),
+    subjectHeightCm: z.number().finite().positive().nullable().optional(),
+    playbackSpeedRatio: z.number().finite().positive().max(1).nullable().optional(),
+    flightTimeMethodEnabled: z.boolean().default(true),
+    centerOfMassMethodEnabled: z.boolean().default(true),
+    consensusToleranceCm: z.number().finite().positive().nullable().optional(),
+  }).optional(),
+  persistResult: z.boolean().default(false),
+});
+
+athleteRouter.post(
+  "/program-templates/:code/techniques/:techniqueId/biomechanics/analyze",
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        res.status(401).json({ message: "Authentication required" });
+        return;
+      }
+
+      const code = req.params["code"];
+      const techniqueId = req.params["techniqueId"];
+      if (!code || !techniqueId) {
+        res.status(400).json({ message: "Program template code and technique id are required" });
+        return;
+      }
+
+      const payload = athleteBiomechanicsAnalyzeBodySchema.parse(req.body);
+
+      const cfg = payload.config ?? { enabled: true, flightTimeMethodEnabled: true, centerOfMassMethodEnabled: true };
+      const masterReference = analyzeBiomechanics({
+        landmarks: payload.landmarks as Parameters<typeof analyzeBiomechanics>[0]["landmarks"],
+        rimAnnotation: payload.rimAnnotation ?? null,
+        keyEvents: (payload.keyEvents ?? []).map((e) => ({
+          id: e.id ?? "",
+          label: e.label ?? e.eventType,
+          eventType: e.eventType,
+          frameIndex: e.frameIndex ?? null,
+        })),
+        config: {
+          enabled: cfg.enabled ?? true,
+          subjectHeightCm: cfg.subjectHeightCm ?? null,
+          playbackSpeedRatio: cfg.playbackSpeedRatio ?? null,
+          flightTimeMethodEnabled: cfg.flightTimeMethodEnabled ?? true,
+          centerOfMassMethodEnabled: cfg.centerOfMassMethodEnabled ?? true,
+          consensusToleranceCm: cfg.consensusToleranceCm ?? null,
+        },
+      });
+
+      res.json({ masterReference });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid request payload", issues: error.issues });
+        return;
+      }
+      if (error instanceof CalibrationError) {
+        res.status(422).json({ error: "INVALID_CALIBRATION", message: (error as Error).message });
+        return;
+      }
+      console.error("Failed to run athlete biomechanics analysis", error);
+      res.status(500).json({ message: "Failed to run biomechanics analysis" });
+    }
+  },
+);

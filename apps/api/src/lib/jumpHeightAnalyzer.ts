@@ -78,7 +78,7 @@ export interface JumpHeightConfig {
 
 export interface AnalysisInput {
   landmarks: ProLandmarks;
-  rimAnnotation: RimAnnotation;
+  rimAnnotation: RimAnnotation | null;
   keyEvents: EventMarker[];
   config: JumpHeightConfig;
 }
@@ -615,11 +615,14 @@ export function analyze(input: AnalysisInput): MasterReference {
   const eventMap = buildEventMap(keyEvents);
   const dipEvent = eventMap.get("DIP") ?? null;
 
-  if (!dipEvent || dipEvent.frameIndex === null) {
+  // DIP is required for spatial calibration only when rim annotation is provided.
+  if (rimAnnotation !== null && (!dipEvent || dipEvent.frameIndex === null)) {
     throw new CalibrationError("DIP event is required for spatial calibration.");
   }
 
-  const dipLandmarks: Array<Lm2d | null> = (landmarks.frames[dipEvent.frameIndex]?.landmarks ?? []).map(
+  const dipFrameIndex = dipEvent?.frameIndex ?? 0;
+
+  const dipLandmarks: Array<Lm2d | null> = (landmarks.frames[dipFrameIndex]?.landmarks ?? []).map(
     (lm) => ({ x: lm.x, y: lm.y }),
   );
 
@@ -628,7 +631,7 @@ export function analyze(input: AnalysisInput): MasterReference {
   // Build the converter — may throw CalibrationError
   const converter = new BiometricSpaceConverter(
     rimAnnotation,
-    dipEvent.frameIndex,
+    dipFrameIndex,
     dipLandmarks,
     cameraTracking,
   );

@@ -113,7 +113,7 @@ function projectPoint(
 // ── Converter class ───────────────────────────────────────────────────────────
 
 export class BiometricSpaceConverter {
-  private readonly rimAnnotation: RimAnnotation;
+  private readonly rimAnnotation: RimAnnotation | null;
   private readonly dipFrameIndex: number;
   private readonly cameraTracking: CameraTracking | null;
 
@@ -123,7 +123,7 @@ export class BiometricSpaceConverter {
   readonly normPerCmH: number;
 
   constructor(
-    rimAnnotation: RimAnnotation,
+    rimAnnotation: RimAnnotation | null,
     dipFrameIndex: number,
     /** All 33 MediaPipe landmarks at the DIP frame (raw, not compensated). */
     dipFrameLandmarks: Array<Lm2d | null>,
@@ -151,6 +151,14 @@ export class BiometricSpaceConverter {
       );
     }
     this.groundY_norm = footYs.reduce((s, v) => s + v, 0) / footYs.length;
+
+    if (rimAnnotation === null) {
+      // No rim annotation: calibration-dependent methods (CoM, RIM_REFERENCE) will be unavailable.
+      this.rimCenterY_at_dip = 0;
+      this.normPerCmV = 0;
+      this.normPerCmH = 0;
+      return;
+    }
 
     // ── Project rim annotation to DIP frame ─────────────────────────────────
     const detT = this.cameraTracking?.frameTransforms[rimAnnotation.frameIndex] ?? null;
@@ -209,6 +217,9 @@ export class BiometricSpaceConverter {
     xRight: number; yRight: number;
     xCenter: number; yCenter: number;
   } {
+    if (!this.rimAnnotation) {
+      return { xLeft: 0, yLeft: 0, xRight: 0, yRight: 0, xCenter: 0, yCenter: 0 };
+    }
     const detT = this.cameraTracking?.frameTransforms[this.rimAnnotation.frameIndex] ?? null;
     const tgtT = this.cameraTracking?.frameTransforms[targetFrameIndex] ?? null;
 
