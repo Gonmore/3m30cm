@@ -256,7 +256,11 @@ const analyzerHtml = String.raw`<!doctype html>
         }
       };
 
-      postMessage({ type: "ready" });
+      // Pre-cargar MediaPipe en segundo plano para que el análisis arranque
+      // de forma inmediata cuando el usuario elija un video.
+      ensurePoseConstructor()
+        .catch(() => {})
+        .finally(() => postMessage({ type: "ready" }));
     </script>
   </body>
 </html>`;
@@ -264,8 +268,8 @@ const analyzerHtml = String.raw`<!doctype html>
 export default function TechniqueVideoPoseAnalyzer({
   requestId,
   videoUri,
-  targetFps = 30,
-  maxFrames = 480,
+  targetFps = 15,
+  maxFrames = 240,
   onProgress,
   onResult,
   onError,

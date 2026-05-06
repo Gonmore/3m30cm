@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Image as ExpoImage } from "expo-image";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -478,6 +479,19 @@ export default function TecnicaScreen({
     });
   }, [eventOverlayItems]);
 
+  // Mantener la pantalla encendida durante la extracción de pose para que el
+  // WebView no se pause cuando el dispositivo entra en modo de ahorro.
+  useEffect(() => {
+    if (analysisBusy) {
+      void activateKeepAwakeAsync("pose-analysis");
+    } else {
+      void deactivateKeepAwake("pose-analysis");
+    }
+    return () => {
+      void deactivateKeepAwake("pose-analysis");
+    };
+  }, [analysisBusy]);
+
   function handleSubmit() {
     if (!selectedTechnique) {
       return;
@@ -595,8 +609,9 @@ export default function TecnicaScreen({
       setAutoAnalysis(analysis);
       setAnalysisError("");
 
-      // Offer rim annotation step if the technique has a rim-annotated reference
-      if (selectedTechnique.biomechanicsConfig?.rimAnnotation) {
+      // Ofrecer anotación del aro siempre que haya un contrato biomécanico,
+      // independientemente de si el admin configuró una referencia de aro.
+      if (selectedTechnique.biomechanicsConfig) {
         setPendingLandmarks(landmarks);
         setRimPoint1(null);
         setRimPoint2(null);
@@ -1061,8 +1076,8 @@ export default function TecnicaScreen({
                     <Text style={styles.metricLabel}>Analizando video del atleta...</Text>
                     <Text style={styles.helperText}>
                       {analysisProgress.total > 0
-                        ? `Frames procesados: ${analysisProgress.processed} / ${analysisProgress.total}`
-                        : "Preparando extracción de pose..."}
+                        ? `Procesando frame ${analysisProgress.processed} de ${analysisProgress.total}...`
+                        : "Descargando modelo de pose (solo la primera vez)..."}
                     </Text>
                   </View>
                 ) : null}
@@ -1125,7 +1140,10 @@ export default function TecnicaScreen({
             )}
           </View>
 
-          {athleteVideoUri ? (
+          {/* Montar el WebView siempre que haya un contrato biomécanico para
+               pre-cargar MediaPipe en segundo plano. videoUri=null significa
+               que no hay video para procesar aún. */}
+          {hasAutomaticAnalysisContract ? (
             <TechniqueVideoPoseAnalyzer
               requestId={analysisRequestId}
               videoUri={athleteVideoUri}
