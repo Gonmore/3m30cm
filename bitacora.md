@@ -14,6 +14,60 @@
 
 ## Registro de trabajo
 
+### 3. Análisis biomecánico del atleta en mobile2 con anotación del aro y comparación vs referencia
+
+Commit: `5e349ce`
+
+Implementación completa del flujo de análisis en `apps/mobile2` que permite al atleta subir su propio video, extraer pose con MediaPipe, anotar el aro de su cancha y obtener RIM_REFERENCE + consenso desde el servidor.
+
+#### Cambios por archivo
+
+**`apps/mobile2/components/technique/athleteTechniqueAnalysis.ts`**
+- `AthleteRimAnnotation` — nueva interfaz (frameIndex, xLeft, yLeft, xRight, yRight, annotatedAt)
+- `ServerBiomechanicsResult` — nueva interfaz con `masterReference.jumpHeight.methods/consensusValueCm/status`
+- `callBiomechanicsAnalyze()` — función async que llama al nuevo endpoint de atleta con landmarks + rimAnnotation + config
+- `MobileTechniqueBiomechanicsConfig` ahora tiene `rimAnnotation?` y `masterReference?` para persistir referencia del admin
+
+**`apps/mobile2/components/screens/TecnicaScreen.tsx`**
+- Props nuevas: `accessToken?: string | null`, `apiBaseUrl?: string | null`
+- Estado nuevo: `pendingLandmarks`, `showRimAnnotation`, `rimAnnotation`, `rimPoint1`, `rimPoint2`, `serverAnalyzing`, `serverResult`, `serverError`
+- `handlePoseAnalysisResult()` — modificado para abrir modal de anotación del aro tras extracción si la técnica tiene rimAnnotation de referencia
+- `runServerAnalysis()` — nueva función async que llama a `callBiomechanicsAnalyze()` y guarda resultado en `serverResult`
+- `handleConfirmRimAnnotation()` / `handleSkipRimAnnotation()` — flujo del modal de anotación
+- Modal de anotación del aro: 2 taps para marcar bordes del aro, con dots visuales y botón "Confirmar aro" / "Saltear"
+- Card de resultados del servidor: badges por método (CoM/FT/Rim), consenso, vs referencia (delta en cm + %)
+- Estilos nuevos: `serverResultCard`, `jumpMethodBadge*`, `consensusRow`, `vsReference*`, `rimModal*`, `rimDot`
+
+**`apps/mobile2/app/index.tsx`**
+- Pasa `accessToken` y `apiBaseUrl` al `<TecnicaScreen />`
+
+**`apps/api/src/routes/athlete.ts`**
+- Import de `analyze as analyzeBiomechanics` y `CalibrationError` desde `jumpHeightAnalyzer.js`
+- Nuevo endpoint: `POST /api/v1/athlete/program-templates/:code/techniques/:techniqueId/biomechanics/analyze`
+  - Requiere solo `requireAuth` (no SUPERADMIN)
+  - Valida con `athleteBiomechanicsAnalyzeBodySchema`
+  - Llama al mismo `analyze()` del servidor
+  - `persistResult: false` por defecto — no guarda en DB
+  - Retorna `{ masterReference }`
+
+**`apps/api/src/lib/jumpHeightAnalyzer.ts`**
+- `AnalysisInput.rimAnnotation` cambiado a `RimAnnotation | null`
+- `analyze()` ya no lanza `CalibrationError` por DIP faltante cuando `rimAnnotation === null`
+
+**`apps/api/src/lib/biometricSpaceConverter.ts`**
+- `BiometricSpaceConverter` constructor acepta `RimAnnotation | null`
+- Si null: `normPerCmV = 0`, `normPerCmH = 0` — métodos dependientes retornan `LOW_CONFIDENCE` automáticamente
+- `getProjectedRimAtFrame()` retorna ceros seguros cuando `rimAnnotation === null`
+
+#### Flujo de la nueva feature
+
+1. Atleta sube video → MediaPipe extrae landmarks
+2. Si la técnica tiene `biomechanicsConfig.rimAnnotation` → se muestra modal de anotación del aro del atleta
+3. Atleta toca 2 puntos en pantalla (borde izq y borde der del aro)
+4. Se llama `POST /api/v1/athlete/program-templates/{code}/techniques/{id}/biomechanics/analyze`
+5. El servidor calcula FLIGHT_TIME + CENTER_OF_MASS + RIM_REFERENCE (si hay anotación) y devuelve `masterReference`
+6. En pantalla aparece card con badges por método, consenso en cm, y comparación vs referencia del admin
+
 ### 2. Refactor arquitectural: anotación manual del aro + BiometricSpaceConverter
 
 Se realizó una refactorización mayor que desvincula a MediaPipe de cualquier responsabilidad de detectar el aro. MediaPipe queda como extractor puro de 33 puntos clave del cuerpo humano; la calibración métrica pasa al servidor usando anotación manual de dos clics sobre el aro.
