@@ -14,6 +14,24 @@
 
 ## Registro de trabajo
 
+### 6. Fix mobile2: canvas para MediaPipe Pose en WebView (2026-05-07)
+
+Commit: `ca92273`
+
+**Problema:** Error "MediaPipe no pudo procesar el frame del video del atleta" al cargar un video en la app.
+
+**Causa:** MediaPipe Pose espera un canvas o imagen como entrada (`.send({ image: canvas })`), pero el código pasaba un video element directamente.
+
+**Fix:**
+- Canvas oculto agregado al HTML del WebView (`<canvas id="pose-canvas" style="display:none;"></canvas>`)
+- En `loadVideoUri`: obtener contexto 2D del canvas y devolverlo junto con el video
+- Al procesar cada frame: dibujarlo en el canvas con `ctx.drawImage(video, ...)` antes de enviarlo a MediaPipe
+- Canvas pasado a `pose.send()` en lugar del video element
+
+**Archivo modificado:** `apps/mobile2/components/technique/TechniqueVideoPoseAnalyzer.tsx`
+
+---
+
 ### 5. Fix mobile2: keep-awake, FPS 15, modal del aro, preload MediaPipe (2026-05-06)
 
 Commit: `4dedada`
