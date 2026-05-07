@@ -1041,6 +1041,224 @@ export default function TecnicaScreen({
                     {entry.measurementDefinitions.length} medición(es) · {entry.metrics.length} registro(s) · {isExpanded ? "▲" : "▼"}
                   </Text>
                 </Pressable>
+                {isExpanded ? (
+                  <View style={styles.techniqueExpandedContent}>
+                    {/* ─── Video principal ─── */}
+                    {(() => {
+                      const vid =
+                        entry.mediaAssets.find((a) => a.kind === "VIDEO" && a.isPrimary) ??
+                        entry.mediaAssets.find((a) => a.kind === "VIDEO");
+                      if (!vid) return null;
+                      const uri = rewriteLocalAssetUrl(vid.url);
+                      if (!uri) return null;
+                      return (
+                        <View style={styles.mediaCard}>
+                          {vid.title ? <Text style={styles.mediaTitle}>{vid.title}</Text> : null}
+                          <Video source={{ uri }} style={styles.video} useNativeControls resizeMode={ResizeMode.CONTAIN} />
+                        </View>
+                      );
+                    })()}
+                    {/* ─── Descripción ─── */}
+                    <Text style={styles.helperText}>
+                      {entry.description || "Todavía no hay texto cargado para esta técnica."}
+                    </Text>
+                    {entry.measurementInstructions ? (
+                      <View style={styles.tipBox}>
+                        <Text style={styles.tipTitle}>Cómo medir</Text>
+                        <Text style={styles.tipBody}>{entry.measurementInstructions}</Text>
+                      </View>
+                    ) : null}
+                    {/* ─── Imágenes / GIFs ─── */}
+                    {entry.mediaAssets
+                      .filter((a) => a.kind !== "VIDEO")
+                      .map((asset) => {
+                        const uri = rewriteLocalAssetUrl(asset.url);
+                        if (!uri) return null;
+                        return (
+                          <View key={asset.id} style={styles.mediaCard}>
+                            {asset.title ? <Text style={styles.mediaTitle}>{asset.title}</Text> : null}
+                            <ExpoImage source={{ uri }} style={styles.image} contentFit="contain" />
+                          </View>
+                        );
+                      })}
+                    {/* ─── Seguimiento técnico ─── */}
+                    <Text style={[styles.sectionEyebrow, { marginTop: 14 }]}>Seguimiento técnico</Text>
+                    <Text style={[styles.sectionTitle, { marginBottom: 4 }]}>Antes de subir tu video</Text>
+                    <View style={{ gap: 6, marginVertical: 8 }}>
+                      {CHECKLIST_ITEMS.map((item) => {
+                        const checked = checkedItems.has(item.key);
+                        return (
+                          <Pressable
+                            key={item.key}
+                            style={[styles.checklistItem, checked ? styles.checklistItemChecked : null]}
+                            onPress={() => {
+                              setCheckedItems((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(item.key)) {
+                                  next.delete(item.key);
+                                } else {
+                                  next.add(item.key);
+                                }
+                                return next;
+                              });
+                            }}
+                          >
+                            <Text style={styles.checklistEmoji}>{item.emoji}</Text>
+                            <Text style={[styles.checklistLabel, checked ? styles.checklistLabelChecked : null]}>
+                              {item.label}
+                            </Text>
+                            <Text style={styles.checklistCheck}>{checked ? "✓" : item.required ? "○" : "◌"}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    {(() => {
+                      const requiredKeys = CHECKLIST_ITEMS.filter((i) => i.required).map((i) => i.key);
+                      const allChecked = requiredKeys.every((k) => checkedItems.has(k));
+                      return (
+                        <>
+                          {!allChecked ? (
+                            <Text style={[styles.helperText, { color: "#e07070", marginBottom: 8 }]}>
+                              Marca los 5 requisitos para habilitar el análisis.
+                            </Text>
+                          ) : null}
+                          <View style={styles.analysisButtonRow}>
+                            <Pressable
+                              style={[styles.primaryButton, !allChecked && styles.disabledButton]}
+                              onPress={() => void handlePickAthleteVideo()}
+                              disabled={analysisBusy || !allChecked}
+                            >
+                              <Text style={styles.primaryButtonText}>
+                                {athleteVideoUri ? "Cambiar video" : "Elegir de galería"}
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              style={[styles.secondaryUploadButton, !allChecked && styles.disabledButton]}
+                              onPress={() => void handleRecordWithQualityCheck()}
+                              disabled={analysisBusy || !allChecked}
+                            >
+                              <Text style={styles.secondaryUploadButtonText}>Grabar ahora con cámara</Text>
+                            </Pressable>
+                          </View>
+                        </>
+                      );
+                    })()}
+                    {typeof athleteHeightCm === "number" ? (
+                      <View style={styles.analysisInfoPill}>
+                        <Text style={styles.analysisInfoPillText}>Altura perfil: {athleteHeightCm} cm</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.analysisInfoPill}>
+                        <Text style={styles.analysisInfoPillText}>
+                          Falta altura en el perfil para escalar el salto en cm
+                        </Text>
+                      </View>
+                    )}
+                    {athleteVideoUri ? (
+                      <View style={styles.mediaCard}>
+                        <Text style={styles.mediaTitle}>{athleteVideoName || "Video del atleta"}</Text>
+                        <Pressable
+                          style={styles.openCorrectionsButton}
+                          onPress={() => setShowCorrectionsViewer(true)}
+                          disabled={!autoAnalysis}
+                        >
+                          <Text style={styles.openCorrectionsButtonText}>Ver correcciones</Text>
+                          <Text style={styles.openCorrectionsButtonMeta}>
+                            Abrir visor grande con eventos, barra temporal y sombras de ángulo.
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                    {analysisBusy ? (
+                      <View style={styles.analysisStatusCard}>
+                        <ActivityIndicator color={C.amber} />
+                        <Text style={styles.metricLabel}>Analizando video del atleta...</Text>
+                        <Text style={styles.helperText}>
+                          {analysisProgress.total > 0
+                            ? `Procesando frame ${analysisProgress.processed} de ${analysisProgress.total}...`
+                            : "Descargando modelo de pose (solo la primera vez)..."}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {analysisError ? <Text style={styles.analysisErrorText}>{analysisError}</Text> : null}
+                    {autoAnalysis ? (
+                      <View style={styles.tipBox}>
+                        <Text style={styles.tipTitle}>Análisis listo</Text>
+                        <Text style={styles.tipBody}>
+                          Altura detectada:{" "}
+                          {typeof autoAnalysis.measurements.jumpHeight?.consensusValueCm === "number"
+                            ? `${autoAnalysis.measurements.jumpHeight.consensusValueCm.toFixed(1)} cm`
+                            : "—"}
+                          . Revisa las correcciones en el visor.
+                        </Text>
+                      </View>
+                    ) : null}
+                    {/* ─── Comparativas ─── */}
+                    {(() => {
+                      const entryComparisons = buildMetricComparisons(entry.metrics);
+                      return (
+                        <>
+                          <Text style={[styles.sectionEyebrow, { marginTop: 14 }]}>Comparativas</Text>
+                          <Text style={[styles.sectionTitle, { marginBottom: 4 }]}>Base vs última medición</Text>
+                          {entryComparisons.length ? (
+                            <View style={styles.metricList}>
+                              <MetricLineChart metrics={entry.metrics} />
+                              {entryComparisons.map((comparison) => (
+                                <View key={comparison.key} style={styles.metricCard}>
+                                  <Text style={styles.metricLabel}>{comparison.label}</Text>
+                                  <Text style={styles.metricMeta}>
+                                    Base: {comparison.baseline ? formatMetricValue(comparison.baseline) : "-"} ·{" "}
+                                    Última: {comparison.latest ? formatMetricValue(comparison.latest) : "-"}
+                                  </Text>
+                                  <Text style={styles.metricNotes}>
+                                    Delta:{" "}
+                                    {comparison.delta === null
+                                      ? "Sin referencia"
+                                      : `${comparison.delta > 0 ? "+" : ""}${comparison.delta}${comparison.unit ? ` ${comparison.unit}` : ""}`}
+                                  </Text>
+                                </View>
+                              ))}
+                            </View>
+                          ) : (
+                            <Text style={styles.helperText}>
+                              Aún no hay métricas suficientes para mostrar comparativas por técnica.
+                            </Text>
+                          )}
+                        </>
+                      );
+                    })()}
+                    {/* ─── Historial ─── */}
+                    <Text style={[styles.sectionEyebrow, { marginTop: 14 }]}>Historial</Text>
+                    <Text style={[styles.sectionTitle, { marginBottom: 4 }]}>Registros de {entry.title}</Text>
+                    {entry.metrics.length ? (
+                      <View style={styles.metricList}>
+                        <MetricLineChart metrics={entry.metrics} />
+                        {entry.metrics.map((metric) => (
+                          <View key={metric.id} style={styles.metricCard}>
+                            <View style={styles.metricHeaderRow}>
+                              <Text style={styles.metricLabel}>{metric.label}</Text>
+                              <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                                {metric.isBaseline ? <Text style={styles.metricBadge}>Base</Text> : null}
+                                {metric.label.toLowerCase().includes("sesi") ? (
+                                  <Text style={[styles.metricBadge, { color: "#f5b324" }]}>📝 Sesión</Text>
+                                ) : metric.notes ? (
+                                  <Text style={[styles.metricBadge, { color: "#1abc9c" }]}>📊 App</Text>
+                                ) : null}
+                              </View>
+                            </View>
+                            <Text style={styles.metricValue}>{formatMetricValue(metric)}</Text>
+                            <Text style={styles.metricMeta}>{formatMetricMeta(metric)}</Text>
+                            {metric.notes ? <Text style={styles.metricNotes}>{metric.notes}</Text> : null}
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <Text style={styles.helperText}>
+                        Aún no registraste mediciones para esta técnica.
+                      </Text>
+                    )}
+                  </View>
+                ) : null}
               </View>
             );
           })}
@@ -1049,193 +1267,6 @@ export default function TecnicaScreen({
 
       {selectedTechnique ? (
         <>
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionEyebrow}>Técnica seleccionada</Text>
-            <Text style={styles.sectionTitle}>{selectedTechnique.title}</Text>
-            <Text style={styles.helperText}>{selectedTechnique.description || "Todavía no hay texto cargado para esta técnica."}</Text>
-            {selectedTechnique.measurementInstructions ? (
-              <View style={styles.tipBox}>
-                <Text style={styles.tipTitle}>Cómo medir</Text>
-                <Text style={styles.tipBody}>{selectedTechnique.measurementInstructions}</Text>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionEyebrow}>Recursos</Text>
-            <Text style={styles.sectionTitle}>Video y referencias</Text>
-            {selectedTechnique.mediaAssets.length ? (
-              selectedTechnique.mediaAssets.map((asset) => {
-                const uri = rewriteLocalAssetUrl(asset.url);
-                return (
-                  <View key={asset.id} style={styles.mediaCard}>
-                    <Text style={styles.mediaTitle}>{asset.title || "Referencia técnica"}</Text>
-                    {uri ? (
-                      asset.kind === "VIDEO" ? (
-                        <Video source={{ uri }} style={styles.video} useNativeControls resizeMode={ResizeMode.CONTAIN} />
-                      ) : (
-                        <ExpoImage source={{ uri }} style={styles.image} contentFit="contain" />
-                      )
-                    ) : (
-                      <View style={styles.mediaPlaceholder}><Text style={styles.mediaPlaceholderText}>Recurso no disponible</Text></View>
-                    )}
-                  </View>
-                );
-              })
-            ) : (
-              <Text style={styles.helperText}>Todavía no hay recursos asociados a esta técnica.</Text>
-            )}
-          </View>
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionEyebrow}>Seguimiento técnico</Text>
-            <Text style={styles.sectionTitle}>Antes de subir tu video</Text>
-            {/* Emoji checklist */}
-            <View style={{ gap: 6, marginVertical: 10 }}>
-              {CHECKLIST_ITEMS.map((item) => {
-                const checked = checkedItems.has(item.key);
-                return (
-                  <Pressable
-                    key={item.key}
-                    style={[styles.checklistItem, checked ? styles.checklistItemChecked : null]}
-                    onPress={() => {
-                      setCheckedItems((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(item.key)) { next.delete(item.key); } else { next.add(item.key); }
-                        return next;
-                      });
-                    }}
-                  >
-                    <Text style={styles.checklistEmoji}>{item.emoji}</Text>
-                    <Text style={[styles.checklistLabel, checked ? styles.checklistLabelChecked : null]}>{item.label}</Text>
-                    <Text style={styles.checklistCheck}>{checked ? "✓" : item.required ? "○" : "◌"}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            {(() => {
-              const requiredKeys = CHECKLIST_ITEMS.filter((i) => i.required).map((i) => i.key);
-              const allChecked = requiredKeys.every((k) => checkedItems.has(k));
-              return (
-                <>
-                  {!allChecked ? (
-                    <Text style={[styles.helperText, { color: "#e07070", marginBottom: 8 }]}>
-                      Marca los 5 requisitos para habilitar el análisis.
-                    </Text>
-                  ) : null}
-                  <View style={styles.analysisButtonRow}>
-                    <Pressable
-                      style={[styles.primaryButton, !allChecked && styles.disabledButton]}
-                      onPress={() => void handlePickAthleteVideo()}
-                      disabled={analysisBusy || !allChecked}
-                    >
-                      <Text style={styles.primaryButtonText}>{athleteVideoUri ? "Cambiar video" : "Elegir de galería"}</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.secondaryUploadButton, !allChecked && styles.disabledButton]}
-                      onPress={() => void handleRecordWithQualityCheck()}
-                      disabled={analysisBusy || !allChecked}
-                    >
-                      <Text style={styles.secondaryUploadButtonText}>Grabar ahora con cámara</Text>
-                    </Pressable>
-                  </View>
-                </>
-              );
-            })()}
-            {typeof athleteHeightCm === "number" ? (
-              <View style={styles.analysisInfoPill}>
-                <Text style={styles.analysisInfoPillText}>Altura perfil: {athleteHeightCm} cm</Text>
-              </View>
-            ) : (
-              <View style={styles.analysisInfoPill}>
-                <Text style={styles.analysisInfoPillText}>Falta altura en el perfil para escalar el salto en cm</Text>
-              </View>
-            )}
-            {athleteVideoUri ? (
-              <View style={styles.mediaCard}>
-                <Text style={styles.mediaTitle}>{athleteVideoName || "Video del atleta"}</Text>
-                <Pressable
-                  style={styles.openCorrectionsButton}
-                  onPress={() => setShowCorrectionsViewer(true)}
-                  disabled={!autoAnalysis}
-                >
-                  <Text style={styles.openCorrectionsButtonText}>Ver correcciones</Text>
-                  <Text style={styles.openCorrectionsButtonMeta}>Abrir visor grande con eventos, barra temporal y sombras de ángulo.</Text>
-                </Pressable>
-              </View>
-            ) : null}
-            {analysisBusy ? (
-              <View style={styles.analysisStatusCard}>
-                <ActivityIndicator color={C.amber} />
-                <Text style={styles.metricLabel}>Analizando video del atleta...</Text>
-                <Text style={styles.helperText}>
-                  {analysisProgress.total > 0
-                    ? `Procesando frame ${analysisProgress.processed} de ${analysisProgress.total}...`
-                    : "Descargando modelo de pose (solo la primera vez)..."}
-                </Text>
-              </View>
-            ) : null}
-            {analysisError ? <Text style={styles.analysisErrorText}>{analysisError}</Text> : null}
-            {autoAnalysis ? (
-              <View style={styles.tipBox}>
-                <Text style={styles.tipTitle}>Análisis listo</Text>
-                <Text style={styles.tipBody}>
-                  Altura detectada: {typeof autoAnalysis.measurements.jumpHeight?.consensusValueCm === "number"
-                    ? `${autoAnalysis.measurements.jumpHeight.consensusValueCm.toFixed(1)} cm`
-                    : "—"}. Revisa las correcciones en el visor.
-                </Text>
-              </View>
-            ) : null}
-          </View>
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionEyebrow}>Comparativas</Text>
-            <Text style={styles.sectionTitle}>Base vs ├║ltima medici├│n</Text>
-            {comparisons.length ? (
-              <View style={styles.metricList}>
-                <MetricLineChart metrics={selectedTechnique.metrics} />
-                {comparisons.map((comparison) => (
-                  <View key={comparison.key} style={styles.metricCard}>
-                    <Text style={styles.metricLabel}>{comparison.label}</Text>
-                    <Text style={styles.metricMeta}>
-                      Base: {comparison.baseline ? formatMetricValue(comparison.baseline) : "-"} ┬À ├Ültima: {comparison.latest ? formatMetricValue(comparison.latest) : "-"}
-                    </Text>
-                    <Text style={styles.metricNotes}>
-                      Delta: {comparison.delta === null ? "Sin referencia" : `${comparison.delta > 0 ? "+" : ""}${comparison.delta}${comparison.unit ? ` ${comparison.unit}` : ""}`}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.helperText}>A├║n no hay m├®tricas suficientes para mostrar comparativas por t├®cnica.</Text>
-            )}
-          </View>
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionEyebrow}>Historial</Text>
-            <Text style={styles.sectionTitle}>Registros de {selectedTechnique.title}</Text>
-            {selectedTechnique.metrics.length ? (
-              <View style={styles.metricList}>
-                <MetricLineChart metrics={selectedTechnique.metrics} />
-                {selectedTechnique.metrics.map((metric) => (
-                  <View key={metric.id} style={styles.metricCard}>
-                    <View style={styles.metricHeaderRow}>
-                      <Text style={styles.metricLabel}>{metric.label}</Text>
-                      {metric.isBaseline ? <Text style={styles.metricBadge}>Base</Text> : null}
-                    </View>
-                    <Text style={styles.metricValue}>{formatMetricValue(metric)}</Text>
-                    <Text style={styles.metricMeta}>{formatMetricMeta(metric)}</Text>
-                    {metric.notes ? <Text style={styles.metricNotes}>{metric.notes}</Text> : null}
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.helperText}>A├║n no registraste mediciones para esta t├®cnica.</Text>
-            )}
-          </View>
-
-          {/* Montar el WebView siempre que haya un contrato biom├®canico para
-               pre-cargar MediaPipe en segundo plano. videoUri=null significa
-               que no hay video para procesar a├║n. */}
           {hasAutomaticAnalysisContract ? (
             <TechniqueVideoPoseAnalyzer
               requestId={analysisRequestId}
@@ -1260,7 +1291,7 @@ export default function TecnicaScreen({
               </View>
               <View style={styles.rimModalBody}>
                 <Text style={styles.rimModalHint}>
-                  Toc├í dos veces para marcar los bordes del aro: primero el borde izquierdo y luego el borde derecho.
+                  Tocá dos veces para marcar los bordes del aro: primero el borde izquierdo y luego el borde derecho.
                   Con el aro anotado el servidor puede calcular la altura de salto usando la referencia visual (RIM_REFERENCE).
                 </Text>
                 <View
@@ -1315,7 +1346,7 @@ export default function TecnicaScreen({
                   ) : !rimPoint2 ? (
                     <Text style={styles.rimTapPrompt}>Ahora toca el borde DERECHO del aro</Text>
                   ) : (
-                    <Text style={styles.rimTapPrompt}>Ambos bordes marcados. Toca para resetear si quer├®s ajustar.</Text>
+                    <Text style={styles.rimTapPrompt}>Ambos bordes marcados. Toca para resetear si querés ajustar.</Text>
                   )}
                 </View>
                 <View style={styles.rimModalActions}>
@@ -1336,7 +1367,7 @@ export default function TecnicaScreen({
             <View style={styles.viewerModalScreen}>
               <View style={styles.viewerModalHeader}>
                 <View style={styles.viewerModalHeaderTextWrap}>
-                  <Text style={styles.viewerModalEyebrow}>Correcci├│n visual</Text>
+                  <Text style={styles.viewerModalEyebrow}>Corrección visual</Text>
                   <Text style={styles.viewerModalTitle}>{selectedTechnique.title}</Text>
                 </View>
                 <Pressable style={styles.viewerModalCloseButton} onPress={() => setShowCorrectionsViewer(false)}>
@@ -1401,12 +1432,12 @@ export default function TecnicaScreen({
                                 <View style={[styles.videoAngleGhostAthlete, { left: `${athleteMarker}%` }]} />
                               </View>
                               <Text style={styles.videoAngleGhostMeta}>
-                                Esperado {formatExpectedAngleRange(comparison.targetMinDeg, comparison.targetMaxDeg)} ┬À atleta {comparison.athleteAngleDeg.toFixed(1)}┬░
+                                Esperado {formatExpectedAngleRange(comparison.targetMinDeg, comparison.targetMaxDeg)} · atleta {comparison.athleteAngleDeg.toFixed(1)}°
                               </Text>
                             </View>
                           );
                         }) : (
-                          <Text style={styles.videoOverlayBody}>No hay ├íngulos comparables para este evento todav├¡a.</Text>
+                          <Text style={styles.videoOverlayBody}>No hay ángulos comparables para este evento todavía.</Text>
                         )}
                       </View>
                     </>
@@ -1414,7 +1445,7 @@ export default function TecnicaScreen({
                 </View>
 
                 <View style={styles.viewerTimelineSection}>
-                  <Text style={styles.viewerTimelineLabel}>Eventos sobre la reproducci├│n</Text>
+                  <Text style={styles.viewerTimelineLabel}>Eventos sobre la reproducción</Text>
                   <View style={styles.eventTimelineTrack}>
                     {eventOverlayItems.map((item) => (
                       <Pressable
