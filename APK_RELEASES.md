@@ -68,6 +68,20 @@ npm --prefix apps/mobile2 run build
 echo y | npm --prefix apps/mobile2 run apk:prod
 ```
 
+## Build debug (Expo Dev Client)
+
+Para continuar mejoras de UI/JS sin regenerar release en cada cambio, usa Dev Client:
+
+```powershell
+node apps/mobile2/scripts/build-android-devbuild.mjs
+```
+
+Notas:
+
+- Este build incluye módulos nativos (ej. `expo-camera`) dentro del cliente debug.
+- Si agregas o actualizas una librería nativa, sí debes reconstruir e instalar de nuevo el Dev Client.
+- Si solo cambias JS/TS/estilos, puedes iterar con `npx expo start --dev-client` sin rebuild nativo.
+
 Ese flujo:
 
 - valida TypeScript

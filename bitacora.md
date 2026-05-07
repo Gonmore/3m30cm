@@ -14,6 +14,35 @@
 
 ## Registro de trabajo
 
+### 10. mobile2: ajuste final de Técnica + correcciones de encoding + origen de métricas (2026-05-07)
+
+Commit: `c7f7547`
+
+**Cambios funcionales cerrados:**
+
+1. **Acordeón real en Técnica (contenido inline por técnica)**
+  - La pantalla muestra primero solo el listado de técnicas.
+  - Al tocar una técnica, se expande su bloque dentro del mismo item.
+  - Al volver a tocar la misma técnica, se contrae.
+
+2. **Orden visual en técnica seleccionada**
+  - Dentro del item expandido se prioriza: **video principal** primero y luego descripción.
+  - Recursos no-video (imagen/GIF) quedan después del bloque descriptivo.
+
+3. **Comparativas/Historial con texto corregido**
+  - Se corrigieron textos con caracteres rotos (acentos y símbolos) en secciones de comparativas, historial y visor de correcciones.
+
+4. **Historial con distintivo de origen de medición**
+  - `📝 Sesión` para métricas vinculadas desde cierre de sesión.
+  - `📊 App` para métricas originadas por análisis/registro de la app.
+  - Se mantiene badge `Base` para baseline.
+
+5. **Validación técnica**
+  - `npx tsc --noEmit` ejecutado sin errores tras los cambios.
+
+**Archivo principal modificado:**
+- `apps/mobile2/components/screens/TecnicaScreen.tsx`
+
 ### 9. mobile2: 5 mejoras UI/UX — racha SVG, check-in adaptativo, técnica accordion, métricas vinculadas, gráficos (2026-05-08)
 
 **Mejoras implementadas:**
