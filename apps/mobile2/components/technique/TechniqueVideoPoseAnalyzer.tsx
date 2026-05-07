@@ -30,6 +30,7 @@ const analyzerHtml = String.raw`<!doctype html>
     </style>
   </head>
   <body>
+    <canvas id="pose-canvas" style="display:none;"></canvas>
     <script>
       const mediaPipePoseCdnBaseUrl = "https://cdn.jsdelivr.net/npm/@mediapipe/pose";
       let poseConstructorPromise = null;
@@ -78,6 +79,9 @@ const analyzerHtml = String.raw`<!doctype html>
         video.setAttribute("webkit-playsinline", "true");
         video.crossOrigin = "anonymous";
 
+        const canvas = document.getElementById("pose-canvas");
+        const ctx = canvas?.getContext("2d");
+
         const describeVideoError = () => {
           const errorCode = video.error && typeof video.error.code === "number" ? video.error.code : "unknown";
           const sourceValue = video.currentSrc || video.src || videoUri || "unknown";
@@ -116,7 +120,7 @@ const analyzerHtml = String.raw`<!doctype html>
         video.src = videoUri;
         video.load();
 
-        return { video, ready };
+        return { video, canvas, ctx, ready };
       }
 
       function seekVideo(video, targetTimeSeconds) {
@@ -181,8 +185,17 @@ const analyzerHtml = String.raw`<!doctype html>
             await seekVideo(video, timestampMs / 1000);
 
             const results = await new Promise((resolve, reject) => {
+              if (!source.canvas || !source.ctx) {
+                reject(new Error("Canvas no disponible para procesar frames."));
+                return;
+              }
+
+              source.canvas.width = video.videoWidth || video.width || 640;
+              source.canvas.height = video.videoHeight || video.height || 480;
+              source.ctx.drawImage(video, 0, 0, source.canvas.width, source.canvas.height);
+
               pose.onResults((value) => resolve(value));
-              Promise.resolve(pose.send({ image: video })).catch(() => reject(new Error("MediaPipe no pudo procesar el frame del video del atleta.")));
+              Promise.resolve(pose.send({ image: source.canvas })).catch(() => reject(new Error("MediaPipe no pudo procesar el frame del video del atleta.")));
             });
 
             const poseLandmarks = results && results.poseLandmarks;
