@@ -14,6 +14,43 @@
 
 ## Registro de trabajo
 
+### 8. Follow-up mobile2: eventos en velocidad normal + fondo real en anotación de aro (2026-05-07)
+
+**Problemas reportados:**
+- En cámara lenta se detectaban eventos, pero en videos a velocidad normal faltaban eventos.
+- El modal de anotación del aro mostraba fondo gris (sin frame del video), imposible anotar.
+
+**Fix aplicado:**
+- `TechniqueVideoPoseAnalyzer.tsx`: muestreo adaptativo para clips cortos.
+	- Si `durationMs <= 2600`, usar al menos `30 fps` y `maxFrames >= 480`.
+	- Objetivo: evitar pérdida de fases rápidas (contactos/APEX) en videos normales.
+- `TecnicaScreen.tsx`: el modal de aro ahora renderiza preview del video del atleta congelado cerca de APEX.
+	- Se posiciona el preview en `rimPreviewTimestampMs - 120ms`.
+	- El `frameIndex` guardado de la anotación ahora usa el frame de preview (APEX/fallback), no `0` fijo.
+	- Coordenadas de toque normalizadas (`0..1`) respecto al área de anotación.
+
+**Archivos modificados:**
+- `apps/mobile2/components/technique/TechniqueVideoPoseAnalyzer.tsx`
+- `apps/mobile2/components/screens/TecnicaScreen.tsx`
+
+---
+
+### 7. Follow-up mobile2: esperar frame decodificado en WebView Android (2026-05-07)
+
+**Problema:** seguía apareciendo `MediaPipe no pudo procesar el frame del video del atleta` aun después del cambio a canvas.
+
+**Hipótesis aplicada:** en Android WebView el evento `seeked` puede disparar antes de que el frame quede realmente decodificado para `drawImage()` / `pose.send()`.
+
+**Fix:**
+- agregar `waitForVideoFrame(video)` luego de cada `seek`
+- si existe `requestVideoFrameCallback`, esperar ese callback
+- si no, esperar `loadeddata` / `canplay` y un `requestAnimationFrame`
+- ampliar el mensaje de error con `readyState`, dimensiones del video/canvas y detalle interno
+
+**Archivo modificado:** `apps/mobile2/components/technique/TechniqueVideoPoseAnalyzer.tsx`
+
+---
+
 ### 6. Fix mobile2: canvas para MediaPipe Pose en WebView (2026-05-07)
 
 Commit: `ca92273`

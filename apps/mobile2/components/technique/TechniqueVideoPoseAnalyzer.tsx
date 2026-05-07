@@ -34,6 +34,8 @@ const analyzerHtml = String.raw`<!doctype html>
     <script>
       const mediaPipePoseCdnBaseUrl = "https://cdn.jsdelivr.net/npm/@mediapipe/pose";
       let poseConstructorPromise = null;
+      // Instancia de Pose reutilizada entre videos para que el WASM quede en memoria.
+      let poseInstancePromise = null;
       let busy = false;
       let currentGeneration = 0;
       let currentRequestId = null;
@@ -69,6 +71,51 @@ const analyzerHtml = String.raw`<!doctype html>
         }
 
         return poseConstructorPromise;
+      }
+
+      // Crea (o devuelve) la instancia de Pose ya primed con un frame 1x1.
+      // Esto carga el WASM internamente sin usar initialize() ni requestAnimationFrame,
+      // ambos problemáticos en WebViews ocultos.
+      function ensurePoseInstance() {
+        if (!poseInstancePromise) {
+          poseInstancePromise = ensurePoseConstructor().then(function(Pose) {
+            var pose = new Pose({
+              locateFile: function(fileName) { return mediaPipePoseCdnBaseUrl + "/" + fileName; },
+            });
+            pose.setOptions({
+              modelComplexity: 1,
+              smoothLandmarks: true,
+              enableSegmentation: false,
+              selfieMode: false,
+              minDetectionConfidence: 0.5,
+              minTrackingConfidence: 0.5,
+            });
+            // Enviar un frame 1x1 negro para disparar la carga del WASM y el modelo
+            // sin depender de initialize() (que puede colgar en WebViews ocultos).
+            return new Promise(function(resolve, reject) {
+              var primeCanvas = document.createElement("canvas");
+              primeCanvas.width = 1;
+              primeCanvas.height = 1;
+              var timer = setTimeout(function() {
+                poseInstancePromise = null;
+                reject(new Error("MediaPipe no respondió al frame de inicialización (timeout 45s)."));
+              }, 45000);
+              pose.onResults(function() {
+                clearTimeout(timer);
+                resolve(pose);
+              });
+              Promise.resolve(pose.send({ image: primeCanvas })).catch(function(err) {
+                clearTimeout(timer);
+                poseInstancePromise = null;
+                reject(err instanceof Error ? err : new Error(String(err)));
+              });
+            });
+          }).catch(function(err) {
+            poseInstancePromise = null;
+            return Promise.reject(err);
+          });
+        }
+        return poseInstancePromise;
       }
 
       function loadVideoUri(videoUri) {
@@ -150,23 +197,45 @@ const analyzerHtml = String.raw`<!doctype html>
         });
       }
 
+      function waitForVideoFrame(video) {
+        // readyState >= 2 (HAVE_CURRENT_DATA) significa que el frame actual está
+        // decodificado — garantizado por spec tras el evento seeked.
+        // No usar requestAnimationFrame: en WebViews ocultos (opacity:0 / 1x1) puede
+        // quedar throttleado indefinidamente.
+        if (video.readyState >= 2) {
+          return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+          const cleanup = () => {
+            video.removeEventListener("loadeddata", handleReady);
+            video.removeEventListener("canplay", handleReady);
+            video.removeEventListener("error", handleError);
+          };
+
+          const handleReady = () => { cleanup(); resolve(); };
+          const handleError = () => {
+            cleanup();
+            reject(new Error("El frame del video del atleta no quedó listo para MediaPipe."));
+          };
+
+          video.addEventListener("loadeddata", handleReady, { once: true });
+          video.addEventListener("canplay", handleReady, { once: true });
+          video.addEventListener("error", handleError, { once: true });
+        });
+      }
+
       async function extractPoseSequence(request) {
-        const Pose = await ensurePoseConstructor();
+        // Reutilizar la instancia cacheada (ya tiene el WASM cargado y primed).
+        const pose = await ensurePoseInstance();
         const targetFps = request.targetFps || 15;
         const maxFrames = request.maxFrames || 240;
         const source = loadVideoUri(request.videoUri);
-        const pose = new Pose({
-          locateFile: (fileName) => mediaPipePoseCdnBaseUrl + "/" + fileName,
-        });
 
-        pose.setOptions({
-          modelComplexity: 1,
-          smoothLandmarks: true,
-          enableSegmentation: false,
-          selfieMode: false,
-          minDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5,
-        });
+        // Limpiar estado de suavizado del video anterior.
+        if (typeof pose.reset === "function") {
+          pose.reset();
+        }
 
         try {
           const video = await source.ready;
@@ -175,14 +244,20 @@ const analyzerHtml = String.raw`<!doctype html>
             throw new Error("El video del atleta no tiene una duración válida.");
           }
 
-          const sampleIntervalMs = Math.max(1000 / targetFps, 1);
-          const estimatedFrameCount = Math.min(Math.max(Math.ceil(durationMs / sampleIntervalMs), 1), maxFrames);
+          // En clips de velocidad normal muy cortos, 15 fps puede perder fases clave
+          // del salto (contactos/apex). Subimos temporalmente la densidad de muestreo.
+          const isShortClip = durationMs <= 2600;
+          const effectiveTargetFps = isShortClip ? Math.max(targetFps, 30) : targetFps;
+          const effectiveMaxFrames = isShortClip ? Math.max(maxFrames, 480) : maxFrames;
+          const sampleIntervalMs = Math.max(1000 / effectiveTargetFps, 1);
+          const estimatedFrameCount = Math.min(Math.max(Math.ceil(durationMs / sampleIntervalMs), 1), effectiveMaxFrames);
           const frames = [];
 
           for (let index = 0; index < estimatedFrameCount; index += 1) {
             const rawTimestampMs = Math.min(Math.round(index * sampleIntervalMs), durationMs);
             const timestampMs = Math.min(rawTimestampMs, Math.max(durationMs - 1, 0));
             await seekVideo(video, timestampMs / 1000);
+            await waitForVideoFrame(video);
 
             const results = await new Promise((resolve, reject) => {
               if (!source.canvas || !source.ctx) {
@@ -192,10 +267,28 @@ const analyzerHtml = String.raw`<!doctype html>
 
               source.canvas.width = video.videoWidth || video.width || 640;
               source.canvas.height = video.videoHeight || video.height || 480;
-              source.ctx.drawImage(video, 0, 0, source.canvas.width, source.canvas.height);
+
+              try {
+                source.ctx.drawImage(video, 0, 0, source.canvas.width, source.canvas.height);
+              } catch (error) {
+                reject(new Error(
+                  "No se pudo dibujar el frame del video del atleta en el canvas. "
+                  + "readyState=" + video.readyState
+                  + ", video=" + (video.videoWidth || 0) + "x" + (video.videoHeight || 0)
+                  + ", canvas=" + source.canvas.width + "x" + source.canvas.height
+                  + ", detalle=" + (error instanceof Error ? error.message : String(error))
+                ));
+                return;
+              }
 
               pose.onResults((value) => resolve(value));
-              Promise.resolve(pose.send({ image: source.canvas })).catch(() => reject(new Error("MediaPipe no pudo procesar el frame del video del atleta.")));
+              Promise.resolve(pose.send({ image: source.canvas })).catch((error) => reject(new Error(
+                "MediaPipe no pudo procesar el frame del video del atleta. "
+                + "readyState=" + video.readyState
+                + ", video=" + (video.videoWidth || 0) + "x" + (video.videoHeight || 0)
+                + ", canvas=" + source.canvas.width + "x" + source.canvas.height
+                + ", detalle=" + (error instanceof Error ? error.message : String(error))
+              )));
             });
 
             const poseLandmarks = results && results.poseLandmarks;
@@ -241,9 +334,7 @@ const analyzerHtml = String.raw`<!doctype html>
         } finally {
           source.video.pause();
           source.video.src = "";
-          if (typeof pose.close === "function") {
-            await pose.close();
-          }
+          // No cerrar la instancia de pose: se reutiliza entre videos (está cacheada).
         }
       }
 
@@ -281,11 +372,11 @@ const analyzerHtml = String.raw`<!doctype html>
         }
       };
 
-      // Pre-cargar MediaPipe en segundo plano para que el análisis arranque
-      // de forma inmediata cuando el usuario elija un video.
-      ensurePoseConstructor()
-        .catch(() => {})
-        .finally(() => postMessage({ type: "ready" }));
+      // Pre-cargar MediaPipe: crear la instancia cacheada y primearla con el frame
+      // 1x1. Cuando resuelva, el WASM está en memoria y el primer video arranca rápido.
+      ensurePoseInstance()
+        .catch(function() {})
+        .finally(function() { postMessage({ type: "ready" }); });
     </script>
   </body>
 </html>`;

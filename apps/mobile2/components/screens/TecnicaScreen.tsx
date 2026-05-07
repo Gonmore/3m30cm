@@ -195,6 +195,10 @@ function clampPercent(value: number) {
   return Math.min(Math.max(value, 0), 100);
 }
 
+function clampNormalized(value: number) {
+  return Math.min(Math.max(value, 0), 1);
+}
+
 function angleToPercent(angleDeg: number | null) {
   if (typeof angleDeg !== "number" || Number.isNaN(angleDeg)) {
     return 0;
@@ -332,6 +336,8 @@ export default function TecnicaScreen({
   const [rimAnnotation, setRimAnnotation] = useState<AthleteRimAnnotation | null>(null);
   const [rimPoint1, setRimPoint1] = useState<{ x: number; y: number } | null>(null);
   const [rimPoint2, setRimPoint2] = useState<{ x: number; y: number } | null>(null);
+  const rimPreviewVideoRef = useRef<Video | null>(null);
+  const [rimTapAreaSize, setRimTapAreaSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [serverAnalyzing, setServerAnalyzing] = useState(false);
   const [serverResult, setServerResult] = useState<ServerBiomechanicsResult | null>(null);
   const [serverError, setServerError] = useState("");
@@ -414,6 +420,50 @@ export default function TecnicaScreen({
 
     return eventOverlayItems.find((item) => item.eventType === selectedVisualEventType) ?? eventOverlayItems[0] ?? null;
   }, [eventOverlayItems, selectedVisualEventType]);
+  const rimPreviewEvent = useMemo(
+    () => autoAnalysis?.detectedEvents.find((event) => event.eventType === "APEX") ?? autoAnalysis?.detectedEvents[0] ?? null,
+    [autoAnalysis],
+  );
+  const rimPreviewFrameIndex = rimPreviewEvent?.frameIndex ?? 0;
+  const rimPreviewTimestampMs = useMemo(() => {
+    if (!autoAnalysis || !rimPreviewEvent) {
+      return 0;
+    }
+
+    return autoAnalysis.landmarks.frames[rimPreviewEvent.frameIndex]?.timestampMs ?? 0;
+  }, [autoAnalysis, rimPreviewEvent]);
+  const rimPoint1Display = useMemo(() => {
+    if (!rimPoint1) {
+      return null;
+    }
+
+    return {
+      left: rimPoint1.x * rimTapAreaSize.width,
+      top: rimPoint1.y * rimTapAreaSize.height,
+    };
+  }, [rimPoint1, rimTapAreaSize.height, rimTapAreaSize.width]);
+  const rimPoint2Display = useMemo(() => {
+    if (!rimPoint2) {
+      return null;
+    }
+
+    return {
+      left: rimPoint2.x * rimTapAreaSize.width,
+      top: rimPoint2.y * rimTapAreaSize.height,
+    };
+  }, [rimPoint2, rimTapAreaSize.height, rimTapAreaSize.width]);
+
+  function normalizeRimTapPoint(locationX: number, locationY: number) {
+    const areaWidth = rimTapAreaSize.width;
+    const areaHeight = rimTapAreaSize.height;
+    if (areaWidth <= 0 || areaHeight <= 0) {
+      return null;
+    }
+
+    const x = clampNormalized(locationX / areaWidth);
+    const y = clampNormalized(locationY / areaHeight);
+    return { x, y };
+  }
 
   useEffect(() => {
     setSelectedMeasurementId((current) => {
@@ -458,6 +508,7 @@ export default function TecnicaScreen({
     setRimAnnotation(null);
     setRimPoint1(null);
     setRimPoint2(null);
+    setRimTapAreaSize({ width: 0, height: 0 });
     setServerAnalyzing(false);
     setServerResult(null);
     setServerError("");
@@ -478,6 +529,17 @@ export default function TecnicaScreen({
       return firstComparable?.eventType ?? eventOverlayItems[0]?.eventType ?? null;
     });
   }, [eventOverlayItems]);
+
+  useEffect(() => {
+    if (!showRimAnnotation || !athleteVideoUri) {
+      return;
+    }
+
+    void rimPreviewVideoRef.current?.setStatusAsync({
+      shouldPlay: false,
+      positionMillis: Math.max(rimPreviewTimestampMs - 120, 0),
+    }).catch(() => {});
+  }, [athleteVideoUri, rimPreviewTimestampMs, showRimAnnotation]);
 
   // Mantener la pantalla encendida durante la extracción de pose para que el
   // WebView no se pause cuando el dispositivo entra en modo de ahorro.
@@ -660,7 +722,7 @@ export default function TecnicaScreen({
     }
     const ann: AthleteRimAnnotation | null = rimPoint1 && rimPoint2
       ? {
-          frameIndex: 0,
+          frameIndex: rimPreviewFrameIndex,
           xLeft: Math.min(rimPoint1.x, rimPoint2.x),
           yLeft: rimPoint1.x <= rimPoint2.x ? rimPoint1.y : rimPoint2.y,
           xRight: Math.max(rimPoint1.x, rimPoint2.x),
@@ -1172,24 +1234,50 @@ export default function TecnicaScreen({
                 </Text>
                 <View
                   style={styles.rimTapArea}
+                  onLayout={(event) => {
+                    const { width, height } = event.nativeEvent.layout;
+                    setRimTapAreaSize({ width, height });
+                  }}
                   onTouchEnd={(e) => {
                     const { locationX, locationY } = e.nativeEvent;
+                    const normalized = normalizeRimTapPoint(locationX, locationY);
+                    if (!normalized) {
+                      return;
+                    }
                     if (!rimPoint1) {
-                      setRimPoint1({ x: locationX, y: locationY });
+                      setRimPoint1(normalized);
                     } else if (!rimPoint2) {
-                      setRimPoint2({ x: locationX, y: locationY });
+                      setRimPoint2(normalized);
                     } else {
                       // third tap resets
-                      setRimPoint1({ x: locationX, y: locationY });
+                      setRimPoint1(normalized);
                       setRimPoint2(null);
                     }
                   }}
                 >
-                  {rimPoint1 ? (
-                    <View style={[styles.rimDot, { left: rimPoint1.x - 10, top: rimPoint1.y - 10, backgroundColor: "#f5b324" }]} />
+                  {athleteVideoUri ? (
+                    <Video
+                      ref={rimPreviewVideoRef}
+                      source={{ uri: athleteVideoUri }}
+                      style={styles.rimTapVideo}
+                      resizeMode={ResizeMode.STRETCH}
+                      shouldPlay={false}
+                      useNativeControls={false}
+                      isLooping={false}
+                      pointerEvents="none"
+                      onLoad={() => {
+                        void rimPreviewVideoRef.current?.setStatusAsync({
+                          shouldPlay: false,
+                          positionMillis: Math.max(rimPreviewTimestampMs - 120, 0),
+                        }).catch(() => {});
+                      }}
+                    />
                   ) : null}
-                  {rimPoint2 ? (
-                    <View style={[styles.rimDot, { left: rimPoint2.x - 10, top: rimPoint2.y - 10, backgroundColor: "#e76f51" }]} />
+                  {rimPoint1Display ? (
+                    <View style={[styles.rimDot, { left: rimPoint1Display.left - 10, top: rimPoint1Display.top - 10, backgroundColor: "#f5b324" }]} />
+                  ) : null}
+                  {rimPoint2Display ? (
+                    <View style={[styles.rimDot, { left: rimPoint2Display.left - 10, top: rimPoint2Display.top - 10, backgroundColor: "#e76f51" }]} />
                   ) : null}
                   {!rimPoint1 ? (
                     <Text style={styles.rimTapPrompt}>Toca para marcar el borde IZQUIERDO del aro</Text>
@@ -1427,7 +1515,16 @@ function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
     rimModalBody: { flex: 1, gap: S.md, padding: S.md },
     rimModalHint: { color: C.textSub, fontSize: 13, lineHeight: 20 },
     rimTapArea: { flex: 1, borderRadius: R.lg, borderWidth: 2, borderColor: C.border, backgroundColor: C.surfaceRaise, position: "relative", justifyContent: "center", alignItems: "center" },
-    rimTapPrompt: { color: C.textMuted, fontSize: 14, textAlign: "center", paddingHorizontal: S.lg },
+    rimTapVideo: { ...StyleSheet.absoluteFillObject, borderRadius: R.lg, backgroundColor: "#1c1c1c" },
+    rimTapPrompt: {
+      color: "rgba(255,255,255,0.95)",
+      fontSize: 14,
+      textAlign: "center",
+      paddingHorizontal: S.lg,
+      backgroundColor: "rgba(0,0,0,0.55)",
+      borderRadius: R.md,
+      paddingVertical: 8,
+    },
     rimDot: { position: "absolute", width: 20, height: 20, borderRadius: R.full, opacity: 0.9 },
     rimModalActions: { flexDirection: "row", gap: S.sm },
     openCorrectionsButton: { backgroundColor: C.amber, borderRadius: R.xl, paddingVertical: 16, paddingHorizontal: S.md, gap: 4 },
