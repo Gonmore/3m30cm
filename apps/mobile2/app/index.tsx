@@ -1476,6 +1476,11 @@ export default function HomeScreen() {
   const [technique, setTechnique] = useState<AthleteTechniqueResponse["technique"] | null>(null);
   const [techniques, setTechniques] = useState<TechniqueEntry[]>([]);
   const [selectedTechniqueId, setSelectedTechniqueId] = useState<string | null>(null);
+  // Technique link modal — shown after saving a session log with jumpHeightCm
+  const [techniqueLinkModalVisible, setTechniqueLinkModalVisible] = useState(false);
+  const [pendingJumpHeightCm, setPendingJumpHeightCm] = useState<number | null>(null);
+  // Coaching status — persisted after check-in panel closes
+  const [savedCoachingStatus, setSavedCoachingStatus] = useState<"push" | "protect" | "focus" | "steady" | null>(null);
   const [comparisonTechniqueIds, setComparisonTechniqueIds] = useState<[string | null, string | null]>([null, null]);
   const [planningRecommendation, setPlanningRecommendation] = useState<PlanningRecommendation | null>(null);
   const [programs, setPrograms] = useState<ProgramListResponse["programs"]>([]);
@@ -2359,6 +2364,9 @@ export default function HomeScreen() {
       },
     }));
 
+    // Persist coaching status so it remains visible during the session.
+    setSavedCoachingStatus(todayCheckInFeedback.status);
+
     setSelectedSessionId(todayPrimarySession.id);
     setMessage("Check-in previo guardado y vinculado a la sesion de hoy.");
   }
@@ -2963,6 +2971,27 @@ export default function HomeScreen() {
       return;
     }
 
+    // If jump height is filled and techniques are available, ask user which technique to link.
+    const jumpVal = toOptionalNumber(logDraft.jumpHeightCm) ?? jumpTestPreview.best ?? null;
+    if (jumpVal !== null && techniques.some((t) => t.measurementDefinitions.length > 0)) {
+      setPendingJumpHeightCm(jumpVal);
+      setTechniqueLinkModalVisible(true);
+      return; // actual submit happens inside confirmSubmitLog
+    }
+
+    await doSubmitLog(null);
+  }
+
+  async function confirmSubmitLog(linkedTechnique: TechniqueEntry | null) {
+    setTechniqueLinkModalVisible(false);
+    await doSubmitLog(linkedTechnique);
+  }
+
+  async function doSubmitLog(linkedTechnique: TechniqueEntry | null) {
+    if (!accessToken || !selectedSession) {
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
@@ -3005,6 +3034,35 @@ export default function HomeScreen() {
         delete nextState[selectedSession.id];
         return nextState;
       });
+
+      // If the user chose to link the jump measurement to a technique, save it now.
+      if (linkedTechnique && pendingJumpHeightCm !== null) {
+        const jumpDef = linkedTechnique.measurementDefinitions[0];
+        if (jumpDef) {
+          try {
+            const metricResponse = await requestJson<AthleteTechniqueResponse>(
+              "/api/v1/athlete/technique/metrics",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  techniqueId: linkedTechnique.id,
+                  measurementDefinitionId: jumpDef.id,
+                  label: "Altura de salto (sesión)",
+                  value: pendingJumpHeightCm,
+                  unit: "cm",
+                  isBaseline: false,
+                }),
+              },
+              accessToken,
+            );
+            setTechnique(metricResponse.technique);
+            setTechniques(metricResponse.techniques ?? metricResponse.technique?.template.techniques ?? []);
+          } catch {
+            // Metric link failure is non-blocking — session log already saved.
+          }
+        }
+        setPendingJumpHeightCm(null);
+      }
 
       setMessage("Registro de sesion guardado.");
       await refreshAthleteArea(accessToken);
@@ -3516,6 +3574,30 @@ export default function HomeScreen() {
               <View style={[styles.preloadProgressFill, { width: `${Math.min(Math.max(preloadState.progress, 0), 100)}%` }]} />
             </View>
             <Text style={styles.preloadPercent}>{Math.min(Math.max(Math.round(preloadState.progress), 0), 100)}%</Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── TECHNIQUE LINK MODAL ─────────────────────── */}
+      <Modal visible={techniqueLinkModalVisible} transparent animationType="fade" onRequestClose={() => confirmSubmitLog(null)}>
+        <View style={styles.preloadOverlay}>
+          <View style={[styles.preloadCard, { gap: 10 }]}>
+            <Text style={[styles.preloadTitle, { textAlign: "center" }]}>🏀 ¿Vincular registro a una técnica?</Text>
+            <Text style={[styles.preloadBody, { textAlign: "center" }]}>
+              Registraste {pendingJumpHeightCm} cm. ¿Guardarlo también en el historial de una técnica?
+            </Text>
+            {techniques.filter((t) => t.measurementDefinitions.length > 0).map((t) => (
+              <Pressable
+                key={t.id}
+                style={[styles.primaryButton, { marginTop: 2 }]}
+                onPress={() => void confirmSubmitLog(t)}
+              >
+                <Text style={styles.primaryButtonText}>{t.title}</Text>
+              </Pressable>
+            ))}
+            <Pressable style={[styles.ghostButton, { marginTop: 4 }]} onPress={() => void confirmSubmitLog(null)}>
+              <Text style={styles.ghostButtonText}>No vincular</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -4265,10 +4347,43 @@ export default function HomeScreen() {
               </View>
             </View>
 
+            {/* Coaching status banner — shown when check-in was saved before session */}
+            {savedCoachingStatus === "protect" ? (
+              <View style={[styles.card, styles.feedbackProtect]}>
+                <Text style={[styles.cardTitle, { color: "#e07070" }]}>🔴 Cuerpo en recuperación</Text>
+                <Text style={styles.cardDetail}>Ajustes recomendados aplicados en cada ejercicio.</Text>
+              </View>
+            ) : savedCoachingStatus === "push" ? (
+              <View style={[styles.card, styles.feedbackPush]}>
+                <Text style={[styles.cardTitle, { color: C.teal }]}>⚡ Estás al máximo — dale todo</Text>
+                <Text style={styles.cardDetail}>Tienes margen para una sesión limpia y agresiva.</Text>
+              </View>
+            ) : savedCoachingStatus === "focus" ? (
+              <View style={[styles.card, styles.feedbackFocus]}>
+                <Text style={[styles.cardTitle, { color: C.amber }]}>🎯 Enfócate en la técnica hoy</Text>
+                <Text style={styles.cardDetail}>No hace falta proteger ni forzar. Empieza fino.</Text>
+              </View>
+            ) : null}
+
             {selectedSession.sessionExercises.map((sessionExercise) => {
               const instruction = sessionExercise.exercise.instructions.find((entry) => entry.locale === "es") ?? sessionExercise.exercise.instructions[0];
               const primaryMedia = sessionExercise.exercise.mediaAssets.find((asset) => asset.isPrimary) ?? sessionExercise.exercise.mediaAssets[0];
               const isCompleted = logDraft.completedExerciseIds.includes(sessionExercise.id);
+
+              // Advisory chip for coaching status
+              const coachingChip = savedCoachingStatus === "protect" ? (
+                <View style={[styles.metricTag, { backgroundColor: "#7a2e0020", borderColor: "#c0392b40", borderWidth: 1, marginTop: 4 }]}>
+                  <Text style={[styles.metricTagText, { color: "#e07070" }]}>
+                    🔴 Recomendado: {Math.max(1, (sessionExercise.sets ?? 3) - 1)} series · +30s descanso
+                  </Text>
+                </View>
+              ) : savedCoachingStatus === "push" ? (
+                <View style={[styles.metricTag, { backgroundColor: "#0a2e2a20", borderColor: "#1abc9c40", borderWidth: 1, marginTop: 4 }]}>
+                  <Text style={[styles.metricTagText, { color: C.teal }]}>
+                    ⚡ Puedes agregar 1 serie extra si te sientes bien
+                  </Text>
+                </View>
+              ) : null;
 
               return (
                 <Pressable
@@ -4309,6 +4424,7 @@ export default function HomeScreen() {
                       <Text style={styles.linkButtonText}>Abrir media</Text>
                     </Pressable>
                   ) : null}
+                  {coachingChip}
                 </Pressable>
               );
             })}

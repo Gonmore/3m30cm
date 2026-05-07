@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Image as ExpoImage } from "expo-image";
@@ -6,6 +6,8 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { ResizeMode, Video } from "expo-av";
+import { CameraView, type CameraType, useCameraPermissions, useMicrophonePermissions } from "expo-camera";
+import Svg, { Circle, Line, Polyline, Text as SvgText } from "react-native-svg";
 
 import { useTheme } from "@mobile/components/ThemeContext";
 import { rewriteLocalAssetUrl } from "@mobile/components/runtimeConfig";
@@ -199,6 +201,94 @@ function clampNormalized(value: number) {
   return Math.min(Math.max(value, 0), 1);
 }
 
+// ─────────────────────────────────────────────────────────────
+//  SVG line chart for metrics history
+// ─────────────────────────────────────────────────────────────
+
+const CHART_W = 300;
+const CHART_H = 100;
+const CHART_PAD_L = 36;
+const CHART_PAD_B = 20;
+const CHART_PAD_R = 8;
+const CHART_PAD_T = 10;
+
+function MetricLineChart({ metrics }: { metrics: TechniqueMetric[] }) {
+  if (metrics.length < 2) {
+    return null;
+  }
+
+  const sorted = [...metrics].sort(
+    (a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime(),
+  );
+
+  const values = sorted.map((m) => m.value);
+  const minY = Math.min(...values);
+  const maxY = Math.max(...values);
+  const rangeY = maxY === minY ? 1 : maxY - minY;
+
+  const plotW = CHART_W - CHART_PAD_L - CHART_PAD_R;
+  const plotH = CHART_H - CHART_PAD_T - CHART_PAD_B;
+
+  const toX = (i: number) => CHART_PAD_L + (i / (sorted.length - 1)) * plotW;
+  const toY = (v: number) => CHART_PAD_T + plotH - ((v - minY) / rangeY) * plotH;
+
+  const points = sorted.map((m, i) => `${toX(i)},${toY(m.value)}`).join(" ");
+
+  const baselineMetric = sorted.find((m) => m.isBaseline);
+  const baselineY = baselineMetric ? toY(baselineMetric.value) : null;
+
+  return (
+    <Svg width={CHART_W} height={CHART_H} style={{ alignSelf: "center", marginVertical: 8 }}>
+      {/* Y axis */}
+      <Line
+        x1={CHART_PAD_L} y1={CHART_PAD_T}
+        x2={CHART_PAD_L} y2={CHART_PAD_T + plotH}
+        stroke="#3a4a5a" strokeWidth={1}
+      />
+      {/* X axis */}
+      <Line
+        x1={CHART_PAD_L} y1={CHART_PAD_T + plotH}
+        x2={CHART_PAD_L + plotW} y2={CHART_PAD_T + plotH}
+        stroke="#3a4a5a" strokeWidth={1}
+      />
+      {/* Baseline dashed line */}
+      {baselineY !== null ? (
+        <Line
+          x1={CHART_PAD_L} y1={baselineY}
+          x2={CHART_PAD_L + plotW} y2={baselineY}
+          stroke="#f5b324" strokeWidth={1} strokeDasharray="4,3" opacity={0.6}
+        />
+      ) : null}
+      {/* Data line */}
+      <Polyline points={points} fill="none" stroke="#1abc9c" strokeWidth={2} strokeLinejoin="round" />
+      {/* Data points */}
+      {sorted.map((m, i) => (
+        <Circle key={m.id} cx={toX(i)} cy={toY(m.value)} r={3} fill="#1abc9c" />
+      ))}
+      {/* Min / Max labels */}
+      <SvgText x={CHART_PAD_L - 4} y={CHART_PAD_T + 4} fontSize={9} fill="#7a879d" textAnchor="end">
+        {maxY % 1 === 0 ? maxY.toString() : maxY.toFixed(1)}
+      </SvgText>
+      <SvgText x={CHART_PAD_L - 4} y={CHART_PAD_T + plotH} fontSize={9} fill="#7a879d" textAnchor="end">
+        {minY % 1 === 0 ? minY.toString() : minY.toFixed(1)}
+      </SvgText>
+    </Svg>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Emoji checklist items for "seguimiento técnico"
+// ─────────────────────────────────────────────────────────────
+
+const CHECKLIST_ITEMS = [
+  { key: "video",  emoji: "📹", label: "Video tuyo saltando con esta técnica",    required: true  },
+  { key: "speed",  emoji: "⚡", label: "En velocidad normal (sin cámara lenta)", required: true  },
+  { key: "static", emoji: "📷", label: "Cámara fija (apoyada o en trípode)",     required: true  },
+  { key: "light",  emoji: "💡", label: "Buena iluminación",                        required: true  },
+  { key: "floor",  emoji: "🦶", label: "El suelo visible en todo momento",         required: true  },
+  { key: "hoop",   emoji: "🏀", label: "Aro de baloncesto como referencia",        required: false },
+] as const;
+
 function angleToPercent(angleDeg: number | null) {
   if (typeof angleDeg !== "number" || Number.isNaN(angleDeg)) {
     return 0;
@@ -314,6 +404,22 @@ export default function TecnicaScreen({
     () => techniques.find((entry) => entry.id === selectedTechniqueId) ?? techniques[0] ?? null,
     [selectedTechniqueId, techniques],
   );
+  // Accordion state — which technique is expanded
+  const [expandedTechniqueId, setExpandedTechniqueId] = useState<string | null>(
+    selectedTechniqueId ?? techniques[0]?.id ?? null,
+  );
+  // Emoji checklist state — reset when technique changes
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
+  // Camera quality guard state
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraFacing] = useState<CameraType>("back");
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [micPermission, requestMicPermission] = useMicrophonePermissions();
+  const cameraRef = useRef<CameraView | null>(null);
+  const [cameraRecording, setCameraRecording] = useState(false);
+  const [cameraQuality, setCameraQuality] = useState<{ light: "ok" | "dark"; motion: "stable" | "moving" }>({ light: "ok", motion: "stable" });
+  const prevFrameDataRef = useRef<number[] | null>(null);
+  const qualityIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [selectedMeasurementId, setSelectedMeasurementId] = useState<string | null>(null);
   const [value, setValue] = useState("");
   const [unit, setUnit] = useState("");
@@ -512,6 +618,7 @@ export default function TecnicaScreen({
     setServerAnalyzing(false);
     setServerResult(null);
     setServerError("");
+    setCheckedItems(new Set());
   }, [selectedTechnique?.id]);
 
   useEffect(() => {
@@ -651,6 +758,111 @@ export default function TecnicaScreen({
       setAnalysisBusy(false);
       setAnalysisError(error instanceof Error ? error.message : "No se pudo grabar el video del atleta.");
     }
+  }
+
+  async function handleRecordWithQualityCheck() {
+    if (!selectedTechnique) {
+      return;
+    }
+    try {
+      setAnalysisError("");
+      if (!cameraPermission?.granted) {
+        const result = await requestCameraPermission();
+        if (!result.granted) {
+          throw new Error("Hace falta permiso de cámara para grabar.");
+        }
+      }
+      if (!micPermission?.granted) {
+        const result = await requestMicPermission();
+        if (!result.granted) {
+          throw new Error("Hace falta permiso de micrófono para grabar.");
+        }
+      }
+      setShowCameraModal(true);
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : "No se pudo abrir la cámara.");
+    }
+  }
+
+  function startQualityChecks() {
+    if (qualityIntervalRef.current) {
+      clearInterval(qualityIntervalRef.current);
+    }
+    qualityIntervalRef.current = setInterval(() => {
+      void (async () => {
+        if (!cameraRef.current) {
+          return;
+        }
+        try {
+          const pic = await cameraRef.current.takePictureAsync({
+            base64: true,
+            quality: 0.05,
+            skipProcessing: true,
+          });
+          if (!pic?.base64) {
+            return;
+          }
+          // Decode a tiny JPEG: sample the raw bytes for brightness heuristic.
+          // We skip actual pixel decoding and instead use base64 size as a brightness proxy:
+          // Dark frames produce smaller JPEGs because the compressor finds little detail.
+          const base64Len = pic.base64.length;
+          // At quality=0.05, a bright 1080p frame ~2-5KB, dark ~0.5-1KB.
+          const brightnessPct = Math.min(base64Len / 2000, 1);
+          const lightState: "ok" | "dark" = brightnessPct > 0.35 ? "ok" : "dark";
+
+          // Motion detection: compare compressed size change between consecutive frames.
+          const prevLen = prevFrameDataRef.current?.[0] ?? base64Len;
+          const diff = Math.abs(base64Len - prevLen) / Math.max(prevLen, 1);
+          const motionState: "stable" | "moving" = diff > 0.25 ? "moving" : "stable";
+          prevFrameDataRef.current = [base64Len];
+
+          setCameraQuality({ light: lightState, motion: motionState });
+        } catch {
+          // Frame capture may fail if camera not ready yet — ignore
+        }
+      })();
+    }, 600);
+  }
+
+  function stopQualityChecks() {
+    if (qualityIntervalRef.current) {
+      clearInterval(qualityIntervalRef.current);
+      qualityIntervalRef.current = null;
+    }
+  }
+
+  async function handleStartRecording() {
+    if (!cameraRef.current || cameraRecording) {
+      return;
+    }
+    setCameraRecording(true);
+    stopQualityChecks();
+    try {
+      const video = await cameraRef.current.recordAsync();
+      if (video?.uri) {
+        setShowCameraModal(false);
+        await prepareAthleteVideoAsset({ uri: video.uri, fileName: null });
+      }
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : "Error al grabar el video.");
+    } finally {
+      setCameraRecording(false);
+    }
+  }
+
+  function handleStopRecording() {
+    cameraRef.current?.stopRecording();
+  }
+
+  function handleCloseCameraModal() {
+    stopQualityChecks();
+    if (cameraRecording) {
+      cameraRef.current?.stopRecording();
+    }
+    setShowCameraModal(false);
+    setCameraRecording(false);
+    prevFrameDataRef.current = null;
+    setCameraQuality({ light: "ok", motion: "stable" });
   }
 
   function handlePoseAnalysisResult(landmarks: TechniqueProLandmarks) {
@@ -797,12 +1009,6 @@ export default function TecnicaScreen({
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <View style={styles.heroCard}>
-        <Text style={styles.heroEyebrow}>Técnicas del programa</Text>
-        <Text style={styles.heroTitle}>{technique.programName}</Text>
-        <Text style={styles.heroBody}>Elegí una técnica para ver su referencia, subir tu video y revisar el histórico de progreso.</Text>
-      </View>
-
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeaderRow}>
           <View>
@@ -814,20 +1020,30 @@ export default function TecnicaScreen({
           </Pressable>
         </View>
         <View style={styles.techniqueList}>
-          {techniques.map((entry) => (
-            <Pressable
-              key={entry.id}
-              style={[styles.techniqueCard, selectedTechnique?.id === entry.id ? styles.techniqueCardActive : null]}
-              onPress={() => {
-                onSelectTechnique(entry.id);
-                setSelectedMeasurementId(entry.measurementDefinitions[0]?.id ?? null);
-                setUnit(parseAllowedUnits(entry.measurementDefinitions[0]?.allowedUnits)[0] ?? "");
-              }}
-            >
-              <Text style={styles.techniqueCardTitle}>{entry.title}</Text>
-              <Text style={styles.techniqueCardMeta}>{entry.measurementDefinitions.length} medición(es) · {entry.metrics.length} registro(s)</Text>
-            </Pressable>
-          ))}
+          {techniques.map((entry) => {
+            const isExpanded = expandedTechniqueId === entry.id;
+            return (
+              <View key={entry.id}>
+                <Pressable
+                  style={[styles.techniqueCard, isExpanded ? styles.techniqueCardActive : null]}
+                  onPress={() => {
+                    const next = isExpanded ? null : entry.id;
+                    setExpandedTechniqueId(next);
+                    if (next) {
+                      onSelectTechnique(entry.id);
+                      setSelectedMeasurementId(entry.measurementDefinitions[0]?.id ?? null);
+                      setUnit(parseAllowedUnits(entry.measurementDefinitions[0]?.allowedUnits)[0] ?? "");
+                    }
+                  }}
+                >
+                  <Text style={styles.techniqueCardTitle}>{entry.title}</Text>
+                  <Text style={styles.techniqueCardMeta}>
+                    {entry.measurementDefinitions.length} medición(es) · {entry.metrics.length} registro(s) · {isExpanded ? "▲" : "▼"}
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          })}
         </View>
       </View>
 
@@ -872,302 +1088,116 @@ export default function TecnicaScreen({
           </View>
 
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionEyebrow}>Biomecánica automática</Text>
-            <Text style={styles.sectionTitle}>Video del atleta y comparación</Text>
-            {hasAutomaticAnalysisContract ? (
-              <>
-                <Text style={styles.helperText}>
-                  El contrato biomecánico de esta técnica ya está cargado. El video del atleta se analiza siempre en velocidad normal. El Centro de Masas usa tu altura de perfil para escalar el salto en centímetros y el tiempo de vuelo queda como corroboración secundaria.
-                </Text>
-                {!autoAnalysis ? <Text style={styles.helperText}>Sube o graba un video en “Seguimiento técnico” para ejecutar la corrección automática.</Text> : null}
-
-                {autoAnalysis ? (
-                  <>
-                    <View style={styles.metricCard}>
-                      <View style={styles.sectionHeaderRow}>
-                        <View>
-                          <Text style={styles.metricLabel}>JSON de análisis</Text>
-                          <Text style={styles.metricMeta}>Visible para revisión técnica y futuro historial.</Text>
-                        </View>
-                        <Pressable style={styles.ghostButton} onPress={() => setShowAnalysisJson((current) => !current)}>
-                          <Text style={styles.ghostButtonText}>{showAnalysisJson ? "Ocultar" : "Mostrar"}</Text>
-                        </Pressable>
-                      </View>
-                      {showAnalysisJson ? <Text style={styles.analysisJsonText}>{analysisJsonPreview}</Text> : null}
-                    </View>
-
-                    <View style={styles.metricCard}>
-                      <Text style={styles.metricLabel}>Resumen automático</Text>
-                      {autoAnalysis.comparisonSummary?.comparableChecks ? (
-                        <>
-                          <Text style={styles.metricNotes}>
-                            Orientación usada: {formatComparisonOrientationLabel(autoAnalysis.comparisonSummary.appliedOrientation)}.
-                          </Text>
-                          {typeof autoAnalysis.comparisonSummary.averageDeltaDeg === "number" ? (
-                            <Text style={styles.metricNotes}>
-                              Desviación angular media: {autoAnalysis.comparisonSummary.averageDeltaDeg.toFixed(1)}°.
-                            </Text>
-                          ) : null}
-                          {userAngleHighlights.map((highlight) => (
-                            <Text key={highlight} style={styles.metricNotes}>• {highlight}</Text>
-                          ))}
-                        </>
-                      ) : (
-                        <Text style={styles.metricNotes}>
-                          Todavía no hubo suficientes eventos coincidentes entre tu video y la referencia para comparar ángulos automáticamente.
-                        </Text>
-                      )}
-                    </View>
-
-                    <View style={styles.analysisResultGrid}>
-                      <View style={styles.metricCard}>
-                        <Text style={styles.metricLabel}>Eventos detectados</Text>
-                        {autoAnalysis.detectedEvents.map((event) => (
-                          <Text key={`${event.eventType}-${event.frameIndex}`} style={styles.metricNotes}>
-                            {formatAutoEventLabel(event.eventType)} · frame {event.frameIndex + 1} · confianza {event.confidence.toFixed(2)}
-                          </Text>
-                        ))}
-                      </View>
-
-                      <View style={styles.metricCard}>
-                        <Text style={styles.metricLabel}>Altura del salto</Text>
-                        <Text style={styles.metricMeta}>
-                          Estado: {formatMeasurementStatus(autoAnalysis.measurements.jumpHeight?.status ?? "PENDING")}
-                        </Text>
-                        {typeof autoAnalysis.measurements.jumpHeight?.consensusValueCm === "number" ? (
-                          <Text style={styles.metricValue}>{autoAnalysis.measurements.jumpHeight.consensusValueCm.toFixed(1)} cm</Text>
-                        ) : (
-                          <Text style={styles.metricValue}>-</Text>
-                        )}
-                        {typeof autoAnalysis.measurements.jumpHeight?.playbackSpeedRatio === "number" ? (
-                          <Text style={styles.metricNotes}>Ratio temporal elegido: {autoAnalysis.measurements.jumpHeight.playbackSpeedRatio.toFixed(2)}</Text>
-                        ) : null}
-                        {sortedJumpMethods.map((method) => (
-                          <Text key={method.method} style={styles.metricNotes}>
-                            {formatJumpMethodLabel(method.method)} · {formatMeasurementStatus(method.status)}
-                            {typeof method.valueCm === "number" ? ` · ${method.valueCm.toFixed(1)} cm` : ""}
-                            {typeof method.confidence === "number" ? ` · confianza ${method.confidence.toFixed(2)}` : ""}
-                          </Text>
-                        ))}
-                        <Pressable
-                          style={[styles.primaryButton, styles.secondaryActionButton]}
-                          onPress={handleSaveAutomaticJumpMetric}
-                          disabled={submitting || typeof autoAnalysis.measurements.jumpHeight?.consensusValueCm !== "number"}
-                        >
-                          <Text style={styles.primaryButtonText}>{submitting ? "Guardando..." : "Guardar salto automático"}</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-
-                    {/* ── Server analysis: RIM_REFERENCE + consensus ── */}
-                    {serverAnalyzing ? (
-                      <View style={styles.analysisStatusCard}>
-                        <ActivityIndicator color={C.amber} />
-                        <Text style={styles.metricLabel}>Calculando con servidor...</Text>
-                        <Text style={styles.helperText}>Enviando pose y anotación del aro para obtener RIM_REFERENCE y consenso.</Text>
-                      </View>
-                    ) : null}
-                    {serverError ? <Text style={styles.analysisErrorText}>{serverError}</Text> : null}
-                    {serverResult ? (
-                      <View style={styles.serverResultCard}>
-                        <Text style={styles.serverResultTitle}>Resultado del servidor</Text>
-                        <View style={styles.jumpMethodRow}>
-                          {serverResult.masterReference.jumpHeight.methods.map((m) => (
-                            <View key={m.method} style={[styles.jumpMethodBadge, m.status === "OK" ? styles.jumpMethodBadgeOk : styles.jumpMethodBadgePending]}>
-                              <Text style={styles.jumpMethodBadgeLabel}>{m.method === "CENTER_OF_MASS" ? "CoM" : m.method === "FLIGHT_TIME" ? "FT" : "Rim"}</Text>
-                              <Text style={styles.jumpMethodBadgeValue}>{typeof m.valueCm === "number" ? `${m.valueCm.toFixed(1)} cm` : "-"}</Text>
-                            </View>
-                          ))}
-                        </View>
-                        {typeof serverResult.masterReference.jumpHeight.consensusValueCm === "number" ? (
-                          <View style={styles.consensusRow}>
-                            <Text style={styles.consensusLabel}>Consenso</Text>
-                            <Text style={styles.consensusValue}>{serverResult.masterReference.jumpHeight.consensusValueCm.toFixed(1)} cm</Text>
-                          </View>
-                        ) : null}
-                        {(() => {
-                          const refConsensus = selectedTechnique.biomechanicsConfig?.masterReference?.jumpHeight.consensusValueCm;
-                          const myConsensus = serverResult.masterReference.jumpHeight.consensusValueCm;
-                          if (typeof refConsensus === "number" && typeof myConsensus === "number") {
-                            const delta = myConsensus - refConsensus;
-                            const pct = (myConsensus / refConsensus) * 100;
-                            return (
-                              <View style={styles.vsReferenceRow}>
-                                <Text style={styles.vsReferenceLabel}>vs referencia ({refConsensus.toFixed(1)} cm)</Text>
-                                <Text style={[styles.vsReferenceDelta, delta >= 0 ? styles.vsReferencePositive : styles.vsReferenceNegative]}>
-                                  {delta >= 0 ? "+" : ""}{delta.toFixed(1)} cm ({pct.toFixed(0)}%)
-                                </Text>
-                              </View>
-                            );
-                          }
-                          return null;
-                        })()}
-                        <Text style={styles.metricMeta}>Estado: {formatMeasurementStatus(serverResult.masterReference.jumpHeight.status)}</Text>
-                      </View>
-                    ) : null}
-
-                    <View style={styles.metricCard}>
-                      <Text style={styles.metricLabel}>Comparación por eventos</Text>
-                      {angleComparisonGroups.length ? angleComparisonGroups.map((group) => (
-                        <View key={group.eventType} style={styles.eventComparisonGroup}>
-                          <Text style={styles.eventComparisonTitle}>
-                            {formatAutoEventLabel(group.eventType)} · delta medio {group.averageDeltaDeg.toFixed(1)}°
-                          </Text>
-                          {group.comparisons.map((comparison) => {
-                            const rangeStart = angleToPercent(comparison.targetMinDeg ?? comparison.referenceAngleDeg);
-                            const rangeEnd = angleToPercent(comparison.targetMaxDeg ?? comparison.referenceAngleDeg);
-                            const rangeWidth = Math.max(rangeEnd - rangeStart, 2);
-                            const referenceMarker = angleToPercent(comparison.referenceAngleDeg);
-                            const athleteMarker = angleToPercent(comparison.athleteAngleDeg);
-
-                            return (
-                              <View key={comparison.checkId} style={styles.angleComparisonRow}>
-                                <View style={styles.angleComparisonHeader}>
-                                  <Text style={styles.angleComparisonLabel}>{comparison.label}</Text>
-                                  <Text
-                                    style={[
-                                      styles.angleComparisonDelta,
-                                      Math.abs(comparison.deltaDeg) <= 6 ? styles.angleComparisonDeltaOk : styles.angleComparisonDeltaWarn,
-                                    ]}
-                                  >
-                                    {formatSignedDegrees(comparison.deltaDeg)}{typeof comparison.deltaPercent === "number" ? ` (${formatSignedPercent(comparison.deltaPercent)})` : ""}
-                                  </Text>
-                                </View>
-                                <View style={styles.angleTrack}>
-                                  <View style={[styles.angleRangeBand, { left: `${rangeStart}%`, width: `${rangeWidth}%` }]} />
-                                  <View style={[styles.angleReferenceMarker, { left: `${referenceMarker}%` }]} />
-                                  <View
-                                    style={[
-                                      styles.angleAthleteMarker,
-                                      comparison.withinTarget === false ? styles.angleAthleteMarkerWarn : styles.angleAthleteMarkerOk,
-                                      { left: `${athleteMarker}%` },
-                                    ]}
-                                  />
-                                </View>
-                                <Text style={styles.angleComparisonMeta}>
-                                  Atleta {comparison.athleteAngleDeg.toFixed(1)}° · referencia {comparison.referenceAngleDeg.toFixed(1)}° · esperado {formatExpectedAngleRange(comparison.targetMinDeg, comparison.targetMaxDeg)}
-                                </Text>
-                              </View>
-                            );
-                          })}
-                        </View>
-                      )) : <Text style={styles.metricNotes}>No hay ángulos configurados o no coinciden todavía los eventos con la referencia.</Text>}
-                    </View>
-
-                    <View style={styles.metricCard}>
-                      <Text style={styles.metricLabel}>Hallazgos técnicos</Text>
-                      {autoAnalysis.findings.length ? autoAnalysis.findings.map((finding, index) => (
-                        <Text key={`${index}-${finding}`} style={styles.metricNotes}>• {finding}</Text>
-                      )) : <Text style={styles.metricNotes}>No hay hallazgos relevantes adicionales.</Text>}
-                    </View>
-
-                    <View style={styles.metricCard}>
-                      <Text style={styles.metricLabel}>Checks de referencia</Text>
-                      {autoAnalysis.measurements.hipProgressionChecks.length ? autoAnalysis.measurements.hipProgressionChecks.map((check) => (
-                        <Text key={check.checkId} style={styles.metricNotes}>
-                          {check.label} · {formatMeasurementStatus(check.status)}
-                          {typeof check.totalDropValue === "number" ? ` · descenso total ${check.totalDropValue.toFixed(3)}` : ""}
-                        </Text>
-                      )) : <Text style={styles.metricNotes}>La técnica no tiene checks compuestos de descenso progresivo configurados.</Text>}
-                    </View>
-                  </>
-                ) : null}
-              </>
-            ) : (
-              <Text style={styles.helperText}>Esta técnica todavía no tiene un contrato biomecánico listo para comparación automática desde la app.</Text>
-            )}
-          </View>
-
-          <View style={styles.sectionCard}>
             <Text style={styles.sectionEyebrow}>Seguimiento técnico</Text>
-            <Text style={styles.sectionTitle}>Sube tu video para corregir la técnica</Text>
-            {hasAutomaticAnalysisContract ? (
-              <>
-                <Text style={styles.helperText}>
-                  Sube un video tuyo usando esta técnica, similar a los videos de referencia. A partir de ese video la app detecta eventos, estima la altura del salto, revisa los checks de referencia y genera correcciones automáticas.
-                </Text>
-                <View style={styles.tipBox}>
-                  <Text style={styles.tipTitle}>Cómo grabarlo</Text>
-                  <Text style={styles.tipBody}>Sube siempre el video en velocidad normal. Para conservar la mejor calidad, la app abre un selector de archivo para elegir el video original sin edición.</Text>
-                </View>
-                <View style={styles.analysisButtonRow}>
+            <Text style={styles.sectionTitle}>Antes de subir tu video</Text>
+            {/* Emoji checklist */}
+            <View style={{ gap: 6, marginVertical: 10 }}>
+              {CHECKLIST_ITEMS.map((item) => {
+                const checked = checkedItems.has(item.key);
+                return (
                   <Pressable
-                    style={styles.primaryButton}
-                    onPress={() => void handlePickAthleteVideo()}
-                    disabled={analysisBusy}
+                    key={item.key}
+                    style={[styles.checklistItem, checked ? styles.checklistItemChecked : null]}
+                    onPress={() => {
+                      setCheckedItems((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(item.key)) { next.delete(item.key); } else { next.add(item.key); }
+                        return next;
+                      });
+                    }}
                   >
-                    <Text style={styles.primaryButtonText}>{athleteVideoUri ? "Cambiar video original" : "Elegir video original"}</Text>
+                    <Text style={styles.checklistEmoji}>{item.emoji}</Text>
+                    <Text style={[styles.checklistLabel, checked ? styles.checklistLabelChecked : null]}>{item.label}</Text>
+                    <Text style={styles.checklistCheck}>{checked ? "✓" : item.required ? "○" : "◌"}</Text>
                   </Pressable>
-                  <Pressable
-                    style={styles.secondaryUploadButton}
-                    onPress={() => void handleCaptureAthleteVideo()}
-                    disabled={analysisBusy}
-                  >
-                    <Text style={styles.secondaryUploadButtonText}>Grabar ahora con cámara</Text>
-                  </Pressable>
-                </View>
-                {typeof athleteHeightCm === "number" ? (
-                  <View style={styles.analysisInfoPill}>
-                    <Text style={styles.analysisInfoPillText}>Altura perfil: {athleteHeightCm} cm</Text>
-                  </View>
-                ) : (
-                  <View style={styles.analysisInfoPill}>
-                    <Text style={styles.analysisInfoPillText}>Falta altura en el perfil para escalar el salto en cm</Text>
-                  </View>
-                )}
-
-                {athleteVideoUri ? (
-                  <View style={styles.mediaCard}>
-                    <Text style={styles.mediaTitle}>{athleteVideoName || "Video del atleta"}</Text>
+                );
+              })}
+            </View>
+            {(() => {
+              const requiredKeys = CHECKLIST_ITEMS.filter((i) => i.required).map((i) => i.key);
+              const allChecked = requiredKeys.every((k) => checkedItems.has(k));
+              return (
+                <>
+                  {!allChecked ? (
+                    <Text style={[styles.helperText, { color: "#e07070", marginBottom: 8 }]}>
+                      Marca los 5 requisitos para habilitar el análisis.
+                    </Text>
+                  ) : null}
+                  <View style={styles.analysisButtonRow}>
                     <Pressable
-                      style={styles.openCorrectionsButton}
-                      onPress={() => setShowCorrectionsViewer(true)}
-                      disabled={!autoAnalysis}
+                      style={[styles.primaryButton, !allChecked && styles.disabledButton]}
+                      onPress={() => void handlePickAthleteVideo()}
+                      disabled={analysisBusy || !allChecked}
                     >
-                      <Text style={styles.openCorrectionsButtonText}>Ver correcciones</Text>
-                      <Text style={styles.openCorrectionsButtonMeta}>
-                        Abrir visor grande con eventos, barra temporal y sombras de ángulo.
-                      </Text>
+                      <Text style={styles.primaryButtonText}>{athleteVideoUri ? "Cambiar video" : "Elegir de galería"}</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.secondaryUploadButton, !allChecked && styles.disabledButton]}
+                      onPress={() => void handleRecordWithQualityCheck()}
+                      disabled={analysisBusy || !allChecked}
+                    >
+                      <Text style={styles.secondaryUploadButtonText}>Grabar ahora con cámara</Text>
                     </Pressable>
                   </View>
-                ) : null}
-
-                {analysisBusy ? (
-                  <View style={styles.analysisStatusCard}>
-                    <ActivityIndicator color={C.amber} />
-                    <Text style={styles.metricLabel}>Analizando video del atleta...</Text>
-                    <Text style={styles.helperText}>
-                      {analysisProgress.total > 0
-                        ? `Procesando frame ${analysisProgress.processed} de ${analysisProgress.total}...`
-                        : "Descargando modelo de pose (solo la primera vez)..."}
-                    </Text>
-                  </View>
-                ) : null}
-
-                {analysisError ? <Text style={styles.analysisErrorText}>{analysisError}</Text> : null}
-
-                {autoAnalysis ? (
-                  <View style={styles.tipBox}>
-                    <Text style={styles.tipTitle}>Análisis listo</Text>
-                    <Text style={styles.tipBody}>La corrección biomecánica ya se ejecutó. Revisa los hallazgos en el bloque superior y guarda la altura automática si el resultado es consistente.</Text>
-                  </View>
-                ) : null}
-              </>
+                </>
+              );
+            })()}
+            {typeof athleteHeightCm === "number" ? (
+              <View style={styles.analysisInfoPill}>
+                <Text style={styles.analysisInfoPillText}>Altura perfil: {athleteHeightCm} cm</Text>
+              </View>
             ) : (
-              <Text style={styles.helperText}>Esta técnica todavía no tiene un contrato biomecánico listo para comparar tu video automáticamente.</Text>
+              <View style={styles.analysisInfoPill}>
+                <Text style={styles.analysisInfoPillText}>Falta altura en el perfil para escalar el salto en cm</Text>
+              </View>
             )}
+            {athleteVideoUri ? (
+              <View style={styles.mediaCard}>
+                <Text style={styles.mediaTitle}>{athleteVideoName || "Video del atleta"}</Text>
+                <Pressable
+                  style={styles.openCorrectionsButton}
+                  onPress={() => setShowCorrectionsViewer(true)}
+                  disabled={!autoAnalysis}
+                >
+                  <Text style={styles.openCorrectionsButtonText}>Ver correcciones</Text>
+                  <Text style={styles.openCorrectionsButtonMeta}>Abrir visor grande con eventos, barra temporal y sombras de ángulo.</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {analysisBusy ? (
+              <View style={styles.analysisStatusCard}>
+                <ActivityIndicator color={C.amber} />
+                <Text style={styles.metricLabel}>Analizando video del atleta...</Text>
+                <Text style={styles.helperText}>
+                  {analysisProgress.total > 0
+                    ? `Procesando frame ${analysisProgress.processed} de ${analysisProgress.total}...`
+                    : "Descargando modelo de pose (solo la primera vez)..."}
+                </Text>
+              </View>
+            ) : null}
+            {analysisError ? <Text style={styles.analysisErrorText}>{analysisError}</Text> : null}
+            {autoAnalysis ? (
+              <View style={styles.tipBox}>
+                <Text style={styles.tipTitle}>Análisis listo</Text>
+                <Text style={styles.tipBody}>
+                  Altura detectada: {typeof autoAnalysis.measurements.jumpHeight?.consensusValueCm === "number"
+                    ? `${autoAnalysis.measurements.jumpHeight.consensusValueCm.toFixed(1)} cm`
+                    : "—"}. Revisa las correcciones en el visor.
+                </Text>
+              </View>
+            ) : null}
           </View>
-
           <View style={styles.sectionCard}>
             <Text style={styles.sectionEyebrow}>Comparativas</Text>
-            <Text style={styles.sectionTitle}>Base vs última medición</Text>
+            <Text style={styles.sectionTitle}>Base vs ├║ltima medici├│n</Text>
             {comparisons.length ? (
               <View style={styles.metricList}>
+                <MetricLineChart metrics={selectedTechnique.metrics} />
                 {comparisons.map((comparison) => (
                   <View key={comparison.key} style={styles.metricCard}>
                     <Text style={styles.metricLabel}>{comparison.label}</Text>
                     <Text style={styles.metricMeta}>
-                      Base: {comparison.baseline ? formatMetricValue(comparison.baseline) : "-"} · Última: {comparison.latest ? formatMetricValue(comparison.latest) : "-"}
+                      Base: {comparison.baseline ? formatMetricValue(comparison.baseline) : "-"} ┬À ├Ültima: {comparison.latest ? formatMetricValue(comparison.latest) : "-"}
                     </Text>
                     <Text style={styles.metricNotes}>
                       Delta: {comparison.delta === null ? "Sin referencia" : `${comparison.delta > 0 ? "+" : ""}${comparison.delta}${comparison.unit ? ` ${comparison.unit}` : ""}`}
@@ -1176,7 +1206,7 @@ export default function TecnicaScreen({
                 ))}
               </View>
             ) : (
-              <Text style={styles.helperText}>Aún no hay métricas suficientes para mostrar comparativas por técnica.</Text>
+              <Text style={styles.helperText}>A├║n no hay m├®tricas suficientes para mostrar comparativas por t├®cnica.</Text>
             )}
           </View>
 
@@ -1185,6 +1215,7 @@ export default function TecnicaScreen({
             <Text style={styles.sectionTitle}>Registros de {selectedTechnique.title}</Text>
             {selectedTechnique.metrics.length ? (
               <View style={styles.metricList}>
+                <MetricLineChart metrics={selectedTechnique.metrics} />
                 {selectedTechnique.metrics.map((metric) => (
                   <View key={metric.id} style={styles.metricCard}>
                     <View style={styles.metricHeaderRow}>
@@ -1198,13 +1229,13 @@ export default function TecnicaScreen({
                 ))}
               </View>
             ) : (
-              <Text style={styles.helperText}>Aún no registraste mediciones para esta técnica.</Text>
+              <Text style={styles.helperText}>A├║n no registraste mediciones para esta t├®cnica.</Text>
             )}
           </View>
 
-          {/* Montar el WebView siempre que haya un contrato biomécanico para
+          {/* Montar el WebView siempre que haya un contrato biom├®canico para
                pre-cargar MediaPipe en segundo plano. videoUri=null significa
-               que no hay video para procesar aún. */}
+               que no hay video para procesar a├║n. */}
           {hasAutomaticAnalysisContract ? (
             <TechniqueVideoPoseAnalyzer
               requestId={analysisRequestId}
@@ -1218,7 +1249,7 @@ export default function TecnicaScreen({
             />
           ) : null}
 
-          {/* ── Rim Annotation Modal ── */}
+          {/* ÔöÇÔöÇ Rim Annotation Modal ÔöÇÔöÇ */}
           <Modal visible={showRimAnnotation} animationType="slide" presentationStyle="fullScreen" onRequestClose={handleSkipRimAnnotation}>
             <View style={styles.rimModalScreen}>
               <View style={styles.rimModalHeader}>
@@ -1229,7 +1260,7 @@ export default function TecnicaScreen({
               </View>
               <View style={styles.rimModalBody}>
                 <Text style={styles.rimModalHint}>
-                  Tocá dos veces para marcar los bordes del aro: primero el borde izquierdo y luego el borde derecho.
+                  Toc├í dos veces para marcar los bordes del aro: primero el borde izquierdo y luego el borde derecho.
                   Con el aro anotado el servidor puede calcular la altura de salto usando la referencia visual (RIM_REFERENCE).
                 </Text>
                 <View
@@ -1284,7 +1315,7 @@ export default function TecnicaScreen({
                   ) : !rimPoint2 ? (
                     <Text style={styles.rimTapPrompt}>Ahora toca el borde DERECHO del aro</Text>
                   ) : (
-                    <Text style={styles.rimTapPrompt}>Ambos bordes marcados. Toca para resetear si querés ajustar.</Text>
+                    <Text style={styles.rimTapPrompt}>Ambos bordes marcados. Toca para resetear si quer├®s ajustar.</Text>
                   )}
                 </View>
                 <View style={styles.rimModalActions}>
@@ -1305,7 +1336,7 @@ export default function TecnicaScreen({
             <View style={styles.viewerModalScreen}>
               <View style={styles.viewerModalHeader}>
                 <View style={styles.viewerModalHeaderTextWrap}>
-                  <Text style={styles.viewerModalEyebrow}>Corrección visual</Text>
+                  <Text style={styles.viewerModalEyebrow}>Correcci├│n visual</Text>
                   <Text style={styles.viewerModalTitle}>{selectedTechnique.title}</Text>
                 </View>
                 <Pressable style={styles.viewerModalCloseButton} onPress={() => setShowCorrectionsViewer(false)}>
@@ -1370,12 +1401,12 @@ export default function TecnicaScreen({
                                 <View style={[styles.videoAngleGhostAthlete, { left: `${athleteMarker}%` }]} />
                               </View>
                               <Text style={styles.videoAngleGhostMeta}>
-                                Esperado {formatExpectedAngleRange(comparison.targetMinDeg, comparison.targetMaxDeg)} · atleta {comparison.athleteAngleDeg.toFixed(1)}°
+                                Esperado {formatExpectedAngleRange(comparison.targetMinDeg, comparison.targetMaxDeg)} ┬À atleta {comparison.athleteAngleDeg.toFixed(1)}┬░
                               </Text>
                             </View>
                           );
                         }) : (
-                          <Text style={styles.videoOverlayBody}>No hay ángulos comparables para este evento todavía.</Text>
+                          <Text style={styles.videoOverlayBody}>No hay ├íngulos comparables para este evento todav├¡a.</Text>
                         )}
                       </View>
                     </>
@@ -1383,7 +1414,7 @@ export default function TecnicaScreen({
                 </View>
 
                 <View style={styles.viewerTimelineSection}>
-                  <Text style={styles.viewerTimelineLabel}>Eventos sobre la reproducción</Text>
+                  <Text style={styles.viewerTimelineLabel}>Eventos sobre la reproducci├│n</Text>
                   <View style={styles.eventTimelineTrack}>
                     {eventOverlayItems.map((item) => (
                       <Pressable
@@ -1401,6 +1432,53 @@ export default function TecnicaScreen({
                     ))}
                   </View>
                 </View>
+              </View>
+            </View>
+          </Modal>
+
+          {/* ── Camera Quality Guard Modal ── */}
+          <Modal visible={showCameraModal} animationType="slide" presentationStyle="fullScreen" onRequestClose={handleCloseCameraModal}>
+            <View style={styles.rimModalScreen}>
+              <View style={styles.rimModalHeader}>
+                <Text style={styles.rimModalTitle}>Grabar con cámara</Text>
+                <Pressable style={styles.rimModalSkip} onPress={handleCloseCameraModal}>
+                  <Text style={styles.rimModalSkipText}>Cancelar</Text>
+                </Pressable>
+              </View>
+              <CameraView
+                ref={cameraRef}
+                style={{ flex: 1 }}
+                facing={cameraFacing}
+                mode="video"
+                onCameraReady={startQualityChecks}
+              >
+                <View style={{ position: "absolute", top: 16, left: 16, gap: 8 }}>
+                  <View style={{ backgroundColor: cameraQuality.light === "ok" ? "#00800060" : "#80000060", padding: 8, borderRadius: 8 }}>
+                    <Text style={{ color: "#fff", fontWeight: "700" }}>
+                      {cameraQuality.light === "ok" ? "💡 Iluminación OK" : "💡 Muy oscuro"}
+                    </Text>
+                  </View>
+                  <View style={{ backgroundColor: cameraQuality.motion === "stable" ? "#00800060" : "#80000060", padding: 8, borderRadius: 8 }}>
+                    <Text style={{ color: "#fff", fontWeight: "700" }}>
+                      {cameraQuality.motion === "stable" ? "📷 Cámara estable" : "📷 Cámara en movimiento"}
+                    </Text>
+                  </View>
+                </View>
+              </CameraView>
+              <View style={styles.rimModalActions}>
+                {cameraRecording ? (
+                  <Pressable style={[styles.primaryButton, { flex: 1, backgroundColor: "#c0392b" }]} onPress={handleStopRecording}>
+                    <Text style={styles.primaryButtonText}>⏹ Detener</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    style={[styles.primaryButton, { flex: 1 }, (cameraQuality.light !== "ok" || cameraQuality.motion !== "stable") ? styles.disabledButton : null]}
+                    onPress={() => void handleStartRecording()}
+                    disabled={cameraQuality.light !== "ok" || cameraQuality.motion !== "stable"}
+                  >
+                    <Text style={styles.primaryButtonText}>⏺ Iniciar grabación</Text>
+                  </Pressable>
+                )}
               </View>
             </View>
           </Modal>
@@ -1431,6 +1509,14 @@ function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
     techniqueCardActive: { borderColor: C.amberBorder, backgroundColor: C.amberDim },
     techniqueCardTitle: { color: C.text, fontWeight: "800", fontSize: 15 },
     techniqueCardMeta: { color: C.textMuted, fontSize: 12 },
+    techniqueExpandedContent: { paddingHorizontal: 8, paddingBottom: 16, gap: 8, borderLeftWidth: 2, borderLeftColor: C.teal + "40", marginLeft: 8 },
+    checklistItem: { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: R.md, borderWidth: 1, borderColor: C.border, backgroundColor: C.surfaceRaise },
+    checklistItemChecked: { borderColor: C.teal, backgroundColor: C.surfaceRaise },
+    checklistEmoji: { fontSize: 20, width: 28 },
+    checklistLabel: { flex: 1, color: C.textSub, fontSize: 14 },
+    checklistLabelChecked: { color: C.text },
+    checklistCheck: { fontSize: 16, color: C.textMuted, width: 20, textAlign: "center" as const },
+    disabledButton: { opacity: 0.4 },
     helperText: { color: C.textSub, fontSize: 13, lineHeight: 19 },
     tipBox: { backgroundColor: C.surfaceRaise, borderRadius: R.md, padding: S.md, borderWidth: 1, borderColor: C.border },
     tipTitle: { color: C.text, fontWeight: "700", marginBottom: 4 },

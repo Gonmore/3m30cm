@@ -14,7 +14,47 @@
 
 ## Registro de trabajo
 
-### 8. Follow-up mobile2: eventos en velocidad normal + fondo real en anotación de aro (2026-05-07)
+### 9. mobile2: 5 mejoras UI/UX — racha SVG, check-in adaptativo, técnica accordion, métricas vinculadas, gráficos (2026-05-08)
+
+**Mejoras implementadas:**
+
+1. **ProgressRing SVG (HoyScreenV2.tsx)**
+   - Causa raíz del bug: el enfoque de dos mitades con `transformOrigin` CSS no es soportado por React Native.
+   - Solución: reescritura del ProgressRing usando `react-native-svg` (SVG `strokeDashoffset`).
+   - El arco arranca siempre en las 12 en punto (rotate -90°), animado con `Animated.Value`.
+   - Paquetes agregados: `react-native-svg`.
+
+2. **Check-in adaptativo (index.tsx)**
+   - `saveTodayCheckIn()` ahora persiste `savedCoachingStatus` (push/protect/focus/steady).
+   - Banner de coaching mostrado por encima de la lista de ejercicios según estado.
+   - `coachingChip` dentro de cada tarjeta de ejercicio con recomendación de series/descanso.
+
+3. **Técnica accordion + checklist + cámara con filtro de calidad (TecnicaScreen.tsx)**
+   - Eliminado heroCard "Técnicas del programa".
+   - Lista plana de técnicas convertida a acordeón (expandedTechniqueId state).
+   - Eliminado sectionCard "Biomecánica automática" (muy técnico para atletas).
+   - "Seguimiento técnico" reemplazado por emoji checklist de 5 requisitos requeridos + 1 opcional.
+   - Botones cambiados a "Elegir de galería" / "Grabar ahora con cámara".
+   - Modal de cámara con guard de calidad en tiempo real: detección de iluminación (base64 length) y movimiento de cámara (varianza entre frames). Botón de grabación bloqueado si alguna condición falla.
+   - Paquetes agregados: `expo-camera`.
+
+4. **Métricas vinculadas al log de sesión (index.tsx)**
+   - `handleSubmitLog` intercepta si hay `jumpHeightCm` + técnicas con `measurementDefinitions`.
+   - Modal de vínculo técnico: permite asociar la altura registrada a una técnica.
+   - `doSubmitLog()` hace segunda llamada a `POST /api/v1/athlete/technique/metrics` si se elige técnica.
+   - La medición queda en `athlete_technique_metric` vinculada a la sesión.
+
+5. **Gráficos SVG en Comparativas e Historial (TecnicaScreen.tsx)**
+   - Nuevo componente `MetricLineChart` usando `react-native-svg` (Polyline + Circle + axes + baseline dashed line).
+   - Insertado al inicio de los sectionCards Comparativas e Historial.
+   - Comparativas y Historial ahora muestran evolución visual de métricas.
+
+**Archivos modificados:**
+- `apps/mobile2/components/screens/HoyScreenV2.tsx`
+- `apps/mobile2/app/index.tsx`
+- `apps/mobile2/components/screens/TecnicaScreen.tsx`
+
+
 
 **Problemas reportados:**
 - En cámara lenta se detectaban eventos, pero en videos a velocidad normal faltaban eventos.

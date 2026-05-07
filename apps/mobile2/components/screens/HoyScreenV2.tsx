@@ -22,6 +22,7 @@ import {
   View,
 } from "react-native";
 import { useEffect, useRef, useState } from "react";
+import Svg, { Circle } from "react-native-svg";
 
 import { R, S } from "@mobile/components/tokens";
 import { useTheme } from "@mobile/components/ThemeContext";
@@ -164,11 +165,16 @@ interface HoyScreenV2Props {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Animated progress ring (pure RN, no SVG deps)
+//  Animated progress ring (SVG stroke-dashoffset technique)
 // ─────────────────────────────────────────────────────────────
 
-const RING_SIZE = 140;
+const RING_SIZE   = 140;
 const RING_STROKE = 10;
+const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
+const RING_CIRCUM = 2 * Math.PI * RING_RADIUS;
+
+// We need an AnimatedCircle that accepts animated strokeDashoffset.
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 function ProgressRing({ pct, streak, label }: { pct: number; streak: number; label: string }) {
   const { C } = useTheme();
@@ -184,23 +190,11 @@ function ProgressRing({ pct, streak, label }: { pct: number; streak: number; lab
     }).start();
   }, [pct]);
 
-  // We simulate the ring with two half-circle clips.
-  // Left half covers 0-180°, right half covers 180-360°.
-  const leftRotation = animPct.interpolate({
-    inputRange:  [0, 50,  50,  100],
-    outputRange: ["0deg", "0deg", "180deg", "180deg"],
-  });
-  const rightRotation = animPct.interpolate({
-    inputRange:  [0,     50, 100],
-    outputRange: ["0deg", "180deg", "360deg"],
-  });
-  const leftOpacity = animPct.interpolate({
-    inputRange:  [0, 0.001, 50, 100],
-    outputRange: [0, 1,     1,  1],
-  });
-  const rightOpacity = animPct.interpolate({
-    inputRange:  [0, 50, 50.001, 100],
-    outputRange: [0, 0,  1,      1],
+  // strokeDashoffset = circumference * (1 - pct/100)
+  // 0% → full offset (invisible arc), 100% → 0 offset (full arc)
+  const strokeDashoffset = animPct.interpolate({
+    inputRange:  [0, 100],
+    outputRange: [RING_CIRCUM, 0],
   });
 
   // Pulse on streak > 0
@@ -217,32 +211,38 @@ function ProgressRing({ pct, streak, label }: { pct: number; streak: number; lab
     return () => loop.stop();
   }, [streak > 0]);
 
+  const cx = RING_SIZE / 2;
+  const cy = RING_SIZE / 2;
+
   return (
     <Animated.View style={[styles.ringContainer, { transform: [{ scale: pulseAnim }] }]}>
-      {/* Track (background ring) */}
-      <View style={styles.ringTrack} />
-
-      {/* Right half fill */}
-      <View style={styles.ringHalfClip}>
-        <Animated.View
-          style={[
-            styles.ringHalf,
-            styles.ringHalfRight,
-            { transform: [{ rotate: rightRotation }], opacity: rightOpacity },
-          ]}
+      <Svg width={RING_SIZE} height={RING_SIZE}
+        style={{ position: "absolute", top: 0, left: 0 }}
+        // Rotate -90° so arc starts at 12 o'clock
+        viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
+      >
+        {/* Track circle (background shadow ring) */}
+        <Circle
+          cx={cx} cy={cy}
+          r={RING_RADIUS}
+          stroke={C.surfaceActive}
+          strokeWidth={RING_STROKE}
+          fill="none"
         />
-      </View>
-
-      {/* Left half fill */}
-      <View style={[styles.ringHalfClip, { left: 0 }]}>
-        <Animated.View
-          style={[
-            styles.ringHalf,
-            styles.ringHalfLeft,
-            { transform: [{ rotate: leftRotation }], opacity: leftOpacity },
-          ]}
+        {/* Colored arc — rotated -90° via transform */}
+        <AnimatedCircle
+          cx={cx} cy={cy}
+          r={RING_RADIUS}
+          stroke={C.teal}
+          strokeWidth={RING_STROKE}
+          fill="none"
+          strokeDasharray={`${RING_CIRCUM} ${RING_CIRCUM}`}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          // rotate -90 around center so arc starts at top
+          transform={`rotate(-90 ${cx} ${cy})`}
         />
-      </View>
+      </Svg>
 
       {/* Centre content */}
       <View style={styles.ringCenter}>
@@ -902,42 +902,12 @@ return StyleSheet.create({
   heroWeeklyTrack: { height: 6, backgroundColor: C.surfaceActive, borderRadius: R.full, overflow: "hidden" },
   heroWeeklyFill:  { height: "100%", backgroundColor: C.teal, borderRadius: R.full },
 
-  // ── Progress ring ────────────────────────────────────────────
+  // ── Progress ring (SVG) ──────────────────────────────────────
   ringContainer: {
     width:  RING_SIZE,
     height: RING_SIZE,
     alignItems: "center",
     justifyContent: "center",
-  },
-  ringTrack: {
-    position: "absolute",
-    width:  RING_SIZE,
-    height: RING_SIZE,
-    borderRadius: RING_SIZE / 2,
-    borderWidth: RING_STROKE,
-    borderColor: C.surfaceActive,
-  },
-  ringHalfClip: {
-    position:   "absolute",
-    width:  RING_SIZE / 2,
-    height: RING_SIZE,
-    right: 0,
-    overflow: "hidden",
-  },
-  ringHalf: {
-    position: "absolute",
-    width:  RING_SIZE,
-    height: RING_SIZE,
-    borderRadius: RING_SIZE / 2,
-    borderWidth: RING_STROKE,
-    borderColor: C.teal,
-    top: 0,
-    left: 0,
-  },
-  ringHalfRight: { transformOrigin: "0% 50%" },
-  ringHalfLeft:  {
-    right: 0,
-    left: "auto" as never,
   },
   ringCenter: {
     position: "absolute",
