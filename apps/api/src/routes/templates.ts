@@ -126,6 +126,14 @@ templatesRouter.get("/program-templates/:code", async (req: Request, res: Respon
                         },
                       },
                     },
+                    variants: {
+                      orderBy: { weekNumber: "asc" },
+                      include: {
+                        exercise: {
+                          select: { id: true, name: true, slug: true },
+                        },
+                      },
+                    },
                   },
                 },
               },

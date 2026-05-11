@@ -7344,8 +7344,8 @@ export default function App() {
                                             <span style={{ fontSize: 12, color: "#5a6577" }}>
                                               {task.sets ? `${task.sets}×` : ""}{task.repsOrTimeText ?? ""}
                                             </span>
-                                            {task.variants.length > 0 ? (
-                                              <span className="session-chip">{task.variants.length} variante(s)</span>
+                                            {(task.variants ?? []).length > 0 ? (
+                                              <span className="session-chip">{(task.variants ?? []).length} variante(s)</span>
                                             ) : null}
                                             <span style={{ color: "#9aabb8", fontSize: 11 }}>{isTaskSelected ? "▲" : "▼"}</span>
                                           </div>
@@ -7359,9 +7359,9 @@ export default function App() {
                                                 (semanas 1–{weeks}). La semana base (sin variante) siempre aplica el ejercicio original.
                                               </p>
 
-                                              {task.variants.length > 0 ? (
+                                              {(task.variants ?? []).length > 0 ? (
                                                 <div style={{ marginBottom: 12 }}>
-                                                  {task.variants.map((variant) => (
+                                                  {(task.variants ?? []).map((variant) => (
                                                     <div key={variant.id} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "4px 0", borderBottom: "1px solid #f0f3f7", flexWrap: "wrap" }}>
                                                       <strong style={{ fontSize: 12 }}>Semana {variant.weekNumber}</strong>
                                                       {variant.exercise ? (
