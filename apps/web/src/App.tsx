@@ -357,6 +357,16 @@ interface PhaseFormState {
   notes: string;
 }
 
+interface WizardTemplateFormState {
+  code: string;
+  name: string;
+  description: string;
+  firstPhaseName: string;
+  firstPhaseDurationDays: string;
+  firstPhaseMasterBlockDays: "7" | "14";
+  firstPhaseNotes: string;
+}
+
 interface TeamRecord {
   id: string;
   name: string;
@@ -976,6 +986,16 @@ const emptyPhaseForm = (): PhaseFormState => ({
   durationDays: "14",
   masterBlockDays: "14",
   notes: "",
+});
+
+const emptyWizardTemplateForm = (): WizardTemplateFormState => ({
+  code: "",
+  name: "",
+  description: "",
+  firstPhaseName: "Fase 1",
+  firstPhaseDurationDays: "14",
+  firstPhaseMasterBlockDays: "14",
+  firstPhaseNotes: "",
 });
 
 function mapPhaseToForm(phase: ProgramPhaseRecord): PhaseFormState {
@@ -2401,7 +2421,10 @@ export default function App() {
   const [phaseImportContent, setPhaseImportContent] = useState("");
   const [phaseImportStrict, setPhaseImportStrict] = useState(true);
   const [phaseImportReplaceExisting, setPhaseImportReplaceExisting] = useState(true);
+  const [templateTypeModalOpen, setTemplateTypeModalOpen] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [wizardTemplateModalOpen, setWizardTemplateModalOpen] = useState(false);
+  const [wizardTemplateForm, setWizardTemplateForm] = useState<WizardTemplateFormState>(emptyWizardTemplateForm);
   const [jumpHeightDebugOpen, setJumpHeightDebugOpen] = useState(false);
   const [rimAnnotation, setRimAnnotation] = useState<RimAnnotation | null>(null);
   const [masterReference, setMasterReference] = useState<unknown>(null);
@@ -4047,11 +4070,11 @@ export default function App() {
     }
   }
 
-  async function handleTemplateDaysLoad(code: string, token = accessToken ?? undefined) {
+  async function handleTemplateDaysLoad(code: string, token = accessToken ?? undefined, preferredPhaseId?: string) {
     if (!token) return;
     try {
       const response = await requestJson<ProgramTemplateResponse>(`/api/v1/templates/program-templates/${code}`, {}, token);
-      applyLoadedTemplate(response.template);
+      applyLoadedTemplate(response.template, preferredPhaseId);
     } catch {
       setTemplateDays([]);
       setTemplatePhases([]);
@@ -4503,6 +4526,70 @@ export default function App() {
       await refreshDashboard(accessToken);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Error al guardar el programa");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleWizardTemplateSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!accessToken) {
+      return;
+    }
+
+    const firstPhaseDurationDays = Number(wizardTemplateForm.firstPhaseDurationDays);
+    if (!Number.isInteger(firstPhaseDurationDays) || firstPhaseDurationDays <= 0) {
+      setError("La duración de la fase inicial debe ser un número válido.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+      const templatePayload = {
+        code: wizardTemplateForm.code.trim(),
+        name: wizardTemplateForm.name.trim(),
+        description: wizardTemplateForm.description.trim() || undefined,
+        cycleLengthDays: firstPhaseDurationDays,
+      };
+
+      if (!templatePayload.code || !templatePayload.name) {
+        setError("Código y nombre son obligatorios.");
+        return;
+      }
+
+      await requestJson(
+        "/api/v1/admin/program-templates",
+        { method: "POST", body: JSON.stringify(templatePayload) },
+        accessToken,
+      );
+
+      const phaseResponse = await requestJson<{ phases: ProgramPhaseRecord[] }>(
+        `/api/v1/admin/program-templates/${templatePayload.code}/wizard/phases`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name: wizardTemplateForm.firstPhaseName.trim() || "Fase 1",
+            orderIndex: 1,
+            durationDays: firstPhaseDurationDays,
+            masterBlockDays: Number(wizardTemplateForm.firstPhaseMasterBlockDays),
+            notes: wizardTemplateForm.firstPhaseNotes.trim() || null,
+          }),
+        },
+        accessToken,
+      );
+
+      const initialPhase = phaseResponse.phases.find((phase) => phase.orderIndex === 1) ?? phaseResponse.phases[0] ?? null;
+
+      setWizardTemplateModalOpen(false);
+      setWizardTemplateForm(emptyWizardTemplateForm());
+      await refreshDashboard(accessToken);
+      setSelectedTemplateCode(templatePayload.code);
+      await handleTemplateDaysLoad(templatePayload.code, accessToken, initialPhase?.id);
+      setAdminView("templates");
+      setMessage("Programa por fases creado. La fase inicial quedó abierta para editar/importar el bloque.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Error al crear el programa por fases");
     } finally {
       setLoading(false);
     }
@@ -6796,8 +6883,7 @@ export default function App() {
               type="button"
               className="primary-button"
               onClick={() => {
-                setTemplateForm(emptyTemplateForm());
-                setTemplateModalOpen(true);
+                setTemplateTypeModalOpen(true);
               }}
             >
               + Nuevo programa
@@ -7238,6 +7324,134 @@ export default function App() {
                   </div>
                   <button className="primary-button" type="submit" disabled={loading}>
                     {templateForm.id ? "Guardar cambios" : "Crear programa"}
+                  </button>
+                </form>
+              </div>
+            </div>
+          ) : null}
+
+          {templateTypeModalOpen ? (
+            <div className="modal-overlay" onClick={() => setTemplateTypeModalOpen(false)}>
+              <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+                <div className="section-header">
+                  <h3>Nuevo programa</h3>
+                  <button type="button" className="ghost-button" onClick={() => setTemplateTypeModalOpen(false)}>✕</button>
+                </div>
+                <p className="helper-text">
+                  Elige si crearás un programa cíclico legacy (repetitivo) o un programa por fases usando el wizard nuevo.
+                </p>
+                <div className="action-row compact-row left-row">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      setTemplateTypeModalOpen(false);
+                      setTemplateForm(emptyTemplateForm());
+                      setTemplateModalOpen(true);
+                    }}
+                  >
+                    Programa cíclico (legacy)
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => {
+                      setTemplateTypeModalOpen(false);
+                      setWizardTemplateForm(emptyWizardTemplateForm());
+                      setWizardTemplateModalOpen(true);
+                    }}
+                  >
+                    Programa por fases (wizard)
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {wizardTemplateModalOpen ? (
+            <div className="modal-overlay" onClick={() => setWizardTemplateModalOpen(false)}>
+              <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+                <div className="section-header">
+                  <h3>Nuevo programa por fases</h3>
+                  <button type="button" className="ghost-button" onClick={() => setWizardTemplateModalOpen(false)}>✕</button>
+                </div>
+                <form className="stack-form" onSubmit={(event) => void handleWizardTemplateSubmit(event)}>
+                  <div className="form-grid">
+                    <label>
+                      Código
+                      <input
+                        value={wizardTemplateForm.code}
+                        onChange={(event) => setWizardTemplateForm((current) => ({ ...current, code: event.target.value }))}
+                        placeholder="ej. JUMP-WIZARD-2026"
+                        required
+                      />
+                    </label>
+                    <label>
+                      Nombre
+                      <input
+                        value={wizardTemplateForm.name}
+                        onChange={(event) => setWizardTemplateForm((current) => ({ ...current, name: event.target.value }))}
+                        placeholder="ej. Programa por fases 12 semanas"
+                        required
+                      />
+                    </label>
+                    <label>
+                      Duración de la fase inicial (días)
+                      <input
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={wizardTemplateForm.firstPhaseDurationDays}
+                        onChange={(event) =>
+                          setWizardTemplateForm((current) => ({ ...current, firstPhaseDurationDays: event.target.value }))
+                        }
+                        required
+                      />
+                    </label>
+                    <label>
+                      Bloque maestro de la fase inicial
+                      <select
+                        value={wizardTemplateForm.firstPhaseMasterBlockDays}
+                        onChange={(event) =>
+                          setWizardTemplateForm((current) => ({ ...current, firstPhaseMasterBlockDays: event.target.value as "7" | "14" }))
+                        }
+                      >
+                        <option value="7">7 días</option>
+                        <option value="14">14 días</option>
+                      </select>
+                    </label>
+                    <label>
+                      Nombre de fase inicial
+                      <input
+                        value={wizardTemplateForm.firstPhaseName}
+                        onChange={(event) =>
+                          setWizardTemplateForm((current) => ({ ...current, firstPhaseName: event.target.value }))
+                        }
+                        placeholder="ej. Fase 1 · Base"
+                        required
+                      />
+                    </label>
+                    <label>
+                      Descripción
+                      <textarea
+                        value={wizardTemplateForm.description}
+                        onChange={(event) => setWizardTemplateForm((current) => ({ ...current, description: event.target.value }))}
+                        rows={2}
+                      />
+                    </label>
+                    <label>
+                      Notas de fase inicial
+                      <textarea
+                        value={wizardTemplateForm.firstPhaseNotes}
+                        onChange={(event) =>
+                          setWizardTemplateForm((current) => ({ ...current, firstPhaseNotes: event.target.value }))
+                        }
+                        rows={2}
+                      />
+                    </label>
+                  </div>
+                  <button className="primary-button" type="submit" disabled={loading}>
+                    Crear programa por fases
                   </button>
                 </form>
               </div>
