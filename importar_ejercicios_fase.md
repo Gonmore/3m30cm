@@ -89,18 +89,6 @@ Día,Ejercicio,Series,Reps_Tiempo,Descripción,Peso,Unilateral,Evolución,Zona
 
 ## Errores comunes y cómo resolverlos
 
-### "X ejercicio(s) no encontrados en el catálogo"
-
-El importador en **modo estricto** exige que cada nombre coincida exactamente con un ejercicio existente. La UI te mostrará la fila y el nombre exacto que falló.
-
-**Pasos para resolverlo:**
-
-1. **Crea el ejercicio primero** — Ve a la sección *Ejercicios* del admin y crea el ejercicio con ese nombre exacto.
-2. **Ajusta el nombre en el CSV** — Copia el nombre exacto del catálogo (diferencia entre mayúsculas, tildes y paréntesis importan).
-3. **Desactiva Modo estricto** — El ejercicio se importará sin enlazar al catálogo; podrás enlazarlo manualmente después.
-
-> **Tip:** Nombres con paréntesis o caracteres especiales son los más propensos a desajustes. Ejemplo: `Nordic Curl (Asistido)` vs `Nordic Curl Asistido`.
-
 ### "Fila X, columna 'evolution' → Evolution must be Weight, Time, Velocity, or Hybrid"
 
 El valor de Evolución no es reconocido. Usa exactamente: `Weight`, `Time`, `Velocity` o `Hybrid` (o sus equivalentes en español).
@@ -119,5 +107,5 @@ La columna Peso solo acepta `Y`, `N`, `Yes`, `No`, `1`, `0`, `Si`, `S`.
 
 | Opción | Descripción |
 |---|---|
-| **Modo estricto** (activo por defecto) | Si algún ejercicio no existe en el catálogo, el import falla y te muestra la lista de los que faltan. |
+| **Modo estricto** | Ya no bloquea el import. El importador **crea automáticamente** cualquier ejercicio que no exista en el catálogo usando los datos del CSV (nombre, zona, evolución, peso, unilateral, descripción). Al terminar, el mensaje de éxito lista los ejercicios recién creados. |
 | **Reemplazar contenido existente** (activo por defecto) | Borra los días/tareas actuales de la fase antes de importar. Desactívalo para añadir sin borrar. |

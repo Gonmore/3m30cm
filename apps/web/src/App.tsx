@@ -4219,18 +4219,12 @@ export default function App() {
 
       const data = (await response.json().catch(() => ({}))) as {
         message?: string;
-        unresolved?: Array<{ rowNumber: number; name: string }>;
+        autoCreated?: string[];
         issues?: Array<{ rowNumber?: number; column?: string; message?: string }>;
         warnings?: string[];
       };
 
       if (!response.ok) {
-        // Surface unresolved exercise names as a dedicated list
-        if (Array.isArray(data.unresolved) && data.unresolved.length > 0) {
-          setPhaseImportUnresolved(data.unresolved);
-          setError(`${data.unresolved.length} ejercicio(s) no encontrados en el catálogo. Revisa los nombres en la lista de abajo.`);
-          return;
-        }
         // Surface per-row parse issues
         if (Array.isArray(data.issues) && data.issues.length > 0) {
           const summary = data.issues
@@ -4243,7 +4237,10 @@ export default function App() {
         return;
       }
 
-      setMessage("Bloque maestro importado en la fase.");
+      const created = Array.isArray(data.autoCreated) && data.autoCreated.length > 0
+        ? ` Se crearon ${data.autoCreated.length} ejercicio(s) nuevo(s): ${data.autoCreated.join(", ")}.`
+        : "";
+      setMessage(`Bloque maestro importado en la fase.${created}`);
       await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo importar la fase");
@@ -7588,35 +7585,6 @@ export default function App() {
                     <button className="primary-button" type="submit" disabled={loading || !phaseImportContent.trim()}>
                       Importar en fase
                     </button>
-                    {phaseImportUnresolved.length > 0 ? (
-                      <div className="workflow-note" style={{ borderLeft: "3px solid #e76f51", marginTop: "12px" }}>
-                        <strong>⚠ Ejercicios no encontrados en el catálogo ({phaseImportUnresolved.length})</strong>
-                        <p style={{ marginBottom: "6px" }}>
-                          Los siguientes nombres no coinciden con ningún ejercicio existente. Opciones:
-                        </p>
-                        <ul style={{ margin: "0 0 8px 16px", padding: 0 }}>
-                          <li>Crea primero esos ejercicios en la sección <strong>Ejercicios</strong> con ese nombre exacto.</li>
-                          <li>Corrige el nombre en tu CSV para que coincida con el catálogo.</li>
-                          <li>Desactiva <strong>Modo estricto</strong> para importar igualmente (quedarán sin enlazar).</li>
-                        </ul>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
-                          <thead>
-                            <tr style={{ background: "#f4f4f4" }}>
-                              <th style={{ textAlign: "left", padding: "4px 8px", width: "60px" }}>Fila</th>
-                              <th style={{ textAlign: "left", padding: "4px 8px" }}>Nombre en tu CSV</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {phaseImportUnresolved.map((item) => (
-                              <tr key={item.rowNumber} style={{ borderTop: "1px solid #ddd" }}>
-                                <td style={{ padding: "4px 8px", color: "#888" }}>{item.rowNumber}</td>
-                                <td style={{ padding: "4px 8px", fontFamily: "monospace" }}>{item.name}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : null}
                   </form>
                 </div>
               ) : null}

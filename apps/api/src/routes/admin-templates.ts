@@ -1083,27 +1083,53 @@ adminTemplatesRouter.post(
       );
       const exerciseByName = await buildExerciseLookupMap(candidateNames);
 
+      // Auto-create exercises that don't exist yet using data from the CSV row.
+      // We create them outside the transaction first to avoid unique-slug races
+      // within a batch, then rebuild the lookup map so the transaction can find them.
+      const namesToCreate = parseResult.tasks
+        .filter((task) => !resolveExerciseMatch(exerciseByName, task.name))
+        .map((task) => task.name.trim())
+        .filter((name, idx, arr) => arr.indexOf(name) === idx); // deduplicate
+
+      const autoCreated: string[] = [];
+      for (const name of namesToCreate) {
+        const baseSlug = slugifyExerciseLookup(name);
+        // Ensure slug uniqueness by appending a suffix if needed
+        let slug = baseSlug;
+        let attempt = 0;
+        while (await prisma.exercise.findUnique({ where: { slug }, select: { id: true } })) {
+          attempt += 1;
+          slug = `${baseSlug}-${attempt}`;
+        }
+        // Find the matching task to pick evolution/zone defaults
+        const srcTask = parseResult.tasks.find((t) => t.name.trim() === name);
+        await prisma.exercise.create({
+          data: {
+            slug,
+            name,
+            category: srcTask?.zone === "LOWER" || srcTask?.zone === "UPPER" ? "strength" : "mobility",
+            requiresLoad: srcTask?.requiresWeight ?? false,
+            perLeg: srcTask?.isUnilateral ?? false,
+            description: srcTask?.description ?? null,
+            evolution: srcTask?.evolution ?? null,
+            zone: srcTask?.zone ?? null,
+          },
+        });
+        autoCreated.push(name);
+      }
+
+      // Rebuild lookup map so newly created exercises are found
+      const exerciseByNameFinal = autoCreated.length > 0
+        ? await buildExerciseLookupMap(candidateNames)
+        : exerciseByName;
+
       const mapped = parseResult.tasks.map((task) => {
-        const matchedExercise = resolveExerciseMatch(exerciseByName, task.name);
+        const matchedExercise = resolveExerciseMatch(exerciseByNameFinal, task.name);
         return {
           ...task,
           exerciseId: matchedExercise?.id ?? null,
         };
       });
-
-      const unresolved = mapped.filter((item) => !item.exerciseId).map((item) => ({
-        rowNumber: item.rowNumber,
-        name: item.name,
-      }));
-
-      if (payload.strict && unresolved.length) {
-        res.status(400).json({
-          message: "Some exercise names did not match the exercise catalog.",
-          unresolved,
-          warnings: parseResult.warnings,
-        });
-        return;
-      }
 
       const groupedByDay = new Map<number, typeof mapped>();
       for (const item of mapped) {
@@ -1247,7 +1273,7 @@ adminTemplatesRouter.post(
       res.status(201).json({
         templateCode: template.code,
         warnings: parseResult.warnings,
-        unresolved,
+        autoCreated,
         phase: persisted,
       });
     } catch (error) {
