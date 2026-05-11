@@ -301,6 +301,17 @@ interface ProgramTemplateMeta {
   _count: { days: number; phases: number; personalPrograms: number };
 }
 
+interface ExerciseTaskVariantRecord {
+  id: string;
+  weekNumber: number;
+  exerciseId: string | null;
+  name: string | null;
+  sets: number | null;
+  repsOrTimeText: string | null;
+  notes: string | null;
+  exercise: { id: string; name: string; slug: string } | null;
+}
+
 interface ProgramPhaseTaskRecord {
   id: string;
   orderIndex: number;
@@ -319,6 +330,7 @@ interface ProgramPhaseTaskRecord {
     name: string;
     slug: string;
   } | null;
+  variants: ExerciseTaskVariantRecord[];
 }
 
 interface ProgramPhaseDayRecord {
@@ -2450,6 +2462,9 @@ export default function App() {
   const [isReferenceVideoPlaying, setIsReferenceVideoPlaying] = useState(false);
   const [exclusionsAthleteId, setExclusionsAthleteId] = useState<string>("");
   const [exclusionsDraft, setExclusionsDraft] = useState<string[]>([]);
+  const [activeTemplateTab, setActiveTemplateTab] = useState<"phases" | "technique">("phases");
+  const [selectedTaskId, setSelectedTaskId] = useState<string>("");
+  const [variantForm, setVariantForm] = useState({ weekNumber: "2", exerciseId: "", sets: "", repsOrTimeText: "", notes: "" });
 
   type AngleWizardState =
     | { open: false }
@@ -3525,11 +3540,15 @@ export default function App() {
     setTechniqueUploadState(emptyTechniqueUploadState());
     setSelectedDayNumber(template.days[0]?.dayNumber ?? 1);
     setAllTemplates((current) =>
-      current.map((entry) =>
-        entry.code === template.code
-          ? { ...entry, _count: { ...entry._count, phases: template.phases?.length ?? 0 } }
-          : entry,
-      ),
+      current.map((entry) => {
+        if (entry.code !== template.code) return entry;
+        const phasesTotalDays = (template.phases ?? []).reduce((sum, p) => sum + p.durationDays, 0);
+        return {
+          ...entry,
+          _count: { ...entry._count, phases: template.phases?.length ?? 0 },
+          ...(phasesTotalDays > 0 ? { cycleLengthDays: phasesTotalDays } : {}),
+        };
+      }),
     );
   }
 
@@ -4202,6 +4221,59 @@ export default function App() {
       await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo importar la fase");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVariantSave(taskId: string) {
+    if (!accessToken || !selectedTemplateCode || !taskId) return;
+    const weekNumber = Number(variantForm.weekNumber);
+    if (!Number.isInteger(weekNumber) || weekNumber < 1) {
+      setError("Número de semana inválido.");
+      return;
+    }
+    try {
+      setLoading(true);
+      setError("");
+      await requestJson(
+        `/api/v1/admin/program-templates/${selectedTemplateCode}/wizard/tasks/${taskId}/variants`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            weekNumber,
+            exerciseId: variantForm.exerciseId || null,
+            sets: variantForm.sets ? Number(variantForm.sets) : null,
+            repsOrTimeText: variantForm.repsOrTimeText.trim() || null,
+            notes: variantForm.notes.trim() || null,
+          }),
+        },
+        accessToken,
+      );
+      setVariantForm({ weekNumber: "2", exerciseId: "", sets: "", repsOrTimeText: "", notes: "" });
+      await handleTemplateDaysLoad(selectedTemplateCode, accessToken, selectedPhaseId);
+      setMessage("Variante guardada.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo guardar la variante");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVariantDelete(taskId: string, variantId: string) {
+    if (!accessToken || !selectedTemplateCode) return;
+    try {
+      setLoading(true);
+      setError("");
+      await requestJson(
+        `/api/v1/admin/program-templates/${selectedTemplateCode}/wizard/tasks/${taskId}/variants/${variantId}`,
+        { method: "DELETE" },
+        accessToken,
+      );
+      await handleTemplateDaysLoad(selectedTemplateCode, accessToken, selectedPhaseId);
+      setMessage("Variante eliminada.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo eliminar la variante");
     } finally {
       setLoading(false);
     }
@@ -6873,6 +6945,7 @@ export default function App() {
 
       {adminView === "templates" ? (
       <section className="management-grid">
+        {/* LEFT PANEL: program list + modals */}
         <article className="panel-card">
           <div className="section-header">
             <div>
@@ -6882,9 +6955,7 @@ export default function App() {
             <button
               type="button"
               className="primary-button"
-              onClick={() => {
-                setTemplateTypeModalOpen(true);
-              }}
+              onClick={() => setTemplateTypeModalOpen(true)}
             >
               + Nuevo programa
             </button>
@@ -6892,388 +6963,69 @@ export default function App() {
 
           <div className="detail-list section-spacer">
             {allTemplates.length ? (
-              allTemplates.map((tmpl) => (
-                <article key={tmpl.id} className="detail-card">
-                  <strong>{tmpl.name}</strong>
-                  <span>{tmpl.code}</span>
-                  <p>{tmpl.description || "Sin descripcion"}</p>
-                  <small>{tmpl.cycleLengthDays} dias · {tmpl._count.days} días legacy · {tmpl._count.phases} fases wizard · {tmpl._count.personalPrograms} programas activos · {tmpl.techniqueMediaAssets.length} recursos de técnica</small>
-                  <div className="chip-row">
-                    {tmpl.isEditable ? (
-                      <>
-                        <button
-                          type="button"
-                          className="ghost-button"
-                          onClick={() => {
-                            setTemplateForm({ id: tmpl.id, code: tmpl.code, name: tmpl.name, description: tmpl.description ?? "", cycleLengthDays: String(tmpl.cycleLengthDays) });
-                            setTemplateModalOpen(true);
-                          }}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          className="danger-button"
-                          onClick={() => void handleTemplateDelete(tmpl.code)}
-                          disabled={loading}
-                        >
-                          Eliminar
-                        </button>
-                        <button
-                          type="button"
-                          className={`ghost-button${selectedTemplateCode === tmpl.code ? " active" : ""}`}
-                          onClick={() => {
-                            setSelectedTemplateCode(tmpl.code);
-                            void handleTemplateDaysLoad(tmpl.code);
-                            setAdminView("technique");
-                          }}
-                        >
-                          Técnica
-                        </button>
-                      </>
-                    ) : (
-                      <span className="session-chip">Solo lectura</span>
-                    )}
-                    <button
-                      type="button"
-                      className={`ghost-button${selectedTemplateCode === tmpl.code ? " active" : ""}`}
-                      onClick={() => {
-                        setSelectedTemplateCode(tmpl.code);
-                        void handleTemplateDaysLoad(tmpl.code);
-                        setAdminView("training");
-                      }}
-                    >
-                      Ver en Entrenamiento
-                    </button>
-                  </div>
-                </article>
-              ))
+              allTemplates.map((tmpl) => {
+                const isSelected = selectedTemplateCode === tmpl.code;
+                const isWizard = tmpl._count.phases > 0;
+                return (
+                  <article key={tmpl.id} className={`detail-card${isSelected ? " active" : ""}`}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <strong>{tmpl.name}</strong>
+                      <span className="session-chip">{isWizard ? `Wizard · ${tmpl._count.phases} fase(s)` : "Legacy"}</span>
+                    </div>
+                    <span>{tmpl.code}</span>
+                    <p>{tmpl.description || "Sin descripcion"}</p>
+                    <small>
+                      {isWizard
+                        ? `${tmpl.cycleLengthDays} días totales · ${tmpl._count.personalPrograms} programa(s) activo(s)`
+                        : `Ciclo: ${tmpl.cycleLengthDays} días · ${tmpl._count.personalPrograms} programa(s) activo(s)`}
+                    </small>
+                    <div className="chip-row">
+                      <button
+                        type="button"
+                        className={`ghost-button${isSelected ? " active" : ""}`}
+                        onClick={() => {
+                          setSelectedTemplateCode(tmpl.code);
+                          void handleTemplateDaysLoad(tmpl.code);
+                          setActiveTemplateTab("phases");
+                          setSelectedTaskId("");
+                        }}
+                      >
+                        {isSelected ? "Seleccionado" : "Abrir"}
+                      </button>
+                      {tmpl.isEditable ? (
+                        <>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => {
+                              setTemplateForm({ id: tmpl.id, code: tmpl.code, name: tmpl.name, description: tmpl.description ?? "", cycleLengthDays: String(tmpl.cycleLengthDays) });
+                              setTemplateModalOpen(true);
+                            }}
+                          >
+                            Editar metadatos
+                          </button>
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() => void handleTemplateDelete(tmpl.code)}
+                            disabled={loading}
+                          >
+                            Eliminar
+                          </button>
+                        </>
+                      ) : (
+                        <span className="session-chip">Solo lectura</span>
+                      )}
+                    </div>
+                  </article>
+                );
+              })
             ) : (
               <p className="helper-text">No hay programas definidos todavia.</p>
             )}
           </div>
 
-          {selectedTemplateMeta ? (
-            <div className="detail-stack section-spacer">
-              <div className="section-header compact-header">
-                <div>
-                  <p className="eyebrow">Wizard de rendimiento</p>
-                  <h3>{selectedTemplateMeta.name}</h3>
-                </div>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => handlePhaseSelection("")}
-                >
-                  + Nueva fase
-                </button>
-              </div>
-
-              <div className="detail-list">
-                {templatePhases.length ? (
-                  templatePhases.map((phase) => (
-                    <article key={phase.id} className={`detail-card ${selectedPhaseId === phase.id ? "highlight-card" : ""}`}>
-                      <strong>{phase.orderIndex}. {phase.name}</strong>
-                      <span>{phase.durationDays} días · bloque maestro {phase.masterBlockDays}</span>
-                      <p>{phase.notes || "Sin notas de fase"}</p>
-                      <small>{phase.days.length} días configurados · {phase.days.reduce((total, day) => total + day.tasks.length, 0)} bloques de ejercicio</small>
-                      <div className="chip-row">
-                        <button type="button" className="ghost-button" onClick={() => handlePhaseSelection(phase.id)}>
-                          Editar fase
-                        </button>
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <p className="helper-text">Todavía no hay fases wizard cargadas para este programa.</p>
-                )}
-              </div>
-
-              <form
-                className="stack-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void handlePhaseSave();
-                }}
-              >
-                <div className="form-grid">
-                  <label>
-                    Nombre de fase
-                    <input
-                      value={phaseForm.name}
-                      onChange={(event) => setPhaseForm((current) => ({ ...current, name: event.target.value }))}
-                      placeholder="ej. Fuerza base / Potencia / Descarga"
-                    />
-                  </label>
-                  <label>
-                    Orden
-                    <input
-                      value={phaseForm.orderIndex}
-                      onChange={(event) => setPhaseForm((current) => ({ ...current, orderIndex: event.target.value }))}
-                      inputMode="numeric"
-                    />
-                  </label>
-                  <label>
-                    Duración (días)
-                    <input
-                      value={phaseForm.durationDays}
-                      onChange={(event) => setPhaseForm((current) => ({ ...current, durationDays: event.target.value }))}
-                      inputMode="numeric"
-                    />
-                  </label>
-                  <label>
-                    Bloque maestro
-                    <select
-                      value={phaseForm.masterBlockDays}
-                      onChange={(event) =>
-                        setPhaseForm((current) => ({ ...current, masterBlockDays: event.target.value as "7" | "14" }))
-                      }
-                    >
-                      <option value="7">7 días</option>
-                      <option value="14">14 días</option>
-                    </select>
-                  </label>
-                </div>
-                <label>
-                  Notas de fase
-                  <textarea
-                    value={phaseForm.notes}
-                    onChange={(event) => setPhaseForm((current) => ({ ...current, notes: event.target.value }))}
-                    rows={3}
-                    placeholder="Qué persigue la fase, cómo se regula la carga y qué técnica debe priorizar el atleta."
-                  />
-                </label>
-                <div className="action-row compact-row left-row">
-                  <button className="primary-button" type="submit" disabled={loading}>
-                    {phaseForm.id ? "Guardar fase" : "Crear fase"}
-                  </button>
-                  {selectedPhaseId ? (
-                    <button className="danger-button" type="button" disabled={loading} onClick={() => void handlePhaseDelete()}>
-                      Eliminar fase
-                    </button>
-                  ) : null}
-                </div>
-              </form>
-
-              <form
-                className="stack-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void handlePhaseImport();
-                }}
-              >
-                <div className="workflow-note">
-                  <strong>Importar bloque maestro</strong>
-                  <p>
-                    Pega el CSV/texto del bloque de ejercicios para la fase seleccionada. Las técnicas siguen siendo del programa completo; aquí solo estructuras el calendario diario y los bloques.
-                  </p>
-                </div>
-                <label>
-                  CSV o texto del bloque
-                  <textarea
-                    value={phaseImportContent}
-                    onChange={(event) => setPhaseImportContent(event.target.value)}
-                    rows={10}
-                    placeholder="Día,Nombre,Series,Reps/Tiempo,Descripción,Peso(Y/N),Unilateral(Y/N),Evolución,Zona,VideoURL"
-                  />
-                </label>
-                <div className="chip-row">
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={phaseImportStrict}
-                      onChange={(event) => setPhaseImportStrict(event.target.checked)}
-                    />
-                    Modo estricto
-                  </label>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={phaseImportReplaceExisting}
-                      onChange={(event) => setPhaseImportReplaceExisting(event.target.checked)}
-                    />
-                    Reemplazar contenido existente de la fase
-                  </label>
-                </div>
-                <button className="primary-button" type="submit" disabled={loading || !phaseImportContent.trim()}>
-                  Importar en fase
-                </button>
-              </form>
-
-              <div className="section-header compact-header">
-                <div>
-                  <p className="eyebrow">Técnica del programa</p>
-                  <h3>{selectedTemplateMeta.name}</h3>
-                </div>
-              </div>
-
-              <form
-                className="stack-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void handleTechniqueSave();
-                }}
-              >
-                <div className="form-grid">
-                  <label>
-                    Título de técnica
-                    <input
-                      value={templateTechniqueForm.title}
-                      onChange={(event) => setTemplateTechniqueForm((current) => ({ ...current, title: event.target.value }))}
-                      placeholder="ej. Técnica de sprint: postura y primer paso"
-                    />
-                  </label>
-                  <label>
-                    Texto explicativo
-                    <textarea
-                      value={templateTechniqueForm.description}
-                      onChange={(event) => setTemplateTechniqueForm((current) => ({ ...current, description: event.target.value }))}
-                      rows={5}
-                      placeholder="Explica la técnica ideal, errores frecuentes y qué debe sentir el atleta."
-                    />
-                  </label>
-                </div>
-                <button className="primary-button" type="submit" disabled={loading}>
-                  Guardar técnica
-                </button>
-              </form>
-
-              <form className="stack-form" onSubmit={(event) => void handleTechniqueMediaUpload(event)}>
-                <div className="workflow-note">
-                  <strong>Referencia profesional visible</strong>
-                  <p>
-                    Marca el video como referencia biomecánica profesional si este recurso debe generar
-                    la base de comparación con landmarks para la técnica.
-                  </p>
-                </div>
-                <div className="form-grid">
-                  <label>
-                    Tipo de recurso
-                    <select
-                      value={techniqueUploadState.kind}
-                      onChange={(event) =>
-                        setTechniqueUploadState((current) => ({
-                          ...current,
-                          kind: event.target.value as MediaKind,
-                          useAsProReference: event.target.value === "VIDEO" ? current.useAsProReference : false,
-                        }))
-                      }
-                    >
-                      <option value="VIDEO">Video</option>
-                      <option value="GIF">GIF</option>
-                      <option value="IMAGE">Imagen</option>
-                    </select>
-                  </label>
-                  <label>
-                    Título del recurso
-                    <input
-                      value={techniqueUploadState.title}
-                      onChange={(event) => setTechniqueUploadState((current) => ({ ...current, title: event.target.value }))}
-                      placeholder="ej. Técnica frontal"
-                    />
-                  </label>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={techniqueUploadState.isPrimary}
-                      onChange={(event) => setTechniqueUploadState((current) => ({ ...current, isPrimary: event.target.checked }))}
-                    />
-                    Marcar como principal
-                  </label>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={techniqueUploadState.useAsProReference}
-                      disabled={techniqueUploadState.kind !== "VIDEO"}
-                      onChange={(event) =>
-                        setTechniqueUploadState((current) => ({ ...current, useAsProReference: event.target.checked }))
-                      }
-                    />
-                    Usar este video como referencia biomecánica profesional
-                  </label>
-                  <label>
-                    Velocidad de la referencia
-                    <select
-                      value={techniqueUploadState.referenceMotionProfile}
-                      disabled={techniqueUploadState.kind !== "VIDEO" || !techniqueUploadState.useAsProReference}
-                      onChange={(event) =>
-                        setTechniqueUploadState((current) => ({
-                          ...current,
-                          referenceMotionProfile: event.target.value as TechniqueReferenceMotionProfile,
-                        }))
-                      }
-                    >
-                      <option value="REAL_TIME">Velocidad normal</option>
-                      <option value="SLOW_MOTION">Camara lenta</option>
-                    </select>
-                  </label>
-                  <label>
-                    Archivo
-                    <input
-                      type="file"
-                      accept="video/*,image/*"
-                      onChange={(event) =>
-                        setTechniqueUploadState((current) => ({ ...current, file: event.target.files?.[0] ?? null }))
-                      }
-                    />
-                  </label>
-                </div>
-                <button className="primary-button" type="submit" disabled={loading || !techniqueUploadState.file}>
-                  Subir recurso de técnica
-                </button>
-              </form>
-
-              <div className="detail-card program-card">
-                <strong>Estado de la referencia biomecánica</strong>
-                <p>{formatTechniquePoseSummary(selectedTechnique?.proLandmarks)}</p>
-                <div className="biomechanics-summary-grid">
-                  <span className="biomechanics-badge">
-                    {selectedTechniqueReferenceAsset
-                      ? `Referencia visible: ${selectedTechniqueReferenceAsset.title || "video profesional"}`
-                      : "Referencia visible: todavía no asignada"}
-                  </span>
-                  <span className="biomechanics-badge">
-                    {`Modo: ${formatReferenceMotionProfile(normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMotionProfile)}`}
-                  </span>
-                </div>
-              </div>
-
-              <div className="program-list">
-                {selectedTemplateTechniqueMediaAssets.length ? (
-                  selectedTemplateTechniqueMediaAssets.map((asset) => {
-                    const assetUrl = normalizeMediaUrl(asset.url);
-
-                    return (
-                      <article key={asset.id} className="detail-card program-card">
-                        <strong>{asset.title || "Recurso de técnica"}</strong>
-                        <span>{asset.kind}{asset.isPrimary ? " · principal" : ""}</span>
-                        {assetUrl ? (
-                          asset.kind === "VIDEO" ? (
-                            <video controls preload="metadata" style={{ width: "100%", borderRadius: 16, marginTop: 12 }} src={assetUrl} />
-                          ) : (
-                            <img src={assetUrl} alt={asset.title || "Recurso de tecnica"} style={{ width: "100%", borderRadius: 16, marginTop: 12 }} />
-                          )
-                        ) : null}
-                        <div className="chip-row">
-                          <button
-                            type="button"
-                            className="danger-button"
-                            onClick={() => void handleTechniqueMediaDelete(asset.id)}
-                            disabled={loading}
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })
-                ) : (
-                  <p className="helper-text">Todavia no hay recursos de técnica cargados para este programa.</p>
-                )}
-              </div>
-            </div>
-          ) : null}
-
+          {/* Modal: edit/create legacy template */}
           {templateModalOpen ? (
             <div className="modal-overlay" onClick={() => setTemplateModalOpen(false)}>
               <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -7330,6 +7082,7 @@ export default function App() {
             </div>
           ) : null}
 
+          {/* Modal: choose template type */}
           {templateTypeModalOpen ? (
             <div className="modal-overlay" onClick={() => setTemplateTypeModalOpen(false)}>
               <div className="modal-card" onClick={(event) => event.stopPropagation()}>
@@ -7368,6 +7121,7 @@ export default function App() {
             </div>
           ) : null}
 
+          {/* Modal: create wizard template */}
           {wizardTemplateModalOpen ? (
             <div className="modal-overlay" onClick={() => setWizardTemplateModalOpen(false)}>
               <div className="modal-card" onClick={(event) => event.stopPropagation()}>
@@ -7459,76 +7213,646 @@ export default function App() {
           ) : null}
         </article>
 
+        {/* RIGHT PANEL: program detail (phases + technique) or exclusiones */}
         <article className="panel-card">
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">Exclusiones por atleta</p>
-              <h2>Ejercicios excluidos</h2>
-            </div>
-          </div>
-          <p className="helper-text section-spacer">
-            Selecciona un atleta para gestionar qué ejercicios se omiten al generar su programa (ej. dolor de espalda → quitar peso muerto).
-          </p>
-
-          <div className="detail-list">
-            {allAthletes.map((athlete) => (
-              <article key={athlete.id} className={`detail-card${exclusionsAthleteId === athlete.id ? " active" : ""}`}>
-                <strong>{athlete.displayName}</strong>
-                <span>{athlete.team?.name ?? "Sin equipo"} · {athlete.sport || "Sin deporte"}</span>
-                {athlete.exerciseExclusions?.length ? (
-                  <p>{athlete.exerciseExclusions.length} ejercicio(s) excluido(s)</p>
-                ) : (
-                  <p>Sin exclusiones</p>
-                )}
+          {selectedTemplateMeta ? (
+            <>
+              {/* Program header */}
+              <div className="section-header">
+                <div>
+                  <p className="eyebrow">
+                    {selectedTemplateMeta._count.phases > 0
+                      ? `Wizard · ${selectedTemplateMeta._count.phases} fase(s)`
+                      : "Legacy"}
+                  </p>
+                  <h2>{selectedTemplateMeta.name}</h2>
+                  <p className="helper-text">
+                    {selectedTemplateMeta.code}
+                    {templatePhases.length > 0
+                      ? ` · Duración total: ${templatePhases.reduce((sum, p) => sum + p.durationDays, 0)} días`
+                      : ` · Ciclo: ${selectedTemplateMeta.cycleLengthDays} días`}
+                  </p>
+                </div>
                 <button
                   type="button"
                   className="ghost-button"
                   onClick={() => {
-                    setExclusionsAthleteId(athlete.id);
-                    setExclusionsDraft(athlete.exerciseExclusions ?? []);
+                    setSelectedTemplateCode("");
+                    setSelectedTaskId("");
                   }}
                 >
-                  Editar exclusiones
-                </button>
-              </article>
-            ))}
-          </div>
-
-          {exclusionsAthleteId ? (
-            <div className="modal-overlay" onClick={() => setExclusionsAthleteId("")}>
-              <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-                <div className="section-header">
-                  <h3>Exclusiones de {allAthletes.find((a) => a.id === exclusionsAthleteId)?.displayName}</h3>
-                  <button type="button" className="ghost-button" onClick={() => setExclusionsAthleteId("")}>✕</button>
-                </div>
-                <p className="helper-text">Marca los ejercicios que NO se incluirán al generar el programa de este atleta.</p>
-                <div className="detail-list section-spacer">
-                  {exercises.map((ex) => (
-                    <label key={ex.id} className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={exclusionsDraft.includes(ex.id)}
-                        onChange={(e) => {
-                          setExclusionsDraft((d) =>
-                            e.target.checked ? [...d, ex.id] : d.filter((id) => id !== ex.id),
-                          );
-                        }}
-                      />
-                      {ex.name}
-                    </label>
-                  ))}
-                </div>
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={loading}
-                  onClick={() => void handleExclusionsUpdate(exclusionsAthleteId, exclusionsDraft)}
-                >
-                  Guardar exclusiones
+                  ✕ Cerrar
                 </button>
               </div>
-            </div>
-          ) : null}
+
+              {/* Tab bar */}
+              <div className="chip-row section-spacer">
+                <button
+                  type="button"
+                  className={`ghost-button${activeTemplateTab === "phases" ? " active" : ""}`}
+                  onClick={() => setActiveTemplateTab("phases")}
+                >
+                  Fases{templatePhases.length > 0 ? ` (${templatePhases.length})` : ""}
+                </button>
+                <button
+                  type="button"
+                  className={`ghost-button${activeTemplateTab === "technique" ? " active" : ""}`}
+                  onClick={() => setActiveTemplateTab("technique")}
+                >
+                  Técnica{templateTechniques.length > 0 ? ` (${templateTechniques.length})` : ""}
+                </button>
+              </div>
+
+              {/* ===== FASES TAB ===== */}
+              {activeTemplateTab === "phases" ? (
+                <div className="detail-stack">
+                  {/* Phase list */}
+                  <div className="section-header compact-header">
+                    <strong>Fases de {selectedTemplateMeta.name}</strong>
+                    <button type="button" className="ghost-button" onClick={() => handlePhaseSelection("")}>
+                      + Nueva fase
+                    </button>
+                  </div>
+
+                  <div className="detail-list">
+                    {templatePhases.length ? (
+                      templatePhases.map((phase) => {
+                        const isPhaseSelected = selectedPhaseId === phase.id;
+                        const weeks = phase.masterBlockDays > 0 ? Math.round(phase.durationDays / phase.masterBlockDays) : 1;
+                        const taskCount = phase.days.reduce((total, day) => total + day.tasks.length, 0);
+                        return (
+                          <article key={phase.id} className={`detail-card${isPhaseSelected ? " highlight-card" : ""}`}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 4 }}>
+                              <strong>Fase {phase.orderIndex}: {phase.name}</strong>
+                              <small>{phase.durationDays} días · {weeks} semana(s)</small>
+                            </div>
+                            <span>Bloque maestro: {phase.masterBlockDays} días · {taskCount} ejercicio(s)</span>
+                            {phase.notes ? <p>{phase.notes}</p> : null}
+                            <small>{phase.days.length} día(s) configurado(s)</small>
+                            <div className="chip-row">
+                              <button type="button" className="ghost-button" onClick={() => handlePhaseSelection(phase.id)}>
+                                {isPhaseSelected ? "Editando" : "Editar"}
+                              </button>
+                            </div>
+
+                            {/* Expanded: task list with variant editor */}
+                            {isPhaseSelected && phase.days.length > 0 ? (
+                              <div style={{ marginTop: 12, borderTop: "1px solid #e5eaf0", paddingTop: 12 }}>
+                                {phase.days.map((day) => (
+                                  <div key={day.id} style={{ marginBottom: 12 }}>
+                                    <p className="eyebrow">
+                                      Día {day.dayNumber}{day.title ? ` · ${day.title}` : ""} ({day.dayType})
+                                    </p>
+                                    {day.tasks.length === 0 ? (
+                                      <p className="helper-text" style={{ marginLeft: 8 }}>Sin ejercicios</p>
+                                    ) : null}
+                                    {day.tasks.map((task) => {
+                                      const isTaskSelected = selectedTaskId === task.id;
+                                      return (
+                                        <div key={task.id} style={{ marginLeft: 8, marginBottom: 8 }}>
+                                          <div
+                                            style={{ display: "flex", alignItems: "baseline", gap: 8, cursor: "pointer", flexWrap: "wrap" }}
+                                            onClick={() => {
+                                              setSelectedTaskId(isTaskSelected ? "" : task.id);
+                                              setVariantForm({ weekNumber: "2", exerciseId: "", sets: "", repsOrTimeText: "", notes: "" });
+                                            }}
+                                          >
+                                            <strong style={{ fontSize: 13 }}>{task.name}</strong>
+                                            <span style={{ fontSize: 12, color: "#5a6577" }}>
+                                              {task.sets ? `${task.sets}×` : ""}{task.repsOrTimeText ?? ""}
+                                            </span>
+                                            {task.variants.length > 0 ? (
+                                              <span className="session-chip">{task.variants.length} variante(s)</span>
+                                            ) : null}
+                                            <span style={{ color: "#9aabb8", fontSize: 11 }}>{isTaskSelected ? "▲" : "▼"}</span>
+                                          </div>
+
+                                          {/* Variant section */}
+                                          {isTaskSelected ? (
+                                            <div className="detail-card" style={{ margin: "6px 0 6px 0" }}>
+                                              <p className="eyebrow">Variantes · {task.name}</p>
+                                              <p className="helper-text" style={{ marginBottom: 8 }}>
+                                                Cambia la prescripción o el ejercicio en semanas específicas del bloque
+                                                (semanas 1–{weeks}). La semana base (sin variante) siempre aplica el ejercicio original.
+                                              </p>
+
+                                              {task.variants.length > 0 ? (
+                                                <div style={{ marginBottom: 12 }}>
+                                                  {task.variants.map((variant) => (
+                                                    <div key={variant.id} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "4px 0", borderBottom: "1px solid #f0f3f7", flexWrap: "wrap" }}>
+                                                      <strong style={{ fontSize: 12 }}>Semana {variant.weekNumber}</strong>
+                                                      {variant.exercise ? (
+                                                        <span style={{ fontSize: 12 }}>{variant.exercise.name}</span>
+                                                      ) : (
+                                                        <span style={{ fontSize: 12, color: "#9aabb8" }}>mismo ejercicio</span>
+                                                      )}
+                                                      <span style={{ fontSize: 12 }}>
+                                                        {variant.sets ? `${variant.sets}× ` : ""}{variant.repsOrTimeText ?? ""}
+                                                      </span>
+                                                      {variant.notes ? <span style={{ fontSize: 11, color: "#5a6577" }}>{variant.notes}</span> : null}
+                                                      <button
+                                                        type="button"
+                                                        className="danger-button"
+                                                        style={{ fontSize: 11, padding: "2px 8px" }}
+                                                        disabled={loading}
+                                                        onClick={() => void handleVariantDelete(task.id, variant.id)}
+                                                      >
+                                                        ✕
+                                                      </button>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              ) : (
+                                                <p className="helper-text" style={{ marginBottom: 8 }}>
+                                                  Sin variantes. El bloque maestro se repite igual cada semana.
+                                                </p>
+                                              )}
+
+                                              <form
+                                                className="stack-form"
+                                                style={{ marginTop: 8 }}
+                                                onSubmit={(event) => { event.preventDefault(); void handleVariantSave(task.id); }}
+                                              >
+                                                <p style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>Agregar / actualizar variante</p>
+                                                <div className="form-grid">
+                                                  <label>
+                                                    Semana del bloque (1–{weeks})
+                                                    <input
+                                                      type="number"
+                                                      min="1"
+                                                      max={weeks}
+                                                      value={variantForm.weekNumber}
+                                                      onChange={(event) => setVariantForm((current) => ({ ...current, weekNumber: event.target.value }))}
+                                                      required
+                                                    />
+                                                  </label>
+                                                  <label>
+                                                    Ejercicio alterno (opcional)
+                                                    <select
+                                                      value={variantForm.exerciseId}
+                                                      onChange={(event) => setVariantForm((current) => ({ ...current, exerciseId: event.target.value }))}
+                                                    >
+                                                      <option value="">Mismo ejercicio (solo cambiar prescripción)</option>
+                                                      {exercises.map((ex) => (
+                                                        <option key={ex.id} value={ex.id}>{ex.name}</option>
+                                                      ))}
+                                                    </select>
+                                                  </label>
+                                                  <label>
+                                                    Series
+                                                    <input
+                                                      type="number"
+                                                      min="1"
+                                                      value={variantForm.sets}
+                                                      onChange={(event) => setVariantForm((current) => ({ ...current, sets: event.target.value }))}
+                                                      placeholder={task.sets ? String(task.sets) : "ej. 3"}
+                                                    />
+                                                  </label>
+                                                  <label>
+                                                    Reps / Tiempo
+                                                    <input
+                                                      value={variantForm.repsOrTimeText}
+                                                      onChange={(event) => setVariantForm((current) => ({ ...current, repsOrTimeText: event.target.value }))}
+                                                      placeholder={task.repsOrTimeText ?? "ej. 5 o 30s"}
+                                                    />
+                                                  </label>
+                                                  <label>
+                                                    Notas
+                                                    <input
+                                                      value={variantForm.notes}
+                                                      onChange={(event) => setVariantForm((current) => ({ ...current, notes: event.target.value }))}
+                                                      placeholder="ej. Aumentar 5% carga respecto semana anterior"
+                                                    />
+                                                  </label>
+                                                </div>
+                                                <button className="primary-button" type="submit" disabled={loading}>
+                                                  Guardar variante
+                                                </button>
+                                              </form>
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </article>
+                        );
+                      })
+                    ) : (
+                      <p className="helper-text">
+                        Todavía no hay fases configuradas para este programa. Crea la primera fase para comenzar.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Phase editor form */}
+                  <form
+                    className="stack-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handlePhaseSave();
+                    }}
+                  >
+                    <div className="workflow-note">
+                      <strong>{phaseForm.id ? `Editando fase: ${phaseForm.name || "…"}` : "Nueva fase"}</strong>
+                    </div>
+                    <div className="form-grid">
+                      <label>
+                        Nombre de fase
+                        <input
+                          value={phaseForm.name}
+                          onChange={(event) => setPhaseForm((current) => ({ ...current, name: event.target.value }))}
+                          placeholder="ej. Fuerza base / Potencia / Descarga"
+                        />
+                      </label>
+                      <label>
+                        Orden
+                        <input
+                          value={phaseForm.orderIndex}
+                          onChange={(event) => setPhaseForm((current) => ({ ...current, orderIndex: event.target.value }))}
+                          inputMode="numeric"
+                        />
+                      </label>
+                      <label>
+                        Duración (días)
+                        <input
+                          value={phaseForm.durationDays}
+                          onChange={(event) => setPhaseForm((current) => ({ ...current, durationDays: event.target.value }))}
+                          inputMode="numeric"
+                        />
+                      </label>
+                      <label>
+                        Bloque maestro
+                        <select
+                          value={phaseForm.masterBlockDays}
+                          onChange={(event) =>
+                            setPhaseForm((current) => ({ ...current, masterBlockDays: event.target.value as "7" | "14" }))
+                          }
+                        >
+                          <option value="7">7 días</option>
+                          <option value="14">14 días</option>
+                        </select>
+                      </label>
+                    </div>
+                    <label>
+                      Notas de fase
+                      <textarea
+                        value={phaseForm.notes}
+                        onChange={(event) => setPhaseForm((current) => ({ ...current, notes: event.target.value }))}
+                        rows={3}
+                        placeholder="Qué persigue la fase, cómo se regula la carga y qué técnica debe priorizar el atleta."
+                      />
+                    </label>
+                    <div className="action-row compact-row left-row">
+                      <button className="primary-button" type="submit" disabled={loading}>
+                        {phaseForm.id ? "Guardar fase" : "Crear fase"}
+                      </button>
+                      {selectedPhaseId ? (
+                        <button className="danger-button" type="button" disabled={loading} onClick={() => void handlePhaseDelete()}>
+                          Eliminar fase
+                        </button>
+                      ) : null}
+                    </div>
+                  </form>
+
+                  {/* Import CSV */}
+                  <form
+                    className="stack-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handlePhaseImport();
+                    }}
+                  >
+                    <div className="workflow-note">
+                      <strong>Importar bloque maestro</strong>
+                      <p>
+                        Pega el CSV/texto del bloque de ejercicios para la fase seleccionada. Las técnicas siguen siendo del programa completo; aquí solo estructuras el calendario diario y los bloques.
+                      </p>
+                    </div>
+                    <label>
+                      CSV o texto del bloque
+                      <textarea
+                        value={phaseImportContent}
+                        onChange={(event) => setPhaseImportContent(event.target.value)}
+                        rows={10}
+                        placeholder="Día,Nombre,Series,Reps/Tiempo,Descripción,Peso(Y/N),Unilateral(Y/N),Evolución,Zona,VideoURL"
+                      />
+                    </label>
+                    <div className="chip-row">
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={phaseImportStrict}
+                          onChange={(event) => setPhaseImportStrict(event.target.checked)}
+                        />
+                        Modo estricto
+                      </label>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={phaseImportReplaceExisting}
+                          onChange={(event) => setPhaseImportReplaceExisting(event.target.checked)}
+                        />
+                        Reemplazar contenido existente de la fase
+                      </label>
+                    </div>
+                    <button className="primary-button" type="submit" disabled={loading || !phaseImportContent.trim()}>
+                      Importar en fase
+                    </button>
+                  </form>
+                </div>
+              ) : null}
+
+              {/* ===== TÉCNICA TAB ===== */}
+              {activeTemplateTab === "technique" ? (
+                <div className="detail-stack section-spacer">
+                  <div className="section-header compact-header">
+                    <strong>Técnicas de {selectedTemplateMeta.name}</strong>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => {
+                        setSelectedTechniqueId("");
+                        setSelectedTemplateTechniqueMediaAssets([]);
+                        setTemplateTechniqueForm(emptyTechniqueForm());
+                      }}
+                    >
+                      + Nueva técnica
+                    </button>
+                  </div>
+
+                  <div className="program-list">
+                    {templateTechniques.length ? (
+                      templateTechniques.map((technique) => (
+                        <article key={technique.id} className={`detail-card program-card${selectedTechniqueId === technique.id ? " active" : ""}`}>
+                          <strong>{technique.title}</strong>
+                          <span>{technique.measurementDefinitions.length} medición(es) · {technique.mediaAssets.length} recurso(s)</span>
+                          <p>{technique.description || "Sin descripción"}</p>
+                          <div className="chip-row">
+                            <button
+                              type="button"
+                              className={`ghost-button${selectedTechniqueId === technique.id ? " active" : ""}`}
+                              onClick={() => {
+                                setSelectedTechniqueId(technique.id);
+                                setSelectedTemplateTechniqueMediaAssets(technique.mediaAssets);
+                                setTechniquePoseProcessing(emptyTechniquePoseProcessingState());
+                                setTemplateTechniqueForm(mapTechniqueToForm(technique));
+                                setTechniqueUploadState(emptyTechniqueUploadState());
+                              }}
+                            >
+                              Editar
+                            </button>
+                          </div>
+                        </article>
+                      ))
+                    ) : (
+                      <p className="helper-text">Este programa todavía no tiene técnicas creadas.</p>
+                    )}
+                  </div>
+
+                  <form
+                    className="stack-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleTechniqueSave();
+                    }}
+                  >
+                    <div className="form-grid">
+                      <label>
+                        Título de técnica
+                        <input
+                          value={templateTechniqueForm.title}
+                          onChange={(event) => setTemplateTechniqueForm((current) => ({ ...current, title: event.target.value }))}
+                          placeholder="ej. Técnica de sprint: postura y primer paso"
+                        />
+                      </label>
+                      <label>
+                        Texto explicativo
+                        <textarea
+                          value={templateTechniqueForm.description}
+                          onChange={(event) => setTemplateTechniqueForm((current) => ({ ...current, description: event.target.value }))}
+                          rows={5}
+                          placeholder="Explica la técnica ideal, errores frecuentes y qué debe sentir el atleta."
+                        />
+                      </label>
+                    </div>
+                    <button className="primary-button" type="submit" disabled={loading}>
+                      Guardar técnica
+                    </button>
+                  </form>
+
+                  <form className="stack-form" onSubmit={(event) => void handleTechniqueMediaUpload(event)}>
+                    <div className="workflow-note">
+                      <strong>Referencia profesional visible</strong>
+                      <p>
+                        Marca el video como referencia biomecánica profesional si este recurso debe generar
+                        la base de comparación con landmarks para la técnica.
+                      </p>
+                    </div>
+                    <div className="form-grid">
+                      <label>
+                        Tipo de recurso
+                        <select
+                          value={techniqueUploadState.kind}
+                          onChange={(event) =>
+                            setTechniqueUploadState((current) => ({
+                              ...current,
+                              kind: event.target.value as MediaKind,
+                              useAsProReference: event.target.value === "VIDEO" ? current.useAsProReference : false,
+                            }))
+                          }
+                        >
+                          <option value="VIDEO">Video</option>
+                          <option value="GIF">GIF</option>
+                          <option value="IMAGE">Imagen</option>
+                        </select>
+                      </label>
+                      <label>
+                        Título del recurso
+                        <input
+                          value={techniqueUploadState.title}
+                          onChange={(event) => setTechniqueUploadState((current) => ({ ...current, title: event.target.value }))}
+                          placeholder="ej. Técnica frontal"
+                        />
+                      </label>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={techniqueUploadState.isPrimary}
+                          onChange={(event) => setTechniqueUploadState((current) => ({ ...current, isPrimary: event.target.checked }))}
+                        />
+                        Marcar como principal
+                      </label>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={techniqueUploadState.useAsProReference}
+                          disabled={techniqueUploadState.kind !== "VIDEO"}
+                          onChange={(event) =>
+                            setTechniqueUploadState((current) => ({ ...current, useAsProReference: event.target.checked }))
+                          }
+                        />
+                        Usar este video como referencia biomecánica profesional
+                      </label>
+                      <label>
+                        Velocidad de la referencia
+                        <select
+                          value={techniqueUploadState.referenceMotionProfile}
+                          disabled={techniqueUploadState.kind !== "VIDEO" || !techniqueUploadState.useAsProReference}
+                          onChange={(event) =>
+                            setTechniqueUploadState((current) => ({
+                              ...current,
+                              referenceMotionProfile: event.target.value as TechniqueReferenceMotionProfile,
+                            }))
+                          }
+                        >
+                          <option value="REAL_TIME">Velocidad normal</option>
+                          <option value="SLOW_MOTION">Camara lenta</option>
+                        </select>
+                      </label>
+                      <label>
+                        Archivo
+                        <input
+                          type="file"
+                          accept="video/*,image/*"
+                          onChange={(event) =>
+                            setTechniqueUploadState((current) => ({ ...current, file: event.target.files?.[0] ?? null }))
+                          }
+                        />
+                      </label>
+                    </div>
+                    <button className="primary-button" type="submit" disabled={loading || !techniqueUploadState.file}>
+                      Subir recurso de técnica
+                    </button>
+                  </form>
+
+                  <div className="detail-card program-card">
+                    <strong>Estado de la referencia biomecánica</strong>
+                    <p>{formatTechniquePoseSummary(selectedTechnique?.proLandmarks)}</p>
+                    <div className="biomechanics-summary-grid">
+                      <span className="biomechanics-badge">
+                        {selectedTechniqueReferenceAsset
+                          ? `Referencia visible: ${selectedTechniqueReferenceAsset.title || "video profesional"}`
+                          : "Referencia visible: todavía no asignada"}
+                      </span>
+                      <span className="biomechanics-badge">
+                        {`Modo: ${formatReferenceMotionProfile(normalizeTechniqueBiomechanicsConfig(selectedTechnique?.biomechanicsConfig).referenceMotionProfile)}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="program-list">
+                    {selectedTemplateTechniqueMediaAssets.length ? (
+                      selectedTemplateTechniqueMediaAssets.map((asset) => {
+                        const assetUrl = normalizeMediaUrl(asset.url);
+                        return (
+                          <article key={asset.id} className="detail-card program-card">
+                            <strong>{asset.title || "Recurso de técnica"}</strong>
+                            <span>{asset.kind}{asset.isPrimary ? " · principal" : ""}</span>
+                            {assetUrl ? (
+                              asset.kind === "VIDEO" ? (
+                                <video controls preload="metadata" style={{ width: "100%", borderRadius: 16, marginTop: 12 }} src={assetUrl} />
+                              ) : (
+                                <img src={assetUrl} alt={asset.title || "Recurso de tecnica"} style={{ width: "100%", borderRadius: 16, marginTop: 12 }} />
+                              )
+                            ) : null}
+                            <div className="chip-row">
+                              <button
+                                type="button"
+                                className="danger-button"
+                                onClick={() => void handleTechniqueMediaDelete(asset.id)}
+                                disabled={loading}
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })
+                    ) : (
+                      <p className="helper-text">Todavia no hay recursos de técnica cargados para este programa.</p>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            /* Exclusiones – shown when no program is selected */
+            <>
+              <div className="section-header">
+                <div>
+                  <p className="eyebrow">Exclusiones por atleta</p>
+                  <h2>Ejercicios excluidos</h2>
+                </div>
+              </div>
+              <p className="helper-text section-spacer">
+                Selecciona un atleta para gestionar qué ejercicios se omiten al generar su programa (ej. dolor de espalda → quitar peso muerto).
+              </p>
+
+              <div className="detail-list">
+                {allAthletes.map((athlete) => (
+                  <article key={athlete.id} className={`detail-card${exclusionsAthleteId === athlete.id ? " active" : ""}`}>
+                    <strong>{athlete.displayName}</strong>
+                    <span>{athlete.team?.name ?? "Sin equipo"} · {athlete.sport || "Sin deporte"}</span>
+                    {athlete.exerciseExclusions?.length ? (
+                      <p>{athlete.exerciseExclusions.length} ejercicio(s) excluido(s)</p>
+                    ) : (
+                      <p>Sin exclusiones</p>
+                    )}
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => {
+                        setExclusionsAthleteId(athlete.id);
+                        setExclusionsDraft(athlete.exerciseExclusions ?? []);
+                      }}
+                    >
+                      Editar exclusiones
+                    </button>
+                  </article>
+                ))}
+              </div>
+
+              {exclusionsAthleteId ? (
+                <div className="modal-overlay" onClick={() => setExclusionsAthleteId("")}>
+                  <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+                    <div className="section-header">
+                      <h3>Exclusiones de {allAthletes.find((a) => a.id === exclusionsAthleteId)?.displayName}</h3>
+                      <button type="button" className="ghost-button" onClick={() => setExclusionsAthleteId("")}>✕</button>
+                    </div>
+                    <p className="helper-text">Marca los ejercicios que NO se incluirán al generar el programa de este atleta.</p>
+                    <div className="detail-list section-spacer">
+                      {exercises.map((ex) => (
+                        <label key={ex.id} className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={exclusionsDraft.includes(ex.id)}
+                            onChange={(e) => {
+                              setExclusionsDraft((d) =>
+                                e.target.checked ? [...d, ex.id] : d.filter((id) => id !== ex.id),
+                              );
+                            }}
+                          />
+                          {ex.name}
+                        </label>
+                      ))}
+                    </div>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void handleExclusionsUpdate(exclusionsAthleteId, exclusionsDraft)}
+                    >
+                      Guardar exclusiones
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
         </article>
       </section>
       ) : null}

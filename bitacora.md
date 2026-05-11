@@ -8,6 +8,59 @@
 - **apps/web** – Panel web (Vite + React 19)
 - **apps/mobile** – App móvil principal (Expo SDK 54 + React Native 0.81)
 - **apps/mobile2** – Variante gamificada de la app móvil (Expo SDK 54)
+
+---
+
+## Registro de trabajo
+
+### 14. Fix cycleLengthDays, variantes de ejercicio por semana, reestructura UI /programas (2026-05-11)
+
+**Problemas resueltos:**
+
+1. **Bug cycleLengthDays** — Al crear un programa wizard de 21 días, el panel mostraba "ciclo de 21 días" aunque al agregar una segunda fase de 14 días el total debería ser 35 días. La raíz era que `cycleLengthDays` del `ProgramTemplate` solo se escribía una vez (durante la creación del wizard) y no se actualizaba al agregar/editar/eliminar fases.
+
+2. **Segunda fase no conectada visualmente** — El editor de fases vivía dentro del mismo panel-card que el listado de programas (left panel), sin encabezado claro que indicara a qué programa pertenecían las fases. El usuario no podía distinguir el contexto.
+
+3. **Nuevo feature: variantes de ejercicio por semana** — Cada `ExerciseTaskTemplate` puede tener variantes (`ExerciseTaskVariant`) que reemplazan la prescripción en una semana específica del bloque maestro (ej. semana 2: más series; semana 3: descarga). El ejercicio base se puede overridear o no.
+
+**Cambios aplicados:**
+
+1. **Schema Prisma** (`apps/api/prisma/schema.prisma`)
+   - Nuevo modelo `ExerciseTaskVariant` con campos `exerciseTaskId`, `weekNumber` (1-52), `exerciseId?`, `name?`, `sets?`, `repsOrTimeText?`, `notes?`
+   - Relación `variants ExerciseTaskVariant[]` agregada a `ExerciseTaskTemplate`
+   - Relación `exerciseTaskVariants ExerciseTaskVariant[]` agregada a `Exercise`
+   - Unique index `(exerciseTaskId, weekNumber)` para evitar duplicados por semana
+
+2. **Migración** (`apps/api/prisma/migrations/20260511_add_exercise_task_variant/migration.sql`)
+   - CREATE TABLE + índices + FK con CASCADE en `exerciseTaskId` y SET NULL en `exerciseId`
+
+3. **API** (`apps/api/src/routes/admin-templates.ts`)
+   - `loadWizardPhases` actualizado: incluye `variants { orderBy: weekNumber, include: exercise }` en tasks
+   - Nueva función `syncTemplateCycleLengthFromPhases(db, programTemplateId)`: recalcula y persiste `cycleLengthDays` como suma de `durationDays` de todas las fases del template
+   - Llamada a `syncTemplateCycleLengthFromPhases` insertada en cada handler de fase (POST, PUT, DELETE) dentro del transaction, antes de retornar las fases
+   - Nuevas rutas de variantes:
+     - `POST   /api/v1/admin/program-templates/:code/wizard/tasks/:taskId/variants` (upsert por weekNumber)
+     - `PUT    /api/v1/admin/program-templates/:code/wizard/tasks/:taskId/variants/:variantId`
+     - `DELETE /api/v1/admin/program-templates/:code/wizard/tasks/:taskId/variants/:variantId`
+   - Ownership verificada via join `task → phaseDayTemplate → phaseTemplate → programTemplateId`
+
+4. **Frontend** (`apps/web/src/App.tsx`)
+   - Nuevo tipo `ExerciseTaskVariantRecord` y `ProgramPhaseTaskRecord` actualizado con `variants: ExerciseTaskVariantRecord[]`
+   - `applyLoadedTemplate` ahora sincroniza `cycleLengthDays` en `allTemplates` al cargar fases (suma de `durationDays`)
+   - Nuevos estados: `activeTemplateTab ("phases"|"technique")`, `selectedTaskId`, `variantForm`
+   - Nuevos handlers: `handleVariantSave(taskId)`, `handleVariantDelete(taskId, variantId)`
+   - **Reestructura completa de la sección /programas**:
+     - **Panel izquierdo**: Solo lista de programas con badge "Wizard · N fase(s)" o "Legacy", duración total, botón "Abrir", "Editar metadatos", "Eliminar". Todos los modales (type chooser, legacy form, wizard form) movidos aquí.
+     - **Panel derecho**: Cuando hay programa seleccionado → encabezado con nombre/código/duración total + tabs [Fases | Técnica]. Cuando nada seleccionado → Exclusiones por atleta (sin cambios).
+     - **Tab Fases**: Lista de fases numeradas (con semanas y conteo de tasks), expandible al hacer click → muestra días con lista de tasks. Cada task es clickeable para abrir su editor de variantes inline.
+     - **Tab Técnica**: Editor de técnica completo (funcionalidad sin cambios, solo reubicado).
+
+**Validación:**
+- `npm --prefix apps/api run prisma:generate` ✓
+- `npm --prefix apps/api run build` ✓
+- `npm --prefix apps/web run build` ✓
+
+
 - **packages/shared** – Tipos y utilidades compartidas
 
 ---

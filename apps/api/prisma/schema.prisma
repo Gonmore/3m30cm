@@ -189,6 +189,7 @@ model Exercise {
   mediaAssets    ExerciseMediaAsset[]
   prescriptions  ExercisePrescriptionTemplate[]
   taskTemplates  ExerciseTaskTemplate[]
+  exerciseTaskVariants ExerciseTaskVariant[]
   sessionExercises SessionExercise[]
   asBlock        ExerciseBlock?
   inBlocks       ExerciseBlockItem[]           @relation("BlockItemExercise")
@@ -316,9 +317,29 @@ model ExerciseTaskTemplate {
   updatedAt            DateTime           @updatedAt
   phaseDayTemplate     ProgramPhaseDayTemplate @relation(fields: [phaseDayTemplateId], references: [id], onDelete: Cascade)
   exercise             Exercise?          @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+  variants             ExerciseTaskVariant[]
 
   @@unique([phaseDayTemplateId, orderIndex])
   @@index([phaseDayTemplateId, orderIndex])
+  @@index([exerciseId])
+}
+
+model ExerciseTaskVariant {
+  id               String               @id @default(cuid())
+  exerciseTaskId   String
+  weekNumber       Int
+  exerciseId       String?
+  name             String?
+  sets             Int?
+  repsOrTimeText   String?
+  notes            String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  exerciseTask     ExerciseTaskTemplate @relation(fields: [exerciseTaskId], references: [id], onDelete: Cascade)
+  exercise         Exercise?            @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+
+  @@unique([exerciseTaskId, weekNumber])
+  @@index([exerciseTaskId])
   @@index([exerciseId])
 }
 

@@ -652,11 +652,32 @@ async function loadWizardPhases(db: PhaseDbClient, programTemplateId: string) {
               exercise: {
                 select: { id: true, name: true, slug: true },
               },
+              variants: {
+                orderBy: { weekNumber: "asc" },
+                include: {
+                  exercise: {
+                    select: { id: true, name: true, slug: true },
+                  },
+                },
+              },
             },
           },
         },
       },
     },
+  });
+}
+
+async function syncTemplateCycleLengthFromPhases(db: PhaseDbClient, programTemplateId: string) {
+  const phases = await db.programPhaseTemplate.findMany({
+    where: { programTemplateId },
+    select: { durationDays: true },
+  });
+  if (phases.length === 0) return;
+  const totalDays = phases.reduce((sum, phase) => sum + phase.durationDays, 0);
+  await db.programTemplate.update({
+    where: { id: programTemplateId },
+    data: { cycleLengthDays: totalDays },
   });
 }
 
@@ -796,6 +817,7 @@ adminTemplatesRouter.post(
         const orderedIds = existingPhases.map((phase) => phase.id);
         orderedIds.splice(desiredIndex, 0, createdPhase.id);
         await normalizeWizardPhaseOrder(tx, orderedIds);
+        await syncTemplateCycleLengthFromPhases(tx, template.id);
 
         return loadWizardPhases(tx, template.id);
       });
@@ -862,6 +884,7 @@ adminTemplatesRouter.put(
           orderedIds.splice(desiredIndex, 0, phaseId);
           await normalizeWizardPhaseOrder(tx, orderedIds);
         }
+        await syncTemplateCycleLengthFromPhases(tx, template.id);
 
         return loadWizardPhases(tx, template.id);
       });
@@ -924,6 +947,7 @@ adminTemplatesRouter.delete(
         });
 
         await normalizeWizardPhaseOrder(tx, remainingPhases.map((phase) => phase.id));
+        await syncTemplateCycleLengthFromPhases(tx, template.id);
         return loadWizardPhases(tx, template.id);
       });
 
@@ -1239,6 +1263,197 @@ adminTemplatesRouter.post(
 
       console.error("Failed to persist wizard phase import", error);
       res.status(500).json({ message: "Failed to persist wizard phase import" });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Variant CRUD
+// ---------------------------------------------------------------------------
+
+const createVariantSchema = z.object({
+  weekNumber: z.number().int().min(1).max(52),
+  exerciseId: z.string().nullable().optional(),
+  name: z.string().trim().nullable().optional(),
+  sets: z.number().int().positive().nullable().optional(),
+  repsOrTimeText: z.string().trim().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+});
+
+const updateVariantSchema = z.object({
+  exerciseId: z.string().nullable().optional(),
+  name: z.string().trim().nullable().optional(),
+  sets: z.number().int().positive().nullable().optional(),
+  repsOrTimeText: z.string().trim().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+}).refine(
+  (value) => Object.keys(value).length > 0,
+  { message: "At least one field must be provided" },
+);
+
+async function resolveTaskOwnership(code: string, taskId: string) {
+  const template = await prisma.programTemplate.findUnique({
+    where: { code },
+    select: { id: true, code: true },
+  });
+  if (!template) return null;
+
+  const task = await prisma.exerciseTaskTemplate.findUnique({
+    where: { id: taskId },
+    select: {
+      id: true,
+      phaseDayTemplate: {
+        select: {
+          phaseTemplate: {
+            select: { programTemplateId: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!task || task.phaseDayTemplate.phaseTemplate.programTemplateId !== template.id) return null;
+
+  return { template, task };
+}
+
+adminTemplatesRouter.post(
+  "/program-templates/:code/wizard/tasks/:taskId/variants",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      const taskId = getStringParam(req.params.taskId);
+      if (!code || !taskId) {
+        res.status(400).json({ message: "Template code and task id are required" });
+        return;
+      }
+
+      const payload = createVariantSchema.parse(req.body);
+      const ownership = await resolveTaskOwnership(code, taskId);
+      if (!ownership) {
+        res.status(404).json({ message: "Task not found for this template" });
+        return;
+      }
+
+      await prisma.exerciseTaskVariant.upsert({
+        where: { exerciseTaskId_weekNumber: { exerciseTaskId: taskId, weekNumber: payload.weekNumber } },
+        create: {
+          exerciseTaskId: taskId,
+          weekNumber: payload.weekNumber,
+          exerciseId: payload.exerciseId ?? null,
+          name: payload.name ?? null,
+          sets: payload.sets ?? null,
+          repsOrTimeText: payload.repsOrTimeText ?? null,
+          notes: payload.notes ?? null,
+        },
+        update: {
+          exerciseId: payload.exerciseId ?? null,
+          name: payload.name ?? null,
+          sets: payload.sets ?? null,
+          repsOrTimeText: payload.repsOrTimeText ?? null,
+          notes: payload.notes ?? null,
+        },
+      });
+
+      const phases = await loadWizardPhases(prisma, ownership.template.id);
+      res.status(201).json({ templateCode: ownership.template.code, phases });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid variant payload", issues: error.issues });
+        return;
+      }
+      console.error("Failed to create variant", error);
+      res.status(500).json({ message: "Failed to create variant" });
+    }
+  },
+);
+
+adminTemplatesRouter.put(
+  "/program-templates/:code/wizard/tasks/:taskId/variants/:variantId",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      const taskId = getStringParam(req.params.taskId);
+      const variantId = getStringParam(req.params.variantId);
+      if (!code || !taskId || !variantId) {
+        res.status(400).json({ message: "Template code, task id, and variant id are required" });
+        return;
+      }
+
+      const payload = updateVariantSchema.parse(req.body);
+      const ownership = await resolveTaskOwnership(code, taskId);
+      if (!ownership) {
+        res.status(404).json({ message: "Task not found for this template" });
+        return;
+      }
+
+      const variant = await prisma.exerciseTaskVariant.findUnique({
+        where: { id: variantId },
+        select: { exerciseTaskId: true },
+      });
+      if (!variant || variant.exerciseTaskId !== taskId) {
+        res.status(404).json({ message: "Variant not found for this task" });
+        return;
+      }
+
+      await prisma.exerciseTaskVariant.update({
+        where: { id: variantId },
+        data: {
+          ...(Object.prototype.hasOwnProperty.call(payload, "exerciseId") ? { exerciseId: payload.exerciseId ?? null } : {}),
+          ...(Object.prototype.hasOwnProperty.call(payload, "name") ? { name: payload.name ?? null } : {}),
+          ...(Object.prototype.hasOwnProperty.call(payload, "sets") ? { sets: payload.sets ?? null } : {}),
+          ...(Object.prototype.hasOwnProperty.call(payload, "repsOrTimeText") ? { repsOrTimeText: payload.repsOrTimeText ?? null } : {}),
+          ...(Object.prototype.hasOwnProperty.call(payload, "notes") ? { notes: payload.notes ?? null } : {}),
+        },
+      });
+
+      const phases = await loadWizardPhases(prisma, ownership.template.id);
+      res.json({ templateCode: ownership.template.code, phases });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid variant payload", issues: error.issues });
+        return;
+      }
+      console.error("Failed to update variant", error);
+      res.status(500).json({ message: "Failed to update variant" });
+    }
+  },
+);
+
+adminTemplatesRouter.delete(
+  "/program-templates/:code/wizard/tasks/:taskId/variants/:variantId",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      const taskId = getStringParam(req.params.taskId);
+      const variantId = getStringParam(req.params.variantId);
+      if (!code || !taskId || !variantId) {
+        res.status(400).json({ message: "Template code, task id, and variant id are required" });
+        return;
+      }
+
+      const ownership = await resolveTaskOwnership(code, taskId);
+      if (!ownership) {
+        res.status(404).json({ message: "Task not found for this template" });
+        return;
+      }
+
+      const variant = await prisma.exerciseTaskVariant.findUnique({
+        where: { id: variantId },
+        select: { exerciseTaskId: true },
+      });
+      if (!variant || variant.exerciseTaskId !== taskId) {
+        res.status(404).json({ message: "Variant not found for this task" });
+        return;
+      }
+
+      await prisma.exerciseTaskVariant.delete({ where: { id: variantId } });
+
+      const phases = await loadWizardPhases(prisma, ownership.template.id);
+      res.json({ templateCode: ownership.template.code, phases });
+    } catch (error) {
+      console.error("Failed to delete variant", error);
+      res.status(500).json({ message: "Failed to delete variant" });
     }
   },
 );

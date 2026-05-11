@@ -363,7 +363,39 @@ Notas:
 - Si `phaseId` existe, actualiza esa fase; si no existe, crea una fase nueva.
 - Si `replaceExisting=true`, reemplaza el bloque maestro previo de la fase.
 - Con `strict=true`, falla si hay ejercicios no resolubles en catálogo.
+
+> **cycleLengthDays auto-sync**: Los endpoints `POST`, `PUT` y `DELETE` de fases wizard recalculan automáticamente `ProgramTemplate.cycleLengthDays` como suma de `durationDays` de todas las fases del template. Para programas wizard este campo es siempre derivado.
+
+---
+
+### POST `/admin/program-templates/:code/wizard/tasks/:taskId/variants`
+Crea o actualiza (upsert por `weekNumber`) una variante de prescripción para un ejercicio en una semana específica del bloque maestro.
+
+**Body:**
+```json
+{
+  "weekNumber": "number 1-52 (required)",
+  "exerciseId": "string | null (optional – si null, mismo ejercicio)",
+  "name": "string | null (optional)",
+  "sets": "number | null (optional)",
+  "repsOrTimeText": "string | null (optional)",
+  "notes": "string | null (optional)"
+}
 ```
+
+**Respuesta 201:** `{ templateCode, phases }` (igual que los endpoints de fases)
+
+Notas:
+- Si ya existe variante para `(taskId, weekNumber)`, hace upsert (actualiza).
+- Verificación de ownership: el task debe pertenecer a una fase del template indicado por `code`.
+
+### PUT `/admin/program-templates/:code/wizard/tasks/:taskId/variants/:variantId`
+Actualiza campos parciales de una variante existente. Responde `{ templateCode, phases }`.
+
+### DELETE `/admin/program-templates/:code/wizard/tasks/:taskId/variants/:variantId`
+Elimina una variante. Responde `{ templateCode, phases }`.
+
+---
 
 ### GET `/admin/program-templates/:code/techniques`
 Lista las tecnicas del template, con media y definiciones de medicion.
