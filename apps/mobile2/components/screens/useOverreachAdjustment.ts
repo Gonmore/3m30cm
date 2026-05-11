@@ -70,8 +70,8 @@ export function useOverreachAdjustment(options: Options): OverreachAdjustment {
     const skippedIds = new Set<string>();
 
     for (const se of session.sessionExercises) {
-      // Skip VELOCITY exercises entirely
-      if (se.exercise.zone === "VELOCITY") {
+      // Skip VELOCITY evolution exercises entirely (max-speed intent, no load to halve)
+      if (se.exercise.evolution === "VELOCITY") {
         skippedIds.add(se.id);
         continue;
       }
