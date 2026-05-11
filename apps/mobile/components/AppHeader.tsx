@@ -1,4 +1,5 @@
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { rewriteLocalAssetUrl } from "./runtimeConfig";
 import { R, S } from "./tokens";
@@ -17,7 +18,7 @@ export default function AppHeader({ title, subtitle, onMenuPress, athleteInitial
   const insets = useSafeAreaInsets();
   const { C } = useTheme();
   const styles = makeStyles(C);
-  const resolvedAvatarUrl = rewriteLocalAssetUrl(avatarUrl);
+  const resolvedAvatarUrl = avatarUrl ? (rewriteLocalAssetUrl(avatarUrl) ?? avatarUrl) : null;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + S.xs }]}>
@@ -45,9 +46,9 @@ export default function AppHeader({ title, subtitle, onMenuPress, athleteInitial
       </View>
 
       {/* Avatar */}
-      <Pressable style={styles.avatar} hitSlop={8} onPress={onAvatarPress}>
+      <Pressable style={styles.avatar} hitSlop={20} onPress={onAvatarPress} android_ripple={{ color: 'rgba(255,255,255,0.2)', borderless: true, radius: 22 }}>
         {resolvedAvatarUrl ? (
-          <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatarImage} />
+          <ExpoImage source={{ uri: resolvedAvatarUrl }} style={styles.avatarImage} contentFit="cover" />
         ) : (
           <Text style={styles.avatarText}>{athleteInitials}</Text>
         )}
@@ -100,18 +101,20 @@ function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
       fontSize: 12,
     },
     avatar: {
-      width: 36,
-      height: 36,
+      width: 40,
+      height: 40,
       borderRadius: R.full,
       backgroundColor: C.amber,
       alignItems: "center",
       justifyContent: "center",
       flexShrink: 0,
       overflow: "hidden",
+      borderWidth: 1,
+      borderColor: C.borderStrong,
     },
     avatarImage: {
-      width: 36,
-      height: 36,
+      width: 40,
+      height: 40,
       borderRadius: R.full,
     },
     avatarText: {

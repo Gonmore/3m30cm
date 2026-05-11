@@ -1,8 +1,8 @@
 import * as ImagePicker from "expo-image-picker";
+import { Image as ExpoImage } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
-  Image,
   Modal,
   Pressable,
   StyleSheet,
@@ -36,21 +36,26 @@ const makeStyles = (C: ColorPalette) =>
     overlay: {
       flex: 1,
       backgroundColor: C.overlay,
-      justifyContent: "flex-end",
+      justifyContent: "flex-start",
+      alignItems: "flex-end",
     },
     sheet: {
       backgroundColor: C.surface,
       borderTopLeftRadius: R.xl,
-      borderTopRightRadius: R.xl,
+      borderTopRightRadius: 0,
+      borderBottomLeftRadius: R.xl,
+      borderBottomRightRadius: 0,
       paddingHorizontal: S.lg,
       paddingTop: S.lg,
       paddingBottom: S.xl,
       gap: S.md,
-      borderTopWidth: 1,
+      borderLeftWidth: 1,
       borderColor: C.border,
+      width: 320,
+      minHeight: "100%",
     },
     handle: {
-      width: 40,
+      width: 56,
       height: 4,
       borderRadius: 2,
       backgroundColor: C.borderStrong,
@@ -218,7 +223,7 @@ export function ProfileModal({
 }: ProfileModalProps) {
   const { mode, toggleTheme, C } = useTheme();
   const styles = useMemo(() => makeStyles(C), [C]);
-  const resolvedAvatarUrl = rewriteLocalAssetUrl(avatarUrl);
+  const resolvedAvatarUrl = avatarUrl ? (rewriteLocalAssetUrl(avatarUrl) ?? avatarUrl) : null;
 
   const [view, setView] = useState<"main" | "changePassword">("main");
   const [loading, setLoading] = useState(false);
@@ -328,7 +333,7 @@ export function ProfileModal({
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="fade"
       onRequestClose={() => { resetState(); onClose(); }}
     >
       <Pressable style={styles.overlay} onPress={() => { resetState(); onClose(); }}>
@@ -340,7 +345,7 @@ export function ProfileModal({
               {/* Avatar row */}
               <View style={styles.avatarRow}>
                 {resolvedAvatarUrl ? (
-                  <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatar} />
+                  <ExpoImage source={{ uri: resolvedAvatarUrl }} style={styles.avatar} contentFit="cover" cachePolicy="none" />
                 ) : (
                   <View style={styles.avatarPlaceholder}>
                     <Ionicons name="person" size={28} color={C.textMuted} />

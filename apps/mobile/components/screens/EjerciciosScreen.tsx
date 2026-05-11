@@ -150,6 +150,7 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
   const tickSoundRef = useRef<import("expo-av").Audio.Sound | null>(null);
   const tackSoundRef = useRef<import("expo-av").Audio.Sound | null>(null);
   const tackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechReadyRef = useRef(false);
 
   useEffect(() => {
     Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
@@ -157,9 +158,14 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
       .then(({ sound }) => { tickSoundRef.current = sound; }).catch(() => {});
     Audio.Sound.createAsync(require("../../assets/sounds/tack.wav"), { shouldPlay: false, volume: 1.0 })
       .then(({ sound }) => { tackSoundRef.current = sound; }).catch(() => {});
+
+    const warmupTimeout = setTimeout(() => { speechReadyRef.current = true; }, 700);
+
     return () => {
+      clearTimeout(warmupTimeout);
       tickSoundRef.current?.unloadAsync().catch(() => {});
       tackSoundRef.current?.unloadAsync().catch(() => {});
+      Speech.stop();
     };
   }, []);
 
@@ -197,7 +203,9 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
   }
 
   function speak(text: string) {
-    Speech.stop();
+    if (!speechReadyRef.current) {
+      return;
+    }
     Speech.speak(text, { language: "es-ES", rate: 1.1 });
   }
 
@@ -216,6 +224,14 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
     setRemaining(workSeconds);
     setCurrentSet(1);
   }
+
+  useEffect(() => {
+    clearTimer();
+    setPhase("idle");
+    setTick(3);
+    setRemaining(workSeconds);
+    setCurrentSet(1);
+  }, [workSeconds, restSeconds, totalSets, perLeg]);
 
   useEffect(() => {
     if (phase === "idle" || phase === "done") return;
@@ -413,16 +429,24 @@ return StyleSheet.create({
 });
 }
 
+interface JumpTechniqueOption {
+  id: string;
+  title: string;
+}
+
 interface EjerciciosScreenProps {
   selectedSession: SessionDetail | null;
   selectedSessionGuidance: SessionGuidance | null;
   logDraft: LogDraftState | null;
   exerciseStep: number;
   loading: boolean;
+  jumpTechniques?: JumpTechniqueOption[];
+  selectedJumpTechniqueId?: string | null;
   onSetExerciseStep: (step: number) => void;
   onSetLogDraft: (updater: (prev: LogDraftState | null) => LogDraftState | null) => void;
   onToggleExercise: (exId: string) => void;
   onApplyJumpTest: (cm: number) => void;
+  onSelectJumpTechnique?: (techniqueId: string | null) => void;
   onSubmitLog: () => void;
   onShowJumpGuide: () => void;
   onBack: () => void;
@@ -434,10 +458,13 @@ export default function EjerciciosScreen({
   logDraft,
   exerciseStep,
   loading,
+  jumpTechniques = [],
+  selectedJumpTechniqueId = null,
   onSetExerciseStep,
   onSetLogDraft,
   onToggleExercise,
   onApplyJumpTest,
+  onSelectJumpTechnique = () => undefined,
   onSubmitLog,
   onShowJumpGuide,
   onBack,
@@ -649,11 +676,13 @@ export default function EjerciciosScreen({
 
               <View style={styles.exerciseActions}>
                 <Pressable style={styles.btnComplete} onPress={handleComplete} disabled={loading}>
-                  <Text style={styles.btnCompleteText}>✓ Completar</Text>
+                  <Text style={styles.btnCompleteText}>Completar ✓</Text>
                 </Pressable>
-                <Pressable style={styles.btnSkip} onPress={handleSkip}>
-                  <Text style={styles.btnSkipText}>Saltar →</Text>
-                </Pressable>
+                <View style={styles.exerciseActionsSub}>
+                  <Pressable style={styles.btnSkip} onPress={handleSkip}>
+                    <Text style={styles.btnSkipText}>Saltar esta vez</Text>
+                  </Pressable>
+                </View>
               </View>
             </View>
           );
@@ -758,6 +787,7 @@ export default function EjerciciosScreen({
             {/* Timer block (only for timed exercises) */}
             {hasTimer ? (
               <ExerciseTimer
+                key={`${currentExercise.id}:${workSec}:${restSec}:${sets}:${currentExercise.exercise.perLeg ? "leg" : "both"}`}
                 workSeconds={workSec}
                 restSeconds={restSec}
                 totalSets={sets}
@@ -777,17 +807,19 @@ export default function EjerciciosScreen({
             ) : null}
 
             <View style={styles.exerciseActions}>
-              {exerciseStep > 0 ? (
-                <Pressable style={styles.btnPrev} onPress={handlePrevious}>
-                  <Text style={styles.btnPrevText}>← Anterior</Text>
-                </Pressable>
-              ) : null}
               <Pressable style={[styles.btnComplete, isCurrentCompleted ? styles.btnCompleteDisabled : null]} onPress={handleComplete} disabled={loading || isCurrentCompleted}>
-                <Text style={[styles.btnCompleteText, isCurrentCompleted ? styles.btnCompleteTextDisabled : null]}>{isCurrentCompleted ? "✓ Completado" : "✓ Completar"}</Text>
+                <Text style={[styles.btnCompleteText, isCurrentCompleted ? styles.btnCompleteTextDisabled : null]}>{isCurrentCompleted ? "✓ Listo" : "✓ Completar"}</Text>
               </Pressable>
-              <Pressable style={styles.btnSkip} onPress={handleSkip}>
-                <Text style={styles.btnSkipText}>Saltar →</Text>
-              </Pressable>
+              <View style={styles.exerciseActionsSub}>
+                {exerciseStep > 0 ? (
+                  <Pressable style={styles.btnPrev} onPress={handlePrevious}>
+                    <Text style={styles.btnPrevText}>← Atrás</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable style={styles.btnSkip} onPress={handleSkip}>
+                  <Text style={styles.btnSkipText}>Saltar esta vez</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         );
@@ -830,8 +862,8 @@ export default function EjerciciosScreen({
             }
           />
 
-          {/* Jump height */}
-          <Text style={styles.fieldLabel}>Altura máx del salto (cm)</Text>
+          {/* Jump height + técnica inline */}
+          <Text style={styles.fieldLabel}>Altura máx del salto (cm) + Técnica</Text>
           <View style={styles.jumpRow}>
             <TextInput
               keyboardType="decimal-pad"
@@ -844,14 +876,32 @@ export default function EjerciciosScreen({
               }
             />
             <Pressable style={styles.jumpGuideBtn} onPress={onShowJumpGuide}>
-              <Text style={styles.jumpGuideBtnText}>? Cómo medir</Text>
+              <Text style={styles.jumpGuideBtnText}>?</Text>
             </Pressable>
           </View>
-          <View style={styles.measureHintCard}>
-            <Text style={styles.measureHintTitle}>Cómo registrar la altura</Text>
-            <Text style={styles.measureHintText}>Usa siempre el mismo método: marca tu alcance parado (A), luego tu alcance en el salto (B), y registra <Text style={styles.measureHintStrong}>B - A</Text> en centímetros.</Text>
-            <Text style={styles.measureHintText}>Haz 3 intentos con descanso completo y anota el mejor. Si cambias calentamiento, pared o técnica de medición, el dato deja de ser comparable.</Text>
-          </View>
+
+          {jumpTechniques.length > 0 ? (
+            <View style={styles.jumpTechniqueRow}>
+              {jumpTechniques.map((technique) => {
+                const selected = selectedJumpTechniqueId === technique.id;
+                return (
+                  <Pressable
+                    key={technique.id}
+                    style={[styles.jumpTechniqueChip, selected ? styles.jumpTechniqueChipActive : null]}
+                    onPress={() => onSelectJumpTechnique(selected ? null : technique.id)}
+                  >
+                    <Text style={[styles.jumpTechniqueChipText, selected ? styles.jumpTechniqueChipTextActive : null]}>
+                      {selected ? "✓ " : ""}{technique.title}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {!!(logDraft?.jumpHeightCm) && !selectedJumpTechniqueId ? (
+            <Text style={styles.jumpTechniqueWarn}>⚠ Seleccioná la técnica antes de guardar</Text>
+          ) : null}
 
           {/* Velocity */}
           <Text style={styles.fieldLabel}>Velocidad promedio (m/s)</Text>
@@ -973,15 +1023,16 @@ return StyleSheet.create({
   focusText: { color: C.amber, fontSize: 13, lineHeight: 18 },
   reviewChip: { backgroundColor: C.tealDim, borderRadius: R.md, padding: S.sm, borderWidth: 1, borderColor: C.tealBorder },
   reviewChipText: { color: C.tealLight, fontSize: 12, lineHeight: 18, fontWeight: "600" },
-  exerciseActions: { flexDirection: "row", gap: S.sm, marginTop: S.xs },
-  btnComplete: { flex: 1, backgroundColor: C.amber, borderRadius: R.full, paddingVertical: 15, alignItems: "center" },
-  btnCompleteText: { color: C.bg, fontWeight: "800", fontSize: 16 },
-  btnCompleteDisabled: { backgroundColor: C.surfaceRaise, borderWidth: 1, borderColor: C.tealBorder },
+  exerciseActions: { flexDirection: "column", gap: S.xs, marginTop: S.md },
+  exerciseActionsSub: { flexDirection: "row", gap: S.sm },
+  btnComplete: { width: "100%", height: 58, backgroundColor: C.amber, borderRadius: R.full, alignItems: "center", justifyContent: "center", shadowColor: C.amber, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 6 },
+  btnCompleteText: { color: C.bg, fontWeight: "900", fontSize: 16, letterSpacing: 0.5 },
+  btnCompleteDisabled: { backgroundColor: C.surfaceRaise, shadowOpacity: 0, elevation: 0, borderWidth: 1, borderColor: C.tealBorder },
   btnCompleteTextDisabled: { color: C.teal },
-  btnPrev: { paddingVertical: 15, paddingHorizontal: S.md, borderRadius: R.full, borderWidth: 1, borderColor: C.borderStrong, backgroundColor: C.surfaceRaise },
-  btnPrevText: { color: C.textSub, fontWeight: "700", fontSize: 15 },
-  btnSkip: { paddingVertical: 15, paddingHorizontal: S.md, borderRadius: R.full, borderWidth: 1, borderColor: C.borderStrong },
-  btnSkipText: { color: C.textSub, fontWeight: "700", fontSize: 15 },
+  btnPrev: { flex: 1, height: 46, borderRadius: R.full, borderWidth: 1, borderColor: C.border, backgroundColor: C.surfaceRaise, alignItems: "center", justifyContent: "center" },
+  btnPrevText: { color: C.textSub, fontWeight: "700", fontSize: 14 },
+  btnSkip: { flex: 1, height: 46, borderRadius: R.full, borderWidth: 1, borderColor: C.border, backgroundColor: C.surfaceRaise, alignItems: "center", justifyContent: "center" },
+  btnSkipText: { color: C.textSub, fontWeight: "700", fontSize: 13 },
 
   // Done chips
   doneChips: { gap: S.xs },
@@ -998,6 +1049,12 @@ return StyleSheet.create({
   input: { backgroundColor: C.surfaceRaise, borderRadius: R.md, paddingHorizontal: S.md, paddingVertical: 12, color: C.text, borderWidth: 1, borderColor: C.border, fontSize: 14 },
   notesInput: { minHeight: 80, textAlignVertical: "top" },
   jumpRow: { flexDirection: "row", gap: S.sm, alignItems: "center" },
+  jumpTechniqueRow: { flexDirection: "row", flexWrap: "wrap", gap: S.xs, marginBottom: 2 },
+  jumpTechniqueChip: { paddingVertical: 8, paddingHorizontal: S.sm, borderRadius: R.full, borderWidth: 1, borderColor: C.borderStrong, backgroundColor: C.surfaceRaise },
+  jumpTechniqueChipActive: { backgroundColor: C.tealDim, borderColor: C.tealBorder },
+  jumpTechniqueChipText: { color: C.textSub, fontSize: 12, fontWeight: "700" },
+  jumpTechniqueChipTextActive: { color: C.teal },
+  jumpTechniqueWarn: { color: C.danger, fontSize: 12 },
   jumpGuideBtn: { backgroundColor: C.amberDim, borderRadius: R.md, paddingVertical: 12, paddingHorizontal: S.sm, borderWidth: 1, borderColor: C.amberBorder },
   jumpGuideBtnText: { color: C.amber, fontWeight: "700", fontSize: 13 },
   measureHintCard: { backgroundColor: C.surfaceRaise, borderRadius: R.md, padding: S.sm, gap: 4, borderWidth: 1, borderColor: C.border },
