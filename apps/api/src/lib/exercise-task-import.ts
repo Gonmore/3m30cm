@@ -17,6 +17,7 @@ const headerAliases: Record<string, string> = {
   tiempo: "repsOrTime",
   "reps/tiempo": "repsOrTime",
   "reps-tiempo": "repsOrTime",
+  "reps_tiempo": "repsOrTime",
   "repstime": "repsOrTime",
 
   description: "description",
