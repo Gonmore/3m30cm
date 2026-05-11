@@ -57,6 +57,20 @@ enum SeriesProtocol {
   PLYOMETRIC_SPEED
 }
 
+enum ExerciseEvolution {
+  WEIGHT
+  TIME
+  VELOCITY
+  HYBRID
+}
+
+enum ExerciseZone {
+  LOWER
+  UPPER
+  CORE
+  FULL
+}
+
 enum BillingStatus {
   TRIALING
   ACTIVE
@@ -173,6 +187,7 @@ model Exercise {
   instructions   ExerciseInstruction[]
   mediaAssets    ExerciseMediaAsset[]
   prescriptions  ExercisePrescriptionTemplate[]
+  taskTemplates  ExerciseTaskTemplate[]
   sessionExercises SessionExercise[]
   asBlock        ExerciseBlock?
   inBlocks       ExerciseBlockItem[]           @relation("BlockItemExercise")
@@ -241,10 +256,69 @@ model ProgramTemplate {
   updatedAt       DateTime             @updatedAt
   team            Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
   days            ProgramDayTemplate[]
+  phases          ProgramPhaseTemplate[]
   personalPrograms PersonalProgram[]
   techniques      ProgramTemplateTechnique[]
   techniqueMediaAssets ProgramTemplateTechniqueAsset[]
   techniqueMetrics AthleteTechniqueMetric[]
+}
+
+model ProgramPhaseTemplate {
+  id                String                   @id @default(cuid())
+  programTemplateId String
+  name              String
+  orderIndex        Int
+  durationDays      Int
+  masterBlockDays   Int
+  notes             String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  programTemplate   ProgramTemplate          @relation(fields: [programTemplateId], references: [id], onDelete: Cascade)
+  days              ProgramPhaseDayTemplate[]
+
+  @@unique([programTemplateId, orderIndex])
+  @@index([programTemplateId, orderIndex])
+}
+
+model ProgramPhaseDayTemplate {
+  id              String                 @id @default(cuid())
+  phaseTemplateId String
+  dayNumber       Int
+  title           String?
+  dayType         DayType                @default(OTHER)
+  notes           String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  phaseTemplate   ProgramPhaseTemplate   @relation(fields: [phaseTemplateId], references: [id], onDelete: Cascade)
+  tasks           ExerciseTaskTemplate[]
+
+  @@unique([phaseTemplateId, dayNumber])
+  @@index([phaseTemplateId, dayNumber])
+}
+
+model ExerciseTaskTemplate {
+  id                   String             @id @default(cuid())
+  phaseDayTemplateId   String
+  exerciseId           String?
+  orderIndex           Int
+  name                 String
+  sets                 Int?
+  repsOrTimeText       String?
+  description          String?
+  requiresWeight       Boolean            @default(false)
+  isUnilateral         Boolean            @default(false)
+  evolution            ExerciseEvolution
+  zone                 ExerciseZone
+  videoUrl             String?
+  notes                String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  phaseDayTemplate     ProgramPhaseDayTemplate @relation(fields: [phaseDayTemplateId], references: [id], onDelete: Cascade)
+  exercise             Exercise?          @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+
+  @@unique([phaseDayTemplateId, orderIndex])
+  @@index([phaseDayTemplateId, orderIndex])
+  @@index([exerciseId])
 }
 
 model ProgramTemplateTechnique {

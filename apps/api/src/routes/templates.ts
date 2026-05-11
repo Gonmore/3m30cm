@@ -17,6 +17,16 @@ templatesRouter.get("/program-templates", async (_req: Request, res: Response) =
         techniqueTitle: true,
         techniqueDescription: true,
         cycleLengthDays: true,
+        phases: {
+          orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+          select: {
+            id: true,
+            name: true,
+            orderIndex: true,
+            durationDays: true,
+            masterBlockDays: true,
+          },
+        },
         techniqueMediaAssets: {
           orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
           select: {
@@ -96,6 +106,31 @@ templatesRouter.get("/program-templates/:code", async (req: Request, res: Respon
       include: {
         techniqueMediaAssets: {
           orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+        },
+        phases: {
+          orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+          include: {
+            days: {
+              orderBy: { dayNumber: "asc" },
+              include: {
+                tasks: {
+                  orderBy: { orderIndex: "asc" },
+                  include: {
+                    exercise: {
+                      include: {
+                        instructions: {
+                          orderBy: { locale: "asc" },
+                        },
+                        mediaAssets: {
+                          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
         techniques: {
           orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],

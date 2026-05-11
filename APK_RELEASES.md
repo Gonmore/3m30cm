@@ -2,6 +2,8 @@
 
 Guia operativa para generar el APK Android de `apps/mobile2` con una version especifica sin tocar el flujo de deploy web/api.
 
+`apps/mobile2` es la app oficial del atleta. Cualquier trabajo actual de producto, onboarding, técnica, evolución o bio-referencia debe validarse sobre esta app y no sobre `apps/mobile`.
+
 ## Version actual
 
 - `mobile2` queda en `version = 2.1.4`
@@ -121,6 +123,7 @@ Checklist corto para la proxima version:
 
 - Este proceso no modifica `deploy.sh` ni el deploy Docker de `api`/`web`.
 - `EXPO_PUBLIC_API_BASE_URL` para `apk:prod` ya apunta a `https://3m30cm.supernovatel.com`.
+- El nuevo wizard faseado del admin vive en `apps/api` + `apps/web`; no requiere reactivar `apps/mobile`.
 - La APK `1.2.0` depende de cambios de backend y schema; antes de distribuirla conviene correr primero tu deploy manual con `./deploy.sh` para que produccion aplique `prisma migrate deploy` y exponga los campos nuevos del atleta.
 - La ultima iteracion del editor biomecanico visual vive en `apps/web` y `apps/api`; no obliga por si sola a generar una APK nueva mientras no cambie el runtime de `apps/mobile2`.
 - La app movil no debe depender de links directos a MinIO si el bucket productivo es privado; la ruta correcta para media queda proxyada por la API bajo `/api/v1/assets/...` y por eso una APK nueva es necesaria cuando cambia esa logica cliente.

@@ -20,9 +20,15 @@ El objetivo es trabajar con una sola base de codigo y con un flujo que cumpla es
 
 - `apps/api`: API Express + Prisma + PostgreSQL.
 - `apps/web`: panel web React + Vite.
-- `apps/mobile`: app Expo principal.
-- `apps/mobile2`: app Expo secundaria/gamificada.
+- `apps/mobile`: app Expo legacy, fuera del foco actual.
+- `apps/mobile2`: app Expo oficial del atleta.
 - `packages/shared`: codigo compartido.
+
+### Modelo funcional actual del programa
+
+- El refactor del Program Creator ya convive con un modelo faseado en backend: `ProgramTemplate -> ProgramPhaseTemplate -> ProgramPhaseDayTemplate -> ExerciseTaskTemplate`.
+- La compatibilidad legacy de `ProgramDayTemplate` se mantiene de forma temporal para no romper consumidores existentes durante la transición.
+- Las técnicas, la bio-referencia profesional y las mediciones del atleta siguen asociadas al `ProgramTemplate`, no a una fase aislada.
 
 ### Produccion actual
 
@@ -215,7 +221,7 @@ En este proyecto `dev` significa backend local y `prod` significa backend public
 
 No se cambia `.env` para alternar. Se cambia el comando.
 
-### Mobile principal
+### Mobile legacy
 
 ```bash
 npm --prefix apps/mobile run dev
@@ -252,7 +258,7 @@ npm --prefix apps/mobile2 run web:prod
 - Se usa `cross-env` para que el comportamiento sea igual en Windows.
 - En `dev`, `EXPO_PUBLIC_API_BASE_URL` se deja vacia a proposito.
 - En `prod`, `EXPO_PUBLIC_API_BASE_URL` se fija a `https://3m30cm.supernovatel.com`.
-- `mobile` usa puerto `8081`.
+- `mobile` usa puerto `8081`, pero ya no es la superficie principal del producto.
 - `mobile2` usa puerto `8082` y `--clear`.
 - `mobile2` expone `build` (`tsc --noEmit`) para validar primero el workspace compartido antes de abrir Expo.
 - `mobile2` expone `apk:prod`, que llama a `scripts/build-android-apk.mjs` para detectar JDK/Android SDK, regenerar `android/local.properties` y ejecutar `assembleRelease` desde Windows.

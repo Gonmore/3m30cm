@@ -253,6 +253,10 @@ Métricas generales: conteo de users, teams, athletes, exercises, templates, pro
 ### GET `/admin/program-templates`
 Lista templates de programa con conteos y metadata técnica.
 
+Notas:
+- El soporte multi-técnica sigue viviendo a nivel `ProgramTemplate`.
+- Las fases del wizard (`ProgramPhaseTemplate`) cuelgan del mismo template, pero no reemplazan ni fragmentan la bio-referencia ni las mediciones por técnica.
+
 ### PUT `/admin/program-templates/:code`
 Actualiza metadata del template, incluyendo texto técnico.
 
@@ -265,10 +269,108 @@ Actualiza metadata del template, incluyendo texto técnico.
   "techniqueDescription": "string | null (optional)",
   "cycleLengthDays": "number (optional)"
 }
+
+### POST `/admin/program-templates/:code/wizard/exercise-tasks/parse`
+Parsea un bloque de texto/CSV (formato libre con aliases) y devuelve filas mapeadas al contrato de `ExerciseTaskTemplate`.
+
+**Body:**
+```json
+{
+  "content": "string (required)",
+  "strict": "boolean (optional, default false)"
+}
+```
+
+**Respuesta 200:**
+```json
+{
+  "templateCode": "JUMP-MANUAL-14D",
+  "delimiter": ";",
+  "issues": [],
+  "warnings": [],
+  "unresolved": [{ "rowNumber": 4, "name": "Custom Drill" }],
+  "mapped": [
+    {
+      "rowNumber": 2,
+      "day": 1,
+      "exerciseId": "cuid | null",
+      "name": "Depth Jumps",
+      "sets": 4,
+      "repsOrTimeText": "6 reps",
+      "description": "...",
+      "requiresWeight": false,
+      "isUnilateral": false,
+      "evolution": "VELOCITY",
+      "zone": "LOWER",
+      "videoUrl": "https://..."
+    }
+  ]
+}
+```
+
+Notas:
+- Soporta aliases de columnas como `Día`, `Nombre`, `Series`, `Reps/Tiempo`, `Peso(Y/N)`, `Unilateral(Y/N)`, `Evolución`, `Zona`, `VideoURL`.
+- Si `strict=true`, responde `400` cuando haya ejercicios no resueltos contra el catálogo.
+
+### POST `/admin/program-templates/:code/wizard/phases/import`
+Persistencia directa de un bloque maestro dentro de una fase del template.
+
+**Body:**
+```json
+{
+  "content": "string (required)",
+  "strict": "boolean (optional, default true)",
+  "replaceExisting": "boolean (optional, default true)",
+  "phaseId": "string (optional)",
+  "phaseName": "string (required when phaseId is absent)",
+  "orderIndex": "number (optional, create only)",
+  "durationDays": "number (required)",
+  "masterBlockDays": "7 | 14 (required)",
+  "notes": "string | null (optional)"
+}
+```
+
+**Respuesta 201:**
+```json
+{
+  "templateCode": "JUMP-MANUAL-14D",
+  "warnings": [],
+  "unresolved": [],
+  "phase": {
+    "id": "cuid",
+    "name": "Fase 1",
+    "orderIndex": 1,
+    "durationDays": 28,
+    "masterBlockDays": 14,
+    "days": [
+      {
+        "dayNumber": 1,
+        "tasks": [
+          {
+            "orderIndex": 1,
+            "name": "Depth Jumps",
+            "evolution": "VELOCITY",
+            "zone": "LOWER"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Notas:
+- Si `phaseId` existe, actualiza esa fase; si no existe, crea una fase nueva.
+- Si `replaceExisting=true`, reemplaza el bloque maestro previo de la fase.
+- Con `strict=true`, falla si hay ejercicios no resolubles en catálogo.
 ```
 
 ### GET `/admin/program-templates/:code/techniques`
 Lista las tecnicas del template, con media y definiciones de medicion.
+
+Notas:
+- Estas tecnicas son la fuente de verdad para bio-referencia profesional, comparación atleta-vs-pro, evolución e historial.
+- Aunque el programa ahora pueda organizarse por fases y bloques maestros, las tecnicas siguen asociadas al programa/template completo.
 
 ### POST `/admin/program-templates/:code/techniques`
 Crea una tecnica dentro del template.
@@ -322,6 +424,30 @@ Elimina un recurso tecnico asociado a una tecnica concreta.
 
 ### GET `/assets/:bucket/*`
 Sirve assets de ejercicio, avatar o tecnica a traves de la API. Soporta `Range` para video y evita depender de URLs directas de MinIO como `http://localhost:9000/...`.
+
+---
+
+## Templates públicos
+
+### GET `/templates/program-templates`
+Lista templates persistidos listos para bootstrap/admin/web/mobile2.
+
+Incluye:
+- metadata base del template
+- fases resumidas (`ProgramPhaseTemplate`) cuando existan
+- tecnicas del programa/template con media y definiciones de medicion
+
+### GET `/templates/program-templates/:code`
+Devuelve el template completo para edición/consumo.
+
+Incluye:
+- `days`: vista legacy de 14 días para compatibilidad temporal
+- `phases`: nueva jerarquía del wizard con `days` y `tasks`
+- `techniques`: tecnicas del programa/template con media, `proVideoUrl`, `proLandmarks`, `biomechanicsConfig` y definiciones de medicion
+
+Notas:
+- `phases` y `techniques` coexisten en la misma respuesta.
+- Las tecnicas no cuelgan de una fase concreta: pertenecen al `ProgramTemplate` y por eso sus referencias biomecanicas y métricas se comparten a lo largo de todo el programa.
 
 ---
 

@@ -14,6 +14,90 @@
 
 ## Registro de trabajo
 
+### 13. Backend inicial del Athlete Performance Wizard + técnicas por programa preservadas (2026-05-11)
+
+**Objetivo cerrado en este slice:**
+- arrancar el refactor del Program Creator hacia una jerarquía `Programa -> Fase -> Calendario Diario -> Bloques de Ejercicio`
+- mantener compatibilidad dual con el modelo legacy de 14 días
+- dejar explícito que las técnicas, la bio-referencia y las mediciones siguen asociadas al `ProgramTemplate`, no a cada fase
+
+**Cambios aplicados:**
+
+1. **Nuevo modelo faseado en Prisma**
+  - agregados `ProgramPhaseTemplate`, `ProgramPhaseDayTemplate` y `ExerciseTaskTemplate`
+  - nuevos enums `ExerciseEvolution` y `ExerciseZone`
+  - las fases cuelgan del `ProgramTemplate`, conviviendo con `ProgramDayTemplate`
+
+2. **Parser tolerante de bloque maestro CSV/texto**
+  - nuevo helper `apps/api/src/lib/exercise-task-import.ts`
+  - soporta aliases de columnas como `Día`, `Nombre`, `Series`, `Reps/Tiempo`, `Peso(Y/N)`, `Unilateral(Y/N)`, `Evolución`, `Zona`, `VideoURL`
+  - devuelve filas normalizadas, issues por fila y warnings por columnas desconocidas
+
+3. **Endpoints iniciales del wizard**
+  - `POST /api/v1/admin/program-templates/:code/wizard/exercise-tasks/parse`
+  - `POST /api/v1/admin/program-templates/:code/wizard/phases/import`
+  - el segundo endpoint ya persiste una fase y sus días/tasks desde el bloque importado
+
+4. **Lectura pública del template extendida**
+  - `GET /api/v1/templates/program-templates/:code` ahora puede devolver tanto la vista legacy (`days`) como la nueva vista faseada (`phases`)
+  - `techniques` se mantiene en el mismo template, preservando su uso para bio-referencia, evolución e historial del atleta a lo largo de todo el programa
+
+5. **Alineación de producto**
+  - `apps/mobile2` queda tratada como la app oficial
+  - `apps/mobile` pasa a considerarse superficie legacy y deja de ser el foco de trabajo del proyecto
+
+**Validación ejecutada:**
+- `npm --prefix apps/api run prisma:generate`
+- `npm --prefix apps/api run build`
+
+### 12. UX: técnica inline al cerrar sesión, voz del timer sin lag, salto máximo tappable (2026-05-09)
+
+**Problemas corregidos:**
+
+1. **Cierre de sesión sin selector de técnica visible (bloqueante)**
+   - El modal de técnica se mostraba *después* de tocar "Guardar sesión", con un error si no había técnica elegida.
+   - Ahora el selector de técnica está **inline dentro del formulario de cierre** (`EjerciciosScreen`), justo después del campo de altura de salto.
+   - Las opciones se muestran como chips seleccionables (una por cada técnica con medición configurada).
+   - El estado `selectedJumpTechniqueId` se maneja en `mobile2/app/index.tsx` y se pasa a `EjerciciosScreen` como prop.
+   - Se eliminó el modal de vinculación de técnica post-guardado por completo.
+   - Se resetea `selectedJumpTechniqueId` al cargar una sesión nueva o luego de guardar.
+
+2. **Voces del temporizador con latencia (3,2,1 llegaba tarde)**
+   - Se reemplazó `Speech.stop(); Speech.speak(...)` en cada tick por un warm-up del motor al montar el componente.
+   - Al iniciar `ExerciseTimer`, se habla una frase silenciosa ("listo") para despertar el motor TTS.
+   - El `speak()` ahora sólo llama a `Speech.speak()` sin parar antes, lo que elimina el reset que causaba latencia.
+   - La bandera `speechReadyRef` asegura que no se intenta hablar antes de que el motor esté listo.
+
+3. **Salto máximo en Hoy sin attributción de técnica**
+   - La tarjeta "Salto máximo" en `HoyScreenV2` ahora es un `Pressable` con texto "Toca para ver con qué técnica fue".
+   - Al tocarla se abre un modal que muestra el valor y, si se encuentra, la(s) técnica(s) cuyas métricas coincidan con ese valor máximo.
+   - La derivación se hace en `index.tsx` con el memo `bestJumpTechniqueTitles` (busca técnicas con métricas en cm que coincidan con `personalBests.jumpHeightCm` ±0.05).
+   - Se pasa como prop `bestJumpTechniqueTitles: string[]` a `HoyScreenV2`.
+
+**Archivos modificados:**
+- `apps/mobile2/app/index.tsx`
+- `apps/mobile/components/screens/EjerciciosScreen.tsx`
+- `apps/mobile2/components/screens/HoyScreenV2.tsx`
+
+### 11. mobile2: medición de salto obligatoria por técnica al cerrar sesión (2026-05-07)
+
+**Problema detectado:**
+- Al cerrar sesión era posible guardar `jumpHeightCm` sin elegir técnica.
+- Eso generaba desalineación: aparecía en Evolución (progreso global) pero no en Técnica (historial por técnica).
+
+**Corrección aplicada (`apps/mobile2/app/index.tsx`):**
+- El vínculo de medición con técnica ahora es **obligatorio** si hay altura de salto cargada.
+- Se eliminó el bypass de modal:
+  - ya no existe botón "No vincular"
+  - el `onRequestClose` del modal ya no confirma con `null`
+- Se agregó validación defensiva en `doSubmitLog()` para bloquear submit si hay salto y no hay técnica seleccionada.
+- Si no hay técnicas con definiciones de medición, se muestra error y no se permite guardar esa medición.
+- El guardado del metric en `/api/v1/athlete/technique/metrics` dejó de ser "non-blocking" silencioso: ahora cualquier fallo sube por el flujo de error.
+
+**Resultado esperado:**
+- Si existe medición de salto, siempre queda asociada a una técnica.
+- Se evita que una medición quede solo en progreso global sin reflejarse en Técnica.
+
 ### 10. mobile2: ajuste final de Técnica + correcciones de encoding + origen de métricas (2026-05-07)
 
 Commit: `c7f7547`

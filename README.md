@@ -11,7 +11,8 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 
 ## Stack
 
-- **Apps moviles**: Expo SDK 54 + React Native 0.81 + Expo Router (mobile en puerto 8081, mobile2 gamificada en 8082)
+- **App movil oficial**: Expo SDK 54 + React Native 0.81 + Expo Router en `apps/mobile2` (puerto 8082)
+- **App `apps/mobile`**: superficie legacy; no es la app oficial ni el foco actual de producto
 - **Panel web**: React 19 + Vite + TypeScript
 - **API**: Node.js + Express + Prisma + TypeScript
 - **Base de datos**: PostgreSQL
@@ -23,21 +24,23 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 
 - `apps/api`: API REST y modelo Prisma
 - `apps/web`: portal web para admin, platform admin y staff
-- `apps/mobile`: app movil del atleta
-- `apps/mobile2`: variante gamificada de la app del atleta
+- `apps/mobile`: app legacy del atleta, mantenida solo por compatibilidad puntual
+- `apps/mobile2`: app oficial del atleta
 - `packages/shared`: constantes y tipos de dominio compartidos
 
 ## Estado actual
 
 - El microciclo base de 14 dias ya esta modelado como bootstrap en la API.
+- El nuevo refactor del Program Creator ya empezo a convivir con una jerarquia faseada: `ProgramTemplate -> ProgramPhaseTemplate -> ProgramPhaseDayTemplate -> ExerciseTaskTemplate`, manteniendo compatibilidad dual temporal con el modelo legacy de 14 dias.
 - La dosificacion exacta por ejercicio queda como dato editable en el portal admin.
 - El esquema Prisma contempla usuarios, equipos, atletas, catalogo de ejercicios, media, plantillas, sesiones y billing.
 - El portal web permite login, CRUD de ejercicios, carga de media a MinIO, edicion de prescripciones por dia, alta/edicion/baja de equipos, staff, atletas y asignaciones coach-atleta, mas generacion de programas personalizados.
 - El portal web permite ademas gestionar varias tecnicas por programa: cada tecnica tiene texto explicativo, instrucciones de medicion, flag de comparacion, mediciones configurables y uno o varios recursos de media para sprint, agilidad, remate, salto vertical o cualquier otro bloque futuro.
+- Las tecnicas siguen asociadas al `ProgramTemplate`, no a una fase individual: eso garantiza que la bio-referencia profesional, las mediciones de evolución y el historial del atleta permanezcan estables aunque el programa pase a organizarse por fases y bloques maestros repetibles.
 - El portal web ya puede procesar un video profesional desde el navegador, guardar `proVideoUrl`, persistir `proLandmarks` y mantener una `biomechanicsConfig` por tecnica para usarlo como referencia biomecanica del template.
 - El portal web ya incluye un editor biomecanico visual sobre esa referencia: scrubber por frame, overlay de landmarks/esqueleto, alta visual de puntos clave, construccion visual de angulos, marcado de eventos sobre timeline y formularios inferiores para definir anclajes por evento/ventana, point checks, trayectorias y politica de orientacion del gesto. El bloque biomecanico ahora deja visible un guardado sticky para no perder cambios locales antes de persistir la técnica y puede sugerir automaticamente eventos como `ANTEPENULTIMATE_CONTACT`, `PRE_PENULTIMATE_FLIGHT`, `PENULTIMATE_CONTACT`, `LAST_CONTACT`, `TAKE_OFF`, `TOE_OFF`, `APEX` y `LANDING` a partir de la referencia profesional.
 - La API expone gestion de equipos, membresias, perfiles de atleta, asignacion coach-atleta, generacion de `PersonalProgram` con `ScheduledSession`, multiples tecnicas por `ProgramTemplate`, streaming de assets via `/api/v1/assets/:bucket/*` y endpoints operativos del atleta para agenda, logging y seguimiento tecnico.
-- Las app moviles consumen login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local, registro de cumplimiento con metricas, una vista `Técnica` para elegir la tecnica activa y una vista `Evolución` que ya muestra historico/comparacion por tecnica.
+- `apps/mobile2` consume login, registro con seleccion de fecha de inicio y fase de adecuacion, perfil, programas (un programa activo a la vez por atleta), sesiones, progreso consolidado, feedback automatico, guia especifica por sesion y ejercicio, persistencia local, registro de cumplimiento con metricas, una vista `Técnica` para elegir la tecnica activa y una vista `Evolución` que ya muestra historico/comparacion por tecnica.
 - `apps/mobile2` ahora exige completar `heightCm` y `weightKg` del atleta antes de salir de `Hoy`, y el backend persiste esos campos en `AthleteProfile`.
 - `apps/mobile2` ya puede elegir un video del atleta, extraer pose con MediaPipe Pose JS dentro de un `WebView`, autodetectar eventos del gesto reutilizando la logica del web admin y calcular la altura del salto con `CENTER_OF_MASS` como metodo principal y `FLIGHT_TIME` como corroboracion secundaria antes de guardar la metrica automatica.
 - El calculo de altura por `CENTER_OF_MASS` en la referencia profesional del admin web ahora escala por estatura del atleta usando `DIP` como baseline unico y mide la elevacion del centro hasta `APEX`.
@@ -48,6 +51,7 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - `forgot-password` ahora tambien emite un codigo de 6 digitos persistido en Prisma para que `apps/mobile2` pueda restablecer la clave dentro de la app sin depender solo del deep link.
 - `apps/mobile2` ya queda build-clean con `npm --prefix apps/mobile2 run build` y tiene helper dedicado para ensamblar APK release desde Windows cuando hay JDK + Android SDK instalados.
 - `apps/mobile2` mantiene los client IDs de Google en la config embebida de Expo (`app.config.js`), pero Android ya usa login nativo con `@react-native-google-signin/google-signin`; Expo Go y web siguen usando `expo-auth-session`.
+- El wizard de rendimiento del admin ya tiene backend inicial para importar bloques maestro 7/14 dias por fase desde CSV/texto, mapeando columnas al contrato de `ExerciseTaskTemplate` con soporte tolerante de aliases.
 
 ## Requisitos previos
 

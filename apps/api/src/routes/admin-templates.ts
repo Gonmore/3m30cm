@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { env } from "../config/env.js";
 import { prisma } from "../config/prisma.js";
+import { parseExerciseTaskBlock } from "../lib/exercise-task-import.js";
 import { analyze as analyzeBiomechanics, CalibrationError } from "../lib/jumpHeightAnalyzer.js";
 import { deleteProgramTechniqueMedia, uploadProgramTechniqueMedia } from "../lib/minio.js";
 import { ensureTemplateTechniqueStructure } from "../lib/program-template-techniques.js";
@@ -575,6 +576,31 @@ const techniqueMediaSchema = z.object({
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } });
 
+const parseExerciseTaskImportSchema = z.object({
+  content: z.string().min(1),
+  strict: z.boolean().default(false),
+});
+
+const persistExerciseTaskImportSchema = z.object({
+  content: z.string().min(1),
+  strict: z.boolean().default(true),
+  replaceExisting: z.boolean().default(true),
+  phaseId: z.string().min(1).optional(),
+  phaseName: z.string().trim().min(2).optional(),
+  orderIndex: z.number().int().positive().optional(),
+  durationDays: z.number().int().positive().max(365),
+  masterBlockDays: z.union([z.literal(7), z.literal(14)]),
+  notes: z.string().trim().nullable().optional(),
+}).superRefine((value, ctx) => {
+  if (!value.phaseId && !value.phaseName) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "phaseId or phaseName is required",
+      path: ["phaseName"],
+    });
+  }
+});
+
 function getStringParam(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
     return value[0];
@@ -583,9 +609,347 @@ function getStringParam(value: string | string[] | undefined) {
   return value;
 }
 
+function normalizeExerciseLookup(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function slugifyExerciseLookup(value: string) {
+  return normalizeExerciseLookup(value).replace(/\s+/g, "-");
+}
+
+async function buildExerciseLookupMap(candidateNames: string[]) {
+  if (!candidateNames.length) {
+    return new Map<string, { id: string; name: string; slug: string }>();
+  }
+
+  const exerciseCatalog = await prisma.exercise.findMany({
+    select: { id: true, name: true, slug: true },
+  });
+
+  const map = new Map<string, { id: string; name: string; slug: string }>();
+  for (const exercise of exerciseCatalog) {
+    map.set(normalizeExerciseLookup(exercise.name), exercise);
+    map.set(normalizeExerciseLookup(exercise.slug), exercise);
+  }
+
+  return map;
+}
+
+function resolveExerciseMatch(
+  lookupMap: Map<string, { id: string; name: string; slug: string }>,
+  exerciseName: string,
+) {
+  return lookupMap.get(normalizeExerciseLookup(exerciseName))
+    ?? lookupMap.get(slugifyExerciseLookup(exerciseName))
+    ?? null;
+}
+
 export const adminTemplatesRouter = Router();
 
 adminTemplatesRouter.use(requireAuth, requireRole([Role.SUPERADMIN]));
+
+adminTemplatesRouter.post(
+  "/program-templates/:code/wizard/exercise-tasks/parse",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      if (!code) {
+        res.status(400).json({ message: "Program template code is required" });
+        return;
+      }
+
+      const payload = parseExerciseTaskImportSchema.parse(req.body);
+      const template = await prisma.programTemplate.findUnique({
+        where: { code },
+        select: { id: true, code: true },
+      });
+
+      if (!template) {
+        res.status(404).json({ message: "Program template not found" });
+        return;
+      }
+
+      const parseResult = parseExerciseTaskBlock(payload.content);
+
+      const candidateNames = Array.from(
+        new Set(parseResult.tasks.map((task) => task.name.trim()).filter((name) => name.length > 0)),
+      );
+
+      const exerciseByName = await buildExerciseLookupMap(candidateNames);
+
+      const mapped = parseResult.tasks.map((task) => {
+        const matchedExercise = resolveExerciseMatch(exerciseByName, task.name);
+
+        return {
+          rowNumber: task.rowNumber,
+          day: task.day,
+          exerciseId: matchedExercise?.id ?? null,
+          name: task.name,
+          sets: task.sets,
+          repsOrTimeText: task.repsOrTimeText,
+          description: task.description,
+          requiresWeight: task.requiresWeight,
+          isUnilateral: task.isUnilateral,
+          evolution: task.evolution,
+          zone: task.zone,
+          videoUrl: task.videoUrl,
+        };
+      });
+
+      const unresolved = mapped.filter((item) => !item.exerciseId).map((item) => ({
+        rowNumber: item.rowNumber,
+        name: item.name,
+      }));
+
+      if (payload.strict && unresolved.length) {
+        res.status(400).json({
+          message: "Some exercise names did not match the exercise catalog.",
+          unresolved,
+          issues: parseResult.issues,
+          warnings: parseResult.warnings,
+        });
+        return;
+      }
+
+      res.json({
+        templateCode: template.code,
+        delimiter: parseResult.delimiter,
+        issues: parseResult.issues,
+        warnings: parseResult.warnings,
+        unresolved,
+        mapped,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid import payload", issues: error.issues });
+        return;
+      }
+
+      console.error("Failed to parse wizard exercise-task import", error);
+      res.status(500).json({ message: "Failed to parse exercise-task import" });
+    }
+  },
+);
+
+adminTemplatesRouter.post(
+  "/program-templates/:code/wizard/phases/import",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      if (!code) {
+        res.status(400).json({ message: "Program template code is required" });
+        return;
+      }
+
+      const payload = persistExerciseTaskImportSchema.parse(req.body);
+      const template = await prisma.programTemplate.findUnique({
+        where: { code },
+        select: { id: true, code: true },
+      });
+
+      if (!template) {
+        res.status(404).json({ message: "Program template not found" });
+        return;
+      }
+
+      const parseResult = parseExerciseTaskBlock(payload.content);
+      if (parseResult.issues.length) {
+        res.status(400).json({
+          message: "Invalid import content",
+          issues: parseResult.issues,
+          warnings: parseResult.warnings,
+        });
+        return;
+      }
+
+      const candidateNames = Array.from(
+        new Set(parseResult.tasks.map((task) => task.name.trim()).filter((name) => name.length > 0)),
+      );
+      const exerciseByName = await buildExerciseLookupMap(candidateNames);
+
+      const mapped = parseResult.tasks.map((task) => {
+        const matchedExercise = resolveExerciseMatch(exerciseByName, task.name);
+        return {
+          ...task,
+          exerciseId: matchedExercise?.id ?? null,
+        };
+      });
+
+      const unresolved = mapped.filter((item) => !item.exerciseId).map((item) => ({
+        rowNumber: item.rowNumber,
+        name: item.name,
+      }));
+
+      if (payload.strict && unresolved.length) {
+        res.status(400).json({
+          message: "Some exercise names did not match the exercise catalog.",
+          unresolved,
+          warnings: parseResult.warnings,
+        });
+        return;
+      }
+
+      const groupedByDay = new Map<number, typeof mapped>();
+      for (const item of mapped) {
+        const bucket = groupedByDay.get(item.day) ?? [];
+        bucket.push(item);
+        groupedByDay.set(item.day, bucket);
+      }
+
+      const dayNumbers = Array.from(groupedByDay.keys()).sort((a, b) => a - b);
+
+      const persisted = await prisma.$transaction(async (tx) => {
+        let phase = null as null | { id: string; orderIndex: number };
+
+        if (payload.phaseId) {
+          const existing = await tx.programPhaseTemplate.findUnique({
+            where: { id: payload.phaseId },
+            select: { id: true, orderIndex: true, programTemplateId: true },
+          });
+
+          if (!existing || existing.programTemplateId !== template.id) {
+            throw new Error("PHASE_NOT_FOUND");
+          }
+
+          phase = { id: existing.id, orderIndex: existing.orderIndex };
+
+          await tx.programPhaseTemplate.update({
+            where: { id: existing.id },
+            data: {
+              ...(payload.phaseName !== undefined ? { name: payload.phaseName } : {}),
+              durationDays: payload.durationDays,
+              masterBlockDays: payload.masterBlockDays,
+              notes: payload.notes ?? null,
+            },
+          });
+        } else {
+          const maxPhase = await tx.programPhaseTemplate.findFirst({
+            where: { programTemplateId: template.id },
+            orderBy: { orderIndex: "desc" },
+            select: { orderIndex: true },
+          });
+
+          const created = await tx.programPhaseTemplate.create({
+            data: {
+              programTemplateId: template.id,
+              name: payload.phaseName ?? `Phase ${(maxPhase?.orderIndex ?? 0) + 1}`,
+              orderIndex: payload.orderIndex ?? (maxPhase?.orderIndex ?? 0) + 1,
+              durationDays: payload.durationDays,
+              masterBlockDays: payload.masterBlockDays,
+              notes: payload.notes ?? null,
+            },
+            select: { id: true, orderIndex: true },
+          });
+          phase = created;
+        }
+
+        if (!phase) {
+          throw new Error("PHASE_NOT_FOUND");
+        }
+
+        if (payload.replaceExisting) {
+          await tx.programPhaseDayTemplate.deleteMany({
+            where: { phaseTemplateId: phase.id },
+          });
+        }
+
+        for (const dayNumber of dayNumbers) {
+          const dayItems = groupedByDay.get(dayNumber) ?? [];
+
+          const phaseDay = await tx.programPhaseDayTemplate.upsert({
+            where: {
+              phaseTemplateId_dayNumber: {
+                phaseTemplateId: phase.id,
+                dayNumber,
+              },
+            },
+            create: {
+              phaseTemplateId: phase.id,
+              dayNumber,
+              title: `Day ${dayNumber}`,
+              dayType: DayType.OTHER,
+              notes: null,
+            },
+            update: {
+              title: `Day ${dayNumber}`,
+            },
+            select: { id: true },
+          });
+
+          if (!payload.replaceExisting) {
+            await tx.exerciseTaskTemplate.deleteMany({
+              where: { phaseDayTemplateId: phaseDay.id },
+            });
+          }
+
+          for (let index = 0; index < dayItems.length; index += 1) {
+            const task = dayItems[index];
+            if (!task) {
+              continue;
+            }
+
+            await tx.exerciseTaskTemplate.create({
+              data: {
+                phaseDayTemplateId: phaseDay.id,
+                exerciseId: task.exerciseId,
+                orderIndex: index + 1,
+                name: task.name,
+                sets: task.sets,
+                repsOrTimeText: task.repsOrTimeText,
+                description: task.description,
+                requiresWeight: task.requiresWeight,
+                isUnilateral: task.isUnilateral,
+                evolution: task.evolution,
+                zone: task.zone,
+                videoUrl: task.videoUrl,
+                notes: null,
+              },
+            });
+          }
+        }
+
+        return tx.programPhaseTemplate.findUnique({
+          where: { id: phase.id },
+          include: {
+            days: {
+              orderBy: { dayNumber: "asc" },
+              include: {
+                tasks: {
+                  orderBy: { orderIndex: "asc" },
+                  include: {
+                    exercise: {
+                      select: { id: true, name: true, slug: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+      });
+
+      res.status(201).json({
+        templateCode: template.code,
+        warnings: parseResult.warnings,
+        unresolved,
+        phase: persisted,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid import payload", issues: error.issues });
+        return;
+      }
+
+      if (error instanceof Error && error.message === "PHASE_NOT_FOUND") {
+        res.status(404).json({ message: "Phase not found for this template" });
+        return;
+      }
+
+      console.error("Failed to persist wizard phase import", error);
+      res.status(500).json({ message: "Failed to persist wizard phase import" });
+    }
+  },
+);
 
 adminTemplatesRouter.put(
   "/program-templates/:code/days/:dayNumber/prescriptions",
@@ -698,7 +1062,7 @@ adminTemplatesRouter.get("/program-templates", async (_req: Request, res: Respon
     const templates = await prisma.programTemplate.findMany({
       orderBy: { createdAt: "asc" },
       include: {
-        _count: { select: { days: true, personalPrograms: true } },
+        _count: { select: { days: true, phases: true, personalPrograms: true } },
         techniqueMediaAssets: {
           orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
           select: { id: true },
