@@ -183,6 +183,8 @@ model Exercise {
   perLeg         Boolean                       @default(false)
   isBlock        Boolean                       @default(false)
   defaultSeriesProtocol SeriesProtocol         @default(NONE)
+  evolution      ExerciseEvolution?
+  zone           ExerciseZone?
   createdAt      DateTime                      @default(now())
   updatedAt      DateTime                      @updatedAt
   instructions   ExerciseInstruction[]

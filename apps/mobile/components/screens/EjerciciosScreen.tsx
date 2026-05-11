@@ -450,6 +450,14 @@ interface EjerciciosScreenProps {
   onSubmitLog: () => void;
   onShowJumpGuide: () => void;
   onBack: () => void;
+  overreachAdjustment?: {
+    isOverreach: boolean;
+    reason?: "fatigue" | "pain" | "teamDay" | null;
+    adjustedSets: Record<string, number>;
+    skippedIds: Set<string>;
+  };
+  energyScore?: number | null;
+  evolutionSuggestions?: Array<{ exerciseId: string; message: string }>;
 }
 
 export default function EjerciciosScreen({
@@ -468,6 +476,9 @@ export default function EjerciciosScreen({
   onSubmitLog,
   onShowJumpGuide,
   onBack,
+  overreachAdjustment,
+  energyScore = null,
+  evolutionSuggestions = [],
 }: EjerciciosScreenProps) {
   const { C } = useTheme();
   const styles = makeStyles(C);
@@ -561,9 +572,44 @@ export default function EjerciciosScreen({
         </View>
       ) : null}
 
+      {/* ── Overreach banner ─────────────────────────────── */}
+      {overreachAdjustment?.isOverreach ? (
+        <View style={styles.overreachBanner}>
+          <Text style={styles.overreachBannerTitle}>⚡ Sesión ajustada por sobreentrenamiento</Text>
+          <Text style={styles.overreachBannerText}>
+            {overreachAdjustment.reason === "fatigue"
+              ? "Fatiga elevada detectada."
+              : overreachAdjustment.reason === "pain"
+                ? "Nivel de dolor elevado detectado."
+                : "Día de entrenamiento de equipo detectado."}{" "}
+            Volumen reducido al 50%. Los ejercicios de Velocidad fueron omitidos.
+          </Text>
+        </View>
+      ) : null}
+
       {/* ── Current exercise card ────────────────────────── */}
       {currentExercise && !isLastStep ? (() => {
         const ex = currentExercise.exercise;
+
+        // ── Overreach: VELOCITY exercise skipped ─────────────────────
+        if (overreachAdjustment?.skippedIds.has(currentExercise.id)) {
+          return (
+            <View style={styles.skippedExerciseCard}>
+              <View style={styles.exerciseBadge}>
+                <Text style={styles.exerciseBadgeText}>{exerciseStep + 1}/{total}</Text>
+              </View>
+              <Text style={styles.skippedBadgeText}>⚡ OMITIDO · Sesión aliviada</Text>
+              <Text style={styles.skippedExerciseName}>{ex.name}</Text>
+              <Text style={styles.skippedExerciseSub}>Este ejercicio de velocidad fue eliminado para proteger tu recuperación.</Text>
+              <View style={styles.exerciseActions}>
+                <Pressable style={styles.btnComplete} onPress={() => { onSetExerciseStep(exerciseStep + 1); }}>
+                  <Text style={styles.btnCompleteText}>Continuar →</Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        }
+
         const allMedia = sortMediaAssets(ex.mediaAssets ?? []);
         const instructions = ex.instructions?.find((i) => i.locale === "es") ?? ex.instructions?.[0];
         // Parse steps: stored as JSON array or newline-separated string
@@ -579,12 +625,16 @@ export default function EjerciciosScreen({
         // Timer params — only show if BOTH durationSeconds and restSeconds are set
         const workSec = currentExercise.durationSeconds ?? 0;
         const restSec = currentExercise.restSeconds ?? 0;
-        const sets = currentExercise.sets ?? 3;
+        // Use adjusted sets if overreach is active
+        const originalSets = currentExercise.sets ?? 3;
+        const sets = overreachAdjustment?.isOverreach
+          ? (overreachAdjustment.adjustedSets[currentExercise.id] ?? originalSets)
+          : originalSets;
         const hasTimer = !!(currentExercise.durationSeconds && currentExercise.restSeconds);
 
         // Build prescription label
         const parts: string[] = [];
-        if (sets) parts.push(`${sets} series`);
+        if (sets) parts.push(overreachAdjustment?.isOverreach && sets !== originalSets ? `${sets} series (↓ ajustado)` : `${sets} series`);
         if (currentExercise.durationSeconds)
           parts.push(fmtSecsLabel(currentExercise.durationSeconds));
         else if (currentExercise.repsText)
@@ -841,6 +891,24 @@ export default function EjerciciosScreen({
         </View>
       ) : null}
 
+      {/* ── Evolution suggestions (energy >= 9, all sets done) ──── */}
+      {evolutionSuggestions.length > 0 && !isLastStep ? (
+        <View style={styles.evolutionWrap}>
+          <Text style={styles.evolutionWrapTitle}>📈 Sugerencias de progresión</Text>
+          {evolutionSuggestions.map((sug) => {
+            const matchExercise = exercises.find((ex) => ex.exercise.id === sug.exerciseId);
+            return (
+              <View key={sug.exerciseId} style={styles.evolutionCard}>
+                {matchExercise ? (
+                  <Text style={styles.evolutionCardName}>{matchExercise.exercise.name}</Text>
+                ) : null}
+                <Text style={styles.evolutionCardMessage}>{sug.message}</Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
       {/* ── Close-out form ───────────────────────────────── */}
       {isLastStep ? (
         <View style={styles.closeOut}>
@@ -1063,5 +1131,23 @@ return StyleSheet.create({
   measureHintStrong: { color: C.amber, fontWeight: "800" },
   btnSave: { backgroundColor: C.amber, borderRadius: R.full, paddingVertical: 15, alignItems: "center", marginTop: S.xs },
   btnSaveText: { color: C.bg, fontWeight: "800", fontSize: 16 },
+
+  // Overreach banner
+  overreachBanner: { backgroundColor: "#7c3a0022", borderRadius: R.md, padding: S.sm, gap: 4, borderWidth: 1, borderColor: "#c0621044" },
+  overreachBannerTitle: { color: C.amber, fontWeight: "800", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 },
+  overreachBannerText: { color: C.amber, fontSize: 12, lineHeight: 18 },
+
+  // Skipped (VELOCITY) exercise card
+  skippedExerciseCard: { backgroundColor: C.surfaceRaise, borderRadius: R.xl, padding: S.lg, gap: S.sm, borderWidth: 1, borderColor: C.border, opacity: 0.7 },
+  skippedBadgeText: { color: C.amber, fontWeight: "700", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8 },
+  skippedExerciseName: { color: C.textSub, fontSize: 18, fontWeight: "700", textDecorationLine: "line-through" },
+  skippedExerciseSub: { color: C.textMuted, fontSize: 13, lineHeight: 18 },
+
+  // Evolution suggestion cards
+  evolutionWrap: { gap: S.xs },
+  evolutionWrapTitle: { color: C.teal, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.8 },
+  evolutionCard: { backgroundColor: C.tealDim, borderRadius: R.md, padding: S.sm, gap: 2, borderWidth: 1, borderColor: C.tealBorder },
+  evolutionCardName: { color: C.tealLight, fontSize: 12, fontWeight: "700" },
+  evolutionCardMessage: { color: C.teal, fontSize: 13, lineHeight: 18 },
 });
 }

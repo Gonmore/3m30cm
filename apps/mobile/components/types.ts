@@ -23,6 +23,7 @@ export interface AthleteLogMetrics {
   jumpTestAttempt3Cm?: number;
   jumpTestAverageCm?: number;
   jumpTestBestCm?: number;
+  bouncyScore?: number;
 }
 
 export interface PlanningRecommendation {
@@ -134,6 +135,8 @@ export interface SessionDetail {
       category: string;
       perLeg: boolean;
       isBlock: boolean;
+      evolution?: string | null;
+      zone?: string | null;
       instructions: Array<{ id: string; locale: string; summary: string | null; steps: string; safetyNotes: string | null }>;
       mediaAssets: Array<{ id: string; url: string | null; offlineUrl?: string | null; title: string | null; kind: string; isPrimary: boolean }>;
       asBlock: {
@@ -235,6 +238,7 @@ export interface LogDraftState {
   jumpTestAttempt1Cm: string;
   jumpTestAttempt2Cm: string;
   jumpTestAttempt3Cm: string;
+  bouncyScore: string;
 }
 
 export interface PreSessionCheckInState {
@@ -244,6 +248,7 @@ export interface PreSessionCheckInState {
   moodScore: string;
   sleepHours: string;
   notes: string;
+  bouncyScore: string;
   savedAt: string | null;
 }
 

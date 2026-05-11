@@ -154,6 +154,8 @@ interface HoyScreenV2Props {
   onUpdateCheckIn: (field: keyof Omit<PreSessionCheckInState, "savedAt">, value: string) => void;
   onSaveCheckIn: () => void;
   onClearCheckIn: () => void;
+  /** Show weekly bouncy score input (gated to once per 7 days by parent) */
+  showBouncyInput?: boolean;
   onStartSession: () => void;
   onPreloadSession: () => void;
   todaySessionCached: boolean;
@@ -627,6 +629,7 @@ export default function HoyScreenV2({
   onRefresh,
   onUpdateCheckIn,
   onGenerateProgram,
+  showBouncyInput = false,
 }: HoyScreenV2Props) {
   const { C } = useTheme();
   const styles = makeStyles(C);
@@ -857,6 +860,22 @@ export default function HoyScreenV2({
                   </View>
                 ))}
               </View>
+
+              {/* ── Weekly Bouncy score (max once per 7 days) ────── */}
+              {showBouncyInput ? (
+                <View style={styles.checkInCell}>
+                  <Text style={styles.checkInCellLabel}>🦘 Elasticidad semanal (1-10)</Text>
+                  <Text style={styles.checkInBouncyHint}>¿Qué tan elástico/a te sentiste esta semana?</Text>
+                  <TextInput
+                    style={styles.checkInInput}
+                    value={todayCheckIn?.bouncyScore ?? ""}
+                    onChangeText={(v) => onUpdateCheckIn("bouncyScore", v)}
+                    keyboardType="decimal-pad"
+                    placeholderTextColor={C.textDisabled}
+                    placeholder="–"
+                  />
+                </View>
+              ) : null}
               <View style={styles.checkInActions}>
                 <Pressable style={styles.checkInSaveBtn} onPress={onSaveCheckIn}>
                   <Text style={styles.checkInSaveBtnText}>Guardar</Text>
@@ -1099,6 +1118,7 @@ return StyleSheet.create({
   checkInGrid: { flexDirection: "row", flexWrap: "wrap", gap: S.sm },
   checkInCell: { minWidth: "46%", flex: 1, gap: 3 },
   checkInCellLabel: { color: C.textSub, fontSize: 12, fontWeight: "700" },
+  checkInBouncyHint: { color: C.textMuted, fontSize: 11, lineHeight: 15 },
   checkInInput: {
     backgroundColor: C.surface,
     borderRadius: R.sm,

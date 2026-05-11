@@ -83,6 +83,8 @@ const sessionDetailInclude = {
           perLeg: true,
           isBlock: true,
           defaultSeriesProtocol: true,
+          evolution: true,
+          zone: true,
           instructions: {
             orderBy: { locale: "asc" },
           },
@@ -121,6 +123,7 @@ const logMetricsSchema = z.object({
   painScore: z.number().int().min(0).max(10).optional(),
   moodScore: z.number().int().min(1).max(10).optional(),
   sleepHours: z.number().min(0).max(24).optional(),
+  bouncyScore: z.number().int().min(1).max(10).optional(),
   jumpHeightCm: z.number().min(0).optional(),
   bodyWeightKg: z.number().min(0).optional(),
   avgLoadKg: z.number().min(0).optional(),
@@ -1374,6 +1377,126 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
   } catch (error) {
     console.error("Failed to fetch athlete progress", error);
     res.status(500).json({ message: "Failed to fetch athlete progress" });
+  }
+});
+
+// ── Path to the Dunk: weekly power trajectory ─────────────────────────────
+athleteRouter.get("/progress/power-path", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const athleteProfile = await getCurrentAthleteProfileId(userId);
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Current user is not an athlete" });
+      return;
+    }
+
+    // Fetch the active program for phase context and start date
+    const activeProgram = await prisma.personalProgram.findFirst({
+      where: { athleteProfileId: athleteProfile.id, status: ProgramStatus.ACTIVE },
+      orderBy: { startDate: "desc" },
+      select: { id: true, startDate: true, phase: true },
+    });
+
+    if (!activeProgram) {
+      res.json([]);
+      return;
+    }
+
+    // Fetch all completed sessions with their exercise zone data and logs
+    const completedSessions = await prisma.scheduledSession.findMany({
+      where: {
+        personalProgram: { athleteProfileId: athleteProfile.id },
+        status: SessionStatus.COMPLETED,
+        scheduledDate: { gte: activeProgram.startDate },
+      },
+      orderBy: { scheduledDate: "asc" },
+      select: {
+        id: true,
+        scheduledDate: true,
+        sessionExercises: {
+          select: {
+            id: true,
+            sets: true,
+            repsText: true,
+            durationSeconds: true,
+            exercise: {
+              select: { zone: true, evolution: true },
+            },
+          },
+        },
+        logs: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { metrics: true },
+        },
+      },
+    });
+
+    // Phase factor for power scoring
+    function getPhaseFactor(phase: string): number {
+      if (phase.toUpperCase().includes("POWER")) return 1.5;
+      if (phase.toUpperCase().includes("BASE")) return 1.2;
+      return 1.0; // PREP or default
+    }
+
+    // Group by ISO week relative to program start
+    const programStart = new Date(activeProgram.startDate);
+    const weekMap = new Map<number, { powerScore: number; bouncyScore: number | null; weekStartDate: string; phaseLabel: string }>();
+
+    for (const session of completedSessions) {
+      const sessionDate = new Date(session.scheduledDate);
+      const daysDiff = Math.floor((sessionDate.getTime() - programStart.getTime()) / (1000 * 60 * 60 * 24));
+      const weekNum = Math.floor(daysDiff / 7) + 1;
+
+      const weekStartDate = new Date(programStart);
+      weekStartDate.setDate(programStart.getDate() + (weekNum - 1) * 7);
+
+      // Extract bouncyScore from metrics JSONB
+      const rawMetrics = session.logs[0]?.metrics as Record<string, unknown> | null;
+      const rawBouncy = rawMetrics && typeof rawMetrics === "object" ? rawMetrics["bouncyScore"] : null;
+      const bouncyScore = typeof rawBouncy === "number" ? rawBouncy : null;
+
+      // Calculate power score from LOWER zone exercises
+      let sessionPower = 0;
+      for (const se of session.sessionExercises) {
+        if (se.exercise.zone !== "LOWER") continue;
+        const sets = se.sets ?? 3;
+        // Estimate reps from repsText (e.g. "8", "8-10", "8x3") — default 8
+        const repsMatch = se.repsText?.match(/\d+/);
+        const reps = repsMatch ? parseInt(repsMatch[0], 10) : (se.durationSeconds ? Math.floor(se.durationSeconds / 5) : 8);
+        sessionPower += sets * reps;
+      }
+
+      const phaseFactor = getPhaseFactor(activeProgram.phase);
+      const existing = weekMap.get(weekNum);
+      if (existing) {
+        existing.powerScore += Math.round(sessionPower * phaseFactor);
+        if (bouncyScore !== null) existing.bouncyScore = bouncyScore;
+      } else {
+        weekMap.set(weekNum, {
+          powerScore: Math.round(sessionPower * phaseFactor),
+          bouncyScore,
+          weekStartDate: weekStartDate.toISOString().slice(0, 10),
+          phaseLabel: activeProgram.phase,
+        });
+      }
+    }
+
+    const result = Array.from(weekMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([week, data]) => ({ week, ...data }));
+
+    res.json(result);
+  } catch (error) {
+    console.error("Failed to fetch power path", error);
+    res.status(500).json({ message: "Failed to fetch power path" });
   }
 });
 

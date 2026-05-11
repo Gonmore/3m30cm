@@ -21,6 +21,9 @@ import HoyScreenV2 from "../components/screens/HoyScreenV2";
 import ProgramaScreen from "@mobile/components/screens/ProgramaScreen";
 import TecnicaScreen from "../components/screens/TecnicaScreen";
 import type { SessionDetail as SharedSessionDetail, SessionGuidance as SharedSessionGuidance } from "@mobile/components/types";
+import { useOverreachAdjustment } from "../components/screens/useOverreachAdjustment";
+import { useEvolutionSuggestion } from "../components/screens/useEvolutionSuggestion";
+import PathToDunkScreen from "../components/screens/PathToDunkScreen";
 import {
   ActivityIndicator,
   Image,
@@ -668,6 +671,7 @@ interface LogDraftState {
   painScore: string;
   moodScore: string;
   sleepHours: string;
+  bouncyScore: string;
   jumpHeightCm: string;
   bodyWeightKg: string;
   avgLoadKg: string;
@@ -812,6 +816,7 @@ interface PreSessionCheckInState {
   painScore: string;
   moodScore: string;
   sleepHours: string;
+  bouncyScore: string;
   notes: string;
   savedAt: string | null;
 }
@@ -921,6 +926,7 @@ const emptyLogDraft = (): LogDraftState => ({
   painScore: "",
   moodScore: "",
   sleepHours: "",
+  bouncyScore: "",
   jumpHeightCm: "",
   bodyWeightKg: "",
   avgLoadKg: "",
@@ -937,6 +943,7 @@ const emptyPreSessionCheckIn = (): PreSessionCheckInState => ({
   painScore: "",
   moodScore: "",
   sleepHours: "",
+  bouncyScore: "",
   notes: "",
   savedAt: null,
 });
@@ -1399,6 +1406,7 @@ function mergeCheckInIntoLogDraft(draft: LogDraftState, checkIn?: PreSessionChec
     painScore: checkIn.painScore || draft.painScore,
     moodScore: checkIn.moodScore || draft.moodScore,
     sleepHours: checkIn.sleepHours || draft.sleepHours,
+    bouncyScore: checkIn.bouncyScore || draft.bouncyScore,
     notes: checkIn.notes || draft.notes,
   };
 }
@@ -1914,6 +1922,39 @@ export default function HomeScreen() {
     ? Math.round((completedExercisesCount / Math.max(selectedSession.sessionExercises.length, 1)) * 100)
     : 0;
 
+  // ── Athletic Intelligence: Weekly Bouncy gate ───────────────────────
+  const showBouncyInput = useMemo(() => {
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const latestBouncySave = Object.values(preSessionCheckIns)
+      .filter((ci) => ci.savedAt && ci.bouncyScore)
+      .reduce((latest, ci) => {
+        const t = new Date(ci.savedAt!).getTime();
+        return t > latest ? t : latest;
+      }, 0);
+    return latestBouncySave < sevenDaysAgo;
+  }, [preSessionCheckIns]);
+  const todayWeekday = new Date().getDay(); // 0 = Sunday, 1 = Monday … 6 = Saturday
+  const teamTrainingDays = profile?.programPreferences?.teamTrainingDays ?? [];
+  const isTeamTrainingDay = teamTrainingDays.includes(todayWeekday);
+  const overreachAdjustment = useOverreachAdjustment({
+    readinessScore: toOptionalNumber(logDraft.readinessScore) ?? null,
+    painScore: toOptionalNumber(logDraft.painScore) ?? null,
+    isTeamTrainingDay,
+    session: selectedSession as SharedSessionDetail | null,
+  });
+
+  // ── Athletic Intelligence: Evolution Sync Module ─────────────────────
+  const evolutionExercises = selectedSession?.sessionExercises.map((se) => ({
+    exerciseId: se.exercise.id,
+    evolutionType: se.exercise.evolution,
+    totalSets: se.sets ?? 3,
+    completedSets: logDraft.completedExerciseIds.includes(se.id) ? (se.sets ?? 3) : 0,
+  })) ?? [];
+  const evolutionSuggestions = useEvolutionSuggestion({
+    energyScore: toOptionalNumber(logDraft.readinessScore) ?? null,
+    exercises: evolutionExercises,
+  });
+
   const athleteInitials = useMemo(() => {
     if (profile?.user.firstName && profile.user.lastName) {
       return `${profile.user.firstName[0]}${profile.user.lastName[0]}`.toUpperCase();
@@ -2291,6 +2332,7 @@ export default function HomeScreen() {
       jumpTestAttempt1Cm: toInputValue(lastMetrics?.jumpTestAttempt1Cm),
       jumpTestAttempt2Cm: toInputValue(lastMetrics?.jumpTestAttempt2Cm),
       jumpTestAttempt3Cm: toInputValue(lastMetrics?.jumpTestAttempt3Cm),
+      bouncyScore: toInputValue(lastMetrics?.bouncyScore),
     };
 
     setLogDraft(mergeCheckInIntoLogDraft(nextDraft, preSessionCheckIns[session.id] ?? null));
@@ -3183,6 +3225,7 @@ export default function HomeScreen() {
               painScore: toOptionalNumber(logDraft.painScore),
               moodScore: toOptionalNumber(logDraft.moodScore),
               sleepHours: toOptionalNumber(logDraft.sleepHours),
+              bouncyScore: toOptionalNumber(logDraft.bouncyScore),
               bodyWeightKg: toOptionalNumber(logDraft.bodyWeightKg),
               avgLoadKg: toOptionalNumber(logDraft.avgLoadKg),
               peakVelocityMps: toOptionalNumber(logDraft.peakVelocityMps),
@@ -3638,6 +3681,7 @@ export default function HomeScreen() {
           onUpdateCheckIn={updateTodayCheckIn}
           onSaveCheckIn={saveTodayCheckIn}
           onClearCheckIn={clearTodayCheckIn}
+          showBouncyInput={showBouncyInput}
           onStartSession={async () => {
             if (todayPrimarySession) {
               setSelectedSessionId(todayPrimarySession.id);
@@ -3678,6 +3722,9 @@ export default function HomeScreen() {
           onSubmitLog={() => void handleSubmitLog()}
           onShowJumpGuide={() => setJumpGuideVisible(true)}
           onBack={() => setActiveScreen("hoy")}
+          overreachAdjustment={overreachAdjustment}
+          energyScore={toOptionalNumber(logDraft.readinessScore) ?? null}
+          evolutionSuggestions={evolutionSuggestions}
         />
       ) : null}
 
@@ -3733,6 +3780,14 @@ export default function HomeScreen() {
           onSetSelectedCycleId={setSelectedCycleId}
           onSetComparisonTechniqueIds={setComparisonTechniqueIds}
           onShowJumpGuide={() => setJumpGuideVisible(true)}
+        />
+      ) : null}
+
+      {activeScreen === "pathtodunk" ? (
+        <PathToDunkScreen
+          accessToken={accessToken}
+          apiBaseUrl={apiBaseUrl}
+          onBack={() => setActiveScreen("hoy")}
         />
       ) : null}
 
