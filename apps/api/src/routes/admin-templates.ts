@@ -601,6 +601,25 @@ const persistExerciseTaskImportSchema = z.object({
   }
 });
 
+const createWizardPhaseSchema = z.object({
+  name: z.string().trim().min(2),
+  orderIndex: z.number().int().positive().optional(),
+  durationDays: z.number().int().positive().max(365),
+  masterBlockDays: z.union([z.literal(7), z.literal(14)]),
+  notes: z.string().trim().nullable().optional(),
+});
+
+const updateWizardPhaseSchema = z.object({
+  name: z.string().trim().min(2).optional(),
+  orderIndex: z.number().int().positive().optional(),
+  durationDays: z.number().int().positive().max(365).optional(),
+  masterBlockDays: z.union([z.literal(7), z.literal(14)]).optional(),
+  notes: z.string().trim().nullable().optional(),
+}).refine(
+  (value) => Object.keys(value).length > 0,
+  { message: "At least one field must be provided" },
+);
+
 function getStringParam(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
     return value[0];
@@ -615,6 +634,59 @@ function normalizeExerciseLookup(value: string) {
 
 function slugifyExerciseLookup(value: string) {
   return normalizeExerciseLookup(value).replace(/\s+/g, "-");
+}
+
+type PhaseDbClient = typeof prisma | Prisma.TransactionClient;
+
+async function loadWizardPhases(db: PhaseDbClient, programTemplateId: string) {
+  return db.programPhaseTemplate.findMany({
+    where: { programTemplateId },
+    orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+    include: {
+      days: {
+        orderBy: { dayNumber: "asc" },
+        include: {
+          tasks: {
+            orderBy: { orderIndex: "asc" },
+            include: {
+              exercise: {
+                select: { id: true, name: true, slug: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+async function normalizeWizardPhaseOrder(
+  tx: Prisma.TransactionClient,
+  orderedPhaseIds: string[],
+) {
+  for (let index = 0; index < orderedPhaseIds.length; index += 1) {
+    const phaseId = orderedPhaseIds[index];
+    if (!phaseId) {
+      continue;
+    }
+
+    await tx.programPhaseTemplate.update({
+      where: { id: phaseId },
+      data: { orderIndex: 1000 + index },
+    });
+  }
+
+  for (let index = 0; index < orderedPhaseIds.length; index += 1) {
+    const phaseId = orderedPhaseIds[index];
+    if (!phaseId) {
+      continue;
+    }
+
+    await tx.programPhaseTemplate.update({
+      where: { id: phaseId },
+      data: { orderIndex: index + 1 },
+    });
+  }
 }
 
 async function buildExerciseLookupMap(candidateNames: string[]) {
@@ -647,6 +719,226 @@ function resolveExerciseMatch(
 export const adminTemplatesRouter = Router();
 
 adminTemplatesRouter.use(requireAuth, requireRole([Role.SUPERADMIN]));
+
+adminTemplatesRouter.get(
+  "/program-templates/:code/wizard/phases",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      if (!code) {
+        res.status(400).json({ message: "Program template code is required" });
+        return;
+      }
+
+      const template = await prisma.programTemplate.findUnique({
+        where: { code },
+        select: { id: true, code: true },
+      });
+
+      if (!template) {
+        res.status(404).json({ message: "Program template not found" });
+        return;
+      }
+
+      const phases = await loadWizardPhases(prisma, template.id);
+      res.json({ templateCode: template.code, phases });
+    } catch (error) {
+      console.error("Failed to list wizard phases", error);
+      res.status(500).json({ message: "Failed to list wizard phases" });
+    }
+  },
+);
+
+adminTemplatesRouter.post(
+  "/program-templates/:code/wizard/phases",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      if (!code) {
+        res.status(400).json({ message: "Program template code is required" });
+        return;
+      }
+
+      const payload = createWizardPhaseSchema.parse(req.body);
+      const template = await prisma.programTemplate.findUnique({
+        where: { code },
+        select: { id: true, code: true },
+      });
+
+      if (!template) {
+        res.status(404).json({ message: "Program template not found" });
+        return;
+      }
+
+      const phases = await prisma.$transaction(async (tx) => {
+        const existingPhases = await tx.programPhaseTemplate.findMany({
+          where: { programTemplateId: template.id },
+          orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+          select: { id: true },
+        });
+
+        const createdPhase = await tx.programPhaseTemplate.create({
+          data: {
+            programTemplateId: template.id,
+            name: payload.name,
+            orderIndex: existingPhases.length + 1,
+            durationDays: payload.durationDays,
+            masterBlockDays: payload.masterBlockDays,
+            notes: payload.notes ?? null,
+          },
+          select: { id: true },
+        });
+
+        const desiredIndex = payload.orderIndex
+          ? Math.min(Math.max(payload.orderIndex - 1, 0), existingPhases.length)
+          : existingPhases.length;
+
+        const orderedIds = existingPhases.map((phase) => phase.id);
+        orderedIds.splice(desiredIndex, 0, createdPhase.id);
+        await normalizeWizardPhaseOrder(tx, orderedIds);
+
+        return loadWizardPhases(tx, template.id);
+      });
+
+      res.status(201).json({ templateCode: template.code, phases });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid phase payload", issues: error.issues });
+        return;
+      }
+
+      console.error("Failed to create wizard phase", error);
+      res.status(500).json({ message: "Failed to create wizard phase" });
+    }
+  },
+);
+
+adminTemplatesRouter.put(
+  "/program-templates/:code/wizard/phases/:phaseId",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      const phaseId = getStringParam(req.params.phaseId);
+      if (!code || !phaseId) {
+        res.status(400).json({ message: "Program template code and phase id are required" });
+        return;
+      }
+
+      const payload = updateWizardPhaseSchema.parse(req.body);
+      const template = await prisma.programTemplate.findUnique({
+        where: { code },
+        select: { id: true, code: true },
+      });
+
+      if (!template) {
+        res.status(404).json({ message: "Program template not found" });
+        return;
+      }
+
+      const phases = await prisma.$transaction(async (tx) => {
+        const existingPhases = await tx.programPhaseTemplate.findMany({
+          where: { programTemplateId: template.id },
+          orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+          select: { id: true },
+        });
+
+        if (!existingPhases.some((phase) => phase.id === phaseId)) {
+          throw new Error("PHASE_NOT_FOUND");
+        }
+
+        await tx.programPhaseTemplate.update({
+          where: { id: phaseId },
+          data: {
+            ...(payload.name !== undefined ? { name: payload.name } : {}),
+            ...(payload.durationDays !== undefined ? { durationDays: payload.durationDays } : {}),
+            ...(payload.masterBlockDays !== undefined ? { masterBlockDays: payload.masterBlockDays } : {}),
+            ...(payload.notes !== undefined ? { notes: payload.notes ?? null } : {}),
+          },
+        });
+
+        if (payload.orderIndex !== undefined) {
+          const orderedIds = existingPhases.map((phase) => phase.id).filter((id) => id !== phaseId);
+          const desiredIndex = Math.min(Math.max(payload.orderIndex - 1, 0), orderedIds.length);
+          orderedIds.splice(desiredIndex, 0, phaseId);
+          await normalizeWizardPhaseOrder(tx, orderedIds);
+        }
+
+        return loadWizardPhases(tx, template.id);
+      });
+
+      res.json({ templateCode: template.code, phases });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid phase payload", issues: error.issues });
+        return;
+      }
+
+      if (error instanceof Error && error.message === "PHASE_NOT_FOUND") {
+        res.status(404).json({ message: "Phase not found for this template" });
+        return;
+      }
+
+      console.error("Failed to update wizard phase", error);
+      res.status(500).json({ message: "Failed to update wizard phase" });
+    }
+  },
+);
+
+adminTemplatesRouter.delete(
+  "/program-templates/:code/wizard/phases/:phaseId",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      const phaseId = getStringParam(req.params.phaseId);
+      if (!code || !phaseId) {
+        res.status(400).json({ message: "Program template code and phase id are required" });
+        return;
+      }
+
+      const template = await prisma.programTemplate.findUnique({
+        where: { code },
+        select: { id: true, code: true },
+      });
+
+      if (!template) {
+        res.status(404).json({ message: "Program template not found" });
+        return;
+      }
+
+      const phases = await prisma.$transaction(async (tx) => {
+        const existingPhase = await tx.programPhaseTemplate.findUnique({
+          where: { id: phaseId },
+          select: { id: true, programTemplateId: true },
+        });
+
+        if (!existingPhase || existingPhase.programTemplateId !== template.id) {
+          throw new Error("PHASE_NOT_FOUND");
+        }
+
+        await tx.programPhaseTemplate.delete({ where: { id: phaseId } });
+
+        const remainingPhases = await tx.programPhaseTemplate.findMany({
+          where: { programTemplateId: template.id },
+          orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+          select: { id: true },
+        });
+
+        await normalizeWizardPhaseOrder(tx, remainingPhases.map((phase) => phase.id));
+        return loadWizardPhases(tx, template.id);
+      });
+
+      res.json({ templateCode: template.code, phases });
+    } catch (error) {
+      if (error instanceof Error && error.message === "PHASE_NOT_FOUND") {
+        res.status(404).json({ message: "Phase not found for this template" });
+        return;
+      }
+
+      console.error("Failed to delete wizard phase", error);
+      res.status(500).json({ message: "Failed to delete wizard phase" });
+    }
+  },
+);
 
 adminTemplatesRouter.post(
   "/program-templates/:code/wizard/exercise-tasks/parse",

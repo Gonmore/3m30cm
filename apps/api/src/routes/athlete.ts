@@ -4,7 +4,15 @@ import multer from "multer";
 import { z } from "zod";
 
 import { prisma } from "../config/prisma.js";
-import { atLocalMidday, buildTrainingDaysJson, buildWeekdaysJson, generatePersonalProgram, parseWeekdaysJson } from "../lib/athlete-programs.js";
+import {
+  atLocalMidday,
+  buildAthleteProgramPreferencesJson,
+  buildTrainingDaysJson,
+  buildWeekdaysJson,
+  generatePersonalProgram,
+  parseAthleteProgramPreferences,
+  parseWeekdaysJson,
+} from "../lib/athlete-programs.js";
 import { buildSeriesProtocolGuidance } from "../lib/exercise-series.js";
 import { analyze as analyzeBiomechanics, CalibrationError } from "../lib/jumpHeightAnalyzer.js";
 import { uploadAvatarMedia } from "../lib/minio.js";
@@ -149,6 +157,29 @@ const athletePlanningSchema = z.object({
   sportTrainingDays: z.array(z.number().int().min(0).max(6)).optional(),
   seasonPhase: z.nativeEnum(SeasonPhase).default(SeasonPhase.OFF_SEASON),
   availableWeekdays: z.array(z.number().int().min(0).max(6)).optional(),
+  programPreferences: z.object({
+    skipPhase1: z.boolean().default(false),
+    teamTrainingDays: z.array(z.number().int().min(0).max(6)).optional(),
+    deloadEnabled: z.boolean().default(false),
+    deloadEveryDays: z.number().int().positive().max(90).nullable().optional(),
+    deloadDurationDays: z.number().int().positive().max(14).nullable().optional(),
+  }).superRefine((value, ctx) => {
+    if (value.deloadEnabled && !value.deloadEveryDays) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "deloadEveryDays is required when deloadEnabled is true",
+        path: ["deloadEveryDays"],
+      });
+    }
+
+    if (value.deloadEnabled && !value.deloadDurationDays) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "deloadDurationDays is required when deloadEnabled is true",
+        path: ["deloadDurationDays"],
+      });
+    }
+  }).optional(),
   notes: z.string().trim().optional(),
 });
 
@@ -156,7 +187,7 @@ const athleteProgramSetupSchema = athletePlanningSchema.extend({
   templateCode: z.string().min(1).default("JUMP-MANUAL-14D"),
   startDate: z.string().date(),
   phase: z.nativeEnum(SeasonPhase).optional(),
-  includePreparationPhase: z.boolean().default(true),
+  includePreparationPhase: z.boolean().optional(),
 });
 
 const techniqueMetricSchema = z.object({
@@ -232,21 +263,35 @@ function buildAthleteSetupRecommendation(input: {
   trainsSport: boolean;
   sportTrainingDays: Prisma.JsonValue | null;
   weeklyAvailability: Prisma.JsonValue | null;
+  programPreferences?: Prisma.JsonValue | null;
   hasActiveProgram: boolean;
 }) {
   const sportTrainingDays = parseWeekdaysJson(input.sportTrainingDays);
   const jumpTrainingDays = parseWeekdaysJson(input.weeklyAvailability);
+  const preferences = parseAthleteProgramPreferences(input.programPreferences ?? null);
   const sportLabel = input.sport?.trim() || "otro deporte";
+
+  const summarySegments = [
+    input.trainsSport && sportTrainingDays.length
+      ? `Como tambien entrenas ${sportLabel}, conviene arrancar con 3 semanas de adecuacion y dejar los dias que coincidan con pista/cancha a medio volumen si llegas cargado.`
+      : "Antes del bloque principal conviene una fase breve de adecuacion con isometricos, aterrizajes y bajo impacto para entrar al programa sin saltar etapas.",
+  ];
+
+  if (preferences.teamTrainingDays.length) {
+    summarySegments.push(`Tus dias de equipo declarados son ${preferences.teamTrainingDays.join(", ")}. El plan debe coordinar esas cargas con el bloque de salto.`);
+  }
+
+  if (preferences.deloadEnabled && preferences.deloadEveryDays && preferences.deloadDurationDays) {
+    summarySegments.push(`Tambien dejaste una descarga persistente cada ${preferences.deloadEveryDays} dias durante ${preferences.deloadDurationDays} dia(s).`);
+  }
 
   return {
     needsProgramSetup: !input.hasActiveProgram,
-    recommendedPreparationPhase: true,
+    recommendedPreparationPhase: !preferences.skipPhase1,
     recommendedPreparationWeeks: 3,
     sportTrainingDays,
     jumpTrainingDays,
-    summary: input.trainsSport && sportTrainingDays.length
-      ? `Como tambien entrenas ${sportLabel}, conviene arrancar con 3 semanas de adecuacion y dejar los dias que coincidan con pista/cancha a medio volumen si llegas cargado.`
-      : "Antes del bloque principal conviene una fase breve de adecuacion con isometricos, aterrizajes y bajo impacto para entrar al programa sin saltar etapas.",
+    summary: summarySegments.join(" "),
     focusAreas: [
       "Tendon rotuliano y soleo con isometricos.",
       "Control de aterrizaje y rigidez de tobillo.",
@@ -766,6 +811,7 @@ athleteRouter.get("/me", async (req: AuthenticatedRequest, res: Response) => {
         trainsSport: athleteProfile.trainsSport,
         sportTrainingDays: athleteProfile.sportTrainingDays,
         weeklyAvailability: athleteProfile.weeklyAvailability,
+        programPreferences: athleteProfile.programPreferences,
         hasActiveProgram: Boolean(activeProgram),
       }),
     });
@@ -796,6 +842,7 @@ athleteRouter.put("/onboarding", async (req: AuthenticatedRequest, res: Response
         seasonPhase: payload.seasonPhase,
         weeklyAvailability: buildWeekdaysJson(payload.availableWeekdays),
         sportTrainingDays: buildTrainingDaysJson(payload.trainsSport ? payload.sportTrainingDays : undefined),
+        programPreferences: buildAthleteProgramPreferencesJson(payload.programPreferences),
         notes: payload.notes ?? null,
         onboardingCompletedAt: new Date(),
       },
@@ -809,6 +856,7 @@ athleteRouter.put("/onboarding", async (req: AuthenticatedRequest, res: Response
         trainsSport: athleteProfile.trainsSport,
         sportTrainingDays: athleteProfile.sportTrainingDays,
         weeklyAvailability: athleteProfile.weeklyAvailability,
+        programPreferences: athleteProfile.programPreferences,
         hasActiveProgram: false,
       }),
     });
@@ -880,7 +928,9 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
       return;
     }
 
+    const programPreferences = payload.programPreferences ?? parseAthleteProgramPreferences(currentAthleteProfile.programPreferences);
     const phase = payload.phase ?? payload.seasonPhase ?? currentAthleteProfile.seasonPhase;
+    const includePreparationPhase = payload.includePreparationPhase ?? !programPreferences.skipPhase1;
 
     const program = await prisma.$transaction(async (transaction) => {
       const updatedAthleteProfile = await transaction.athleteProfile.update({
@@ -894,6 +944,7 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
           seasonPhase: payload.seasonPhase,
           weeklyAvailability: buildWeekdaysJson(payload.availableWeekdays),
           sportTrainingDays: buildTrainingDaysJson(payload.trainsSport ? payload.sportTrainingDays : undefined),
+          programPreferences: buildAthleteProgramPreferencesJson(programPreferences),
           notes: payload.notes ?? null,
           onboardingCompletedAt: new Date(),
         },
@@ -915,7 +966,7 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
         startDate,
         phase,
         notes: payload.notes,
-        includePreparationPhase: payload.includePreparationPhase,
+        includePreparationPhase,
       });
     });
 
@@ -926,6 +977,7 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
         trainsSport: payload.trainsSport,
         sportTrainingDays: payload.trainsSport ? { trainingDays: payload.sportTrainingDays ?? [] } : null,
         weeklyAvailability: { availableWeekdays: payload.availableWeekdays ?? [] },
+        programPreferences: buildAthleteProgramPreferencesJson(programPreferences),
         hasActiveProgram: true,
       }),
     });

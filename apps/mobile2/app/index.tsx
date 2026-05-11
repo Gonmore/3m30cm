@@ -109,6 +109,9 @@ function formatGoogleAuthError(error: unknown, idToken?: string): string {
 }
 
 const reminderSyncStorageKey = "jump-athlete-reminder-sync";
+const eveningReminderSyncStorageKey = "jump-athlete-evening-sync";
+const reminderHourStorageKey = "jump-athlete-reminder-hour";
+const eveningReminderEnabledStorageKey = "jump-athlete-evening-enabled";
 const trendWindowStorageKey = "jump-athlete-trend-window";
 const favoriteSessionStorageKey = "jump-athlete-favorite-session";
 const selectedCycleStorageKey = "jump-athlete-selected-cycle";
@@ -217,6 +220,13 @@ interface AthleteProfileResponse {
     seasonPhase: string;
     weeklyAvailability: { availableWeekdays?: number[] } | null;
     sportTrainingDays: { trainingDays?: number[] } | null;
+    programPreferences: {
+      skipPhase1?: boolean;
+      teamTrainingDays?: number[];
+      deloadEnabled?: boolean;
+      deloadEveryDays?: number | null;
+      deloadDurationDays?: number | null;
+    } | null;
     onboardingCompletedAt: string | null;
     notes: string | null;
     user: {
@@ -817,10 +827,14 @@ interface AthleteSetupState {
   sport: string;
   trainsSport: boolean;
   sportTrainingDays: string;
+  teamTrainingDays: string;
   seasonPhase: string;
   availableWeekdays: string;
   startDate: string;
-  includePreparationPhase: boolean;
+  skipPhase1: boolean;
+  deloadEnabled: boolean;
+  deloadEveryDays: string;
+  deloadDurationDays: string;
   notes: string;
   templateCode: string;
 }
@@ -938,10 +952,14 @@ const emptyAthleteSetup = (): AthleteSetupState => ({
   sport: "",
   trainsSport: false,
   sportTrainingDays: "2,4",
+  teamTrainingDays: "2,4",
   seasonPhase: "OFF_SEASON",
   availableWeekdays: "1,3,5",
   startDate: new Date().toISOString().slice(0, 10),
-  includePreparationPhase: true,
+  skipPhase1: false,
+  deloadEnabled: false,
+  deloadEveryDays: "21",
+  deloadDurationDays: "3",
   notes: "",
   templateCode: "JUMP-MANUAL-14D",
 });
@@ -984,10 +1002,37 @@ function parsePositiveMetricInput(value: string) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function buildReminderDate(sessionDate: string) {
+function buildProgramPreferencesPayload(setup: AthleteSetupState) {
+  const deloadEveryDays = Number(setup.deloadEveryDays);
+  const deloadDurationDays = Number(setup.deloadDurationDays);
+
+  return {
+    skipPhase1: setup.skipPhase1,
+    teamTrainingDays: parseWeekdaysInput(setup.teamTrainingDays),
+    deloadEnabled: setup.deloadEnabled,
+    deloadEveryDays: setup.deloadEnabled && Number.isInteger(deloadEveryDays) && deloadEveryDays > 0 ? deloadEveryDays : null,
+    deloadDurationDays: setup.deloadEnabled && Number.isInteger(deloadDurationDays) && deloadDurationDays > 0 ? deloadDurationDays : null,
+  };
+}
+
+function buildReminderDate(sessionDate: string, hour = 8) {
   const reminderDate = new Date(sessionDate);
-  reminderDate.setHours(8, 0, 0, 0);
+  reminderDate.setHours(hour, 0, 0, 0);
   return reminderDate.getTime() > Date.now() + 60 * 1000 ? reminderDate : null;
+}
+
+function buildEveningReminderCopy(tomorrowSession: { title: string; dayType: string }) {
+  return {
+    title: `Manana te toca ${formatSessionDayType(tomorrowSession.dayType)}`,
+    body: `${tomorrowSession.title} esta programada para manana. Descansa bien esta noche, hidratate y duerme 8 horas. Tu cuerpo ya esta listo para dar el siguiente salto.`,
+  };
+}
+
+function buildEveningReminderDate(tomorrowSessionDate: string, eveningHour = 21) {
+  const d = new Date(tomorrowSessionDate);
+  d.setDate(d.getDate() - 1);
+  d.setHours(eveningHour, 0, 0, 0);
+  return d.getTime() > Date.now() + 60 * 1000 ? d : null;
 }
 
 function startOfLocalDay(value: Date) {
@@ -1476,9 +1521,11 @@ export default function HomeScreen() {
   const [technique, setTechnique] = useState<AthleteTechniqueResponse["technique"] | null>(null);
   const [techniques, setTechniques] = useState<TechniqueEntry[]>([]);
   const [selectedTechniqueId, setSelectedTechniqueId] = useState<string | null>(null);
-  // Technique link modal — shown after saving a session log with jumpHeightCm
-  const [techniqueLinkModalVisible, setTechniqueLinkModalVisible] = useState(false);
-  const [pendingJumpHeightCm, setPendingJumpHeightCm] = useState<number | null>(null);
+  const [selectedJumpTechniqueId, setSelectedJumpTechniqueId] = useState<string | null>(null);
+  const linkableTechniques = useMemo(
+    () => techniques.filter((entry) => entry.measurementDefinitions.length > 0),
+    [techniques],
+  );
   // Coaching status — persisted after check-in panel closes
   const [savedCoachingStatus, setSavedCoachingStatus] = useState<"push" | "protect" | "focus" | "steady" | null>(null);
   const [comparisonTechniqueIds, setComparisonTechniqueIds] = useState<[string | null, string | null]>([null, null]);
@@ -1560,7 +1607,24 @@ export default function HomeScreen() {
 
   const [notificationPermission, setNotificationPermission] = useState<PermissionState>("unknown");
   const [calendarPermission, setCalendarPermission] = useState<PermissionState>("unknown");
+  const [reminderHour, setReminderHourState] = useState<number>(8);
+  const [eveningReminderEnabled, setEveningReminderEnabledState] = useState<boolean>(true);
   const autoSyncKeyRef = useRef<string>("");
+
+  useEffect(() => {
+    void readStoredValue(reminderHourStorageKey).then((v) => { if (v !== null) setReminderHourState(Number(v)); });
+    void readStoredValue(eveningReminderEnabledStorageKey).then((v) => { if (v !== null) setEveningReminderEnabledState(v === "true"); });
+  }, []);
+
+  async function setReminderHour(hour: number) {
+    setReminderHourState(hour);
+    await writeStoredValue(reminderHourStorageKey, String(hour));
+  }
+
+  async function setEveningReminderEnabled(enabled: boolean) {
+    setEveningReminderEnabledState(enabled);
+    await writeStoredValue(eveningReminderEnabledStorageKey, String(enabled));
+  }
 
   const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB ?? googleClientIds.web;
   const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS ?? googleClientIds.ios;
@@ -1683,7 +1747,6 @@ export default function HomeScreen() {
   const [exerciseStep, setExerciseStep] = useState(0);
   const [jumpGuideVisible, setJumpGuideVisible] = useState(false);
   const [todayProgressStep, setTodayProgressStep] = useState(0);
-
   async function handleUnauthorizedSession(messageText = "La sesion ya no es valida. Inicia sesion otra vez.") {
     await deleteStoredValue(accessTokenStorageKey);
     setAccessToken(null);
@@ -1782,6 +1845,31 @@ export default function HomeScreen() {
     () => progress?.cycleEvolution.find((cycle) => cycle.id === selectedCycleId) ?? progress?.cycleEvolution[0] ?? null,
     [progress?.cycleEvolution, selectedCycleId],
   );
+  const bestJumpTechniqueTitles = useMemo(() => {
+    const pbJump = progress?.personalBests.jumpHeightCm;
+    if (typeof pbJump !== "number") {
+      return [] as string[];
+    }
+
+    const matchingTitles = techniques
+      .filter((entry) =>
+        entry.metrics.some((metric) => {
+          if (typeof metric.value !== "number") {
+            return false;
+          }
+
+          const normalizedUnit = (metric.unit ?? "").toLowerCase().trim();
+          if (normalizedUnit && normalizedUnit !== "cm") {
+            return false;
+          }
+
+          return Math.abs(metric.value - pbJump) <= 0.05;
+        }),
+      )
+      .map((entry) => entry.title);
+
+    return Array.from(new Set(matchingTitles));
+  }, [progress?.personalBests.jumpHeightCm, techniques]);
   const selectedExercise = useMemo(
     () => selectedSession?.sessionExercises.find((exercise) => exercise.id === selectedExerciseId) ?? selectedSession?.sessionExercises[0] ?? null,
     [selectedSession, selectedExerciseId],
@@ -1906,10 +1994,21 @@ export default function HomeScreen() {
       sportTrainingDays: Array.isArray(profile.sportTrainingDays?.trainingDays)
         ? profile.sportTrainingDays.trainingDays.join(",")
         : current.sportTrainingDays,
+        teamTrainingDays: Array.isArray(profile.programPreferences?.teamTrainingDays)
+          ? profile.programPreferences.teamTrainingDays.join(",")
+          : current.teamTrainingDays,
       seasonPhase: profile.seasonPhase ?? current.seasonPhase,
       availableWeekdays: Array.isArray(profile.weeklyAvailability?.availableWeekdays)
         ? profile.weeklyAvailability.availableWeekdays.join(",")
         : current.availableWeekdays,
+        skipPhase1: Boolean(profile.programPreferences?.skipPhase1),
+        deloadEnabled: Boolean(profile.programPreferences?.deloadEnabled),
+        deloadEveryDays: typeof profile.programPreferences?.deloadEveryDays === "number"
+          ? String(profile.programPreferences.deloadEveryDays)
+          : current.deloadEveryDays,
+        deloadDurationDays: typeof profile.programPreferences?.deloadDurationDays === "number"
+          ? String(profile.programPreferences.deloadDurationDays)
+          : current.deloadDurationDays,
       notes: profile.notes ?? current.notes,
     }));
   }, [profile]);
@@ -2195,6 +2294,7 @@ export default function HomeScreen() {
     };
 
     setLogDraft(mergeCheckInIntoLogDraft(nextDraft, preSessionCheckIns[session.id] ?? null));
+    setSelectedJumpTechniqueId(null);
   }
 
   async function handlePreloadSession(sessionId: string, sessionTitle: string) {
@@ -2493,9 +2593,9 @@ export default function HomeScreen() {
         return;
       }
 
-      const reminderDate = buildReminderDate(selectedSession.scheduledDate);
+      const reminderDate = buildReminderDate(selectedSession.scheduledDate, reminderHour);
       if (!reminderDate) {
-        setError("La hora de las 8:00 ya paso o la sesion no corresponde a hoy; no se pudo agendar el recordatorio motivacional.");
+        setError(`La hora de las ${reminderHour}:00 ya paso o la sesion no corresponde a hoy; no se pudo agendar el recordatorio motivacional.`);
         return;
       }
 
@@ -2617,6 +2717,8 @@ export default function HomeScreen() {
       notificationPermission,
       calendarPermission,
       profile?.team?.name ?? "",
+      reminderHour,
+      eveningReminderEnabled,
     ].join("|");
 
     if (autoSyncKeyRef.current === syncKey) {
@@ -2631,7 +2733,7 @@ export default function HomeScreen() {
         if (notifications) {
           const reminderMap = await readStoredMap(reminderSyncStorageKey);
           const existingReminderId = reminderMap[todayPrimarySession.id];
-          const reminderDate = buildReminderDate(todayPrimarySession.scheduledDate);
+          const reminderDate = buildReminderDate(todayPrimarySession.scheduledDate, reminderHour);
 
           if (existingReminderId) {
             await notifications.cancelScheduledNotificationAsync(existingReminderId).catch(() => undefined);
@@ -2656,6 +2758,46 @@ export default function HomeScreen() {
               ...reminderMap,
               [todayPrimarySession.id]: notificationId,
             });
+          }
+
+          // Evening notification: schedule for the night before the next session after today
+          if (eveningReminderEnabled) {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(0, 0, 0, 0);
+            const tomorrowSession = sessions.find((s) => {
+              const d = new Date(s.scheduledDate);
+              d.setHours(0, 0, 0, 0);
+              return d.getTime() === tomorrow.getTime() && s.status !== "SKIPPED";
+            });
+
+            if (tomorrowSession) {
+              const eveningMap = await readStoredMap(eveningReminderSyncStorageKey);
+              const existingEveningId = eveningMap[tomorrowSession.id];
+              if (existingEveningId) {
+                await notifications.cancelScheduledNotificationAsync(existingEveningId).catch(() => undefined);
+              }
+              const eveningDate = buildEveningReminderDate(tomorrowSession.scheduledDate);
+              if (eveningDate) {
+                const eveningCopy = buildEveningReminderCopy(tomorrowSession);
+                const eveningNotifId = await notifications.scheduleNotificationAsync({
+                  content: {
+                    title: eveningCopy.title,
+                    body: eveningCopy.body,
+                    data: { sessionId: tomorrowSession.id },
+                  },
+                  trigger: {
+                    type: notifications.SchedulableTriggerInputTypes.DATE,
+                    date: eveningDate,
+                    channelId: Platform.OS === "android" ? notificationChannelId : undefined,
+                  },
+                });
+                await writeStoredMap(eveningReminderSyncStorageKey, {
+                  ...eveningMap,
+                  [tomorrowSession.id]: eveningNotifId,
+                });
+              }
+            }
           }
         }
       }
@@ -2730,6 +2872,11 @@ export default function HomeScreen() {
       setError("");
       setMessage("");
 
+      if (athleteSetup.deloadEnabled && (!Number.isInteger(Number(athleteSetup.deloadEveryDays)) || !Number.isInteger(Number(athleteSetup.deloadDurationDays)))) {
+        setError("Define una frecuencia y duración válidas para la descarga.");
+        return;
+      }
+
       const response = await requestJson<AthleteRegistrationResponse>("/api/v1/auth/register/athlete", {
         method: "POST",
         body: JSON.stringify({
@@ -2743,6 +2890,7 @@ export default function HomeScreen() {
           sportTrainingDays: athleteSetup.trainsSport ? parseWeekdaysInput(athleteSetup.sportTrainingDays) : [],
           seasonPhase: athleteSetup.seasonPhase,
           availableWeekdays: parseWeekdaysInput(athleteSetup.availableWeekdays),
+          programPreferences: buildProgramPreferencesPayload(athleteSetup),
           notes: athleteSetup.notes || undefined,
         }),
       });
@@ -2857,6 +3005,11 @@ export default function HomeScreen() {
       return;
     }
 
+    if (athleteSetup.deloadEnabled && (!Number.isInteger(Number(athleteSetup.deloadEveryDays)) || !Number.isInteger(Number(athleteSetup.deloadDurationDays)))) {
+      setError("Define una frecuencia y duración válidas para la descarga.");
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
@@ -2875,6 +3028,7 @@ export default function HomeScreen() {
             sportTrainingDays: athleteSetup.trainsSport ? parseWeekdaysInput(athleteSetup.sportTrainingDays) : [],
             seasonPhase: athleteSetup.seasonPhase,
             availableWeekdays: parseWeekdaysInput(athleteSetup.availableWeekdays),
+            programPreferences: buildProgramPreferencesPayload(athleteSetup),
             notes: athleteSetup.notes || undefined,
           }),
         },
@@ -2909,6 +3063,11 @@ export default function HomeScreen() {
       return;
     }
 
+    if (athleteSetup.deloadEnabled && (!Number.isInteger(Number(athleteSetup.deloadEveryDays)) || !Number.isInteger(Number(athleteSetup.deloadDurationDays)))) {
+      setError("Define una frecuencia y duración válidas para la descarga.");
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
@@ -2929,7 +3088,8 @@ export default function HomeScreen() {
             availableWeekdays: parseWeekdaysInput(athleteSetup.availableWeekdays),
             startDate: athleteSetup.startDate,
             templateCode: athleteSetup.templateCode,
-            includePreparationPhase: athleteSetup.includePreparationPhase,
+            includePreparationPhase: !athleteSetup.skipPhase1,
+            programPreferences: buildProgramPreferencesPayload(athleteSetup),
             notes: athleteSetup.notes || undefined,
           }),
         },
@@ -2971,24 +3131,34 @@ export default function HomeScreen() {
       return;
     }
 
-    // If jump height is filled and techniques are available, ask user which technique to link.
     const jumpVal = toOptionalNumber(logDraft.jumpHeightCm) ?? jumpTestPreview.best ?? null;
-    if (jumpVal !== null && techniques.some((t) => t.measurementDefinitions.length > 0)) {
-      setPendingJumpHeightCm(jumpVal);
-      setTechniqueLinkModalVisible(true);
-      return; // actual submit happens inside confirmSubmitLog
+    if (jumpVal !== null) {
+      if (!techniques.length) {
+        setError("No hay técnicas cargadas. Refrescá la app e intentá de nuevo.");
+        return;
+      }
+
+      const linkedTechnique = techniques.find((entry) => entry.id === selectedJumpTechniqueId) ?? null;
+      if (!linkedTechnique) {
+        setError("Seleccioná la técnica del salto antes de guardar la sesión.");
+        return;
+      }
+
+      await doSubmitLog(linkedTechnique);
+      return;
     }
 
     await doSubmitLog(null);
   }
 
-  async function confirmSubmitLog(linkedTechnique: TechniqueEntry | null) {
-    setTechniqueLinkModalVisible(false);
-    await doSubmitLog(linkedTechnique);
-  }
-
   async function doSubmitLog(linkedTechnique: TechniqueEntry | null) {
     if (!accessToken || !selectedSession) {
+      return;
+    }
+
+    const jumpMetricValue = toOptionalNumber(logDraft.jumpHeightCm) ?? jumpTestPreview.best ?? undefined;
+    if (typeof jumpMetricValue === "number" && !linkedTechnique) {
+      setError("Debes seleccionar una técnica para guardar la medición de salto.");
       return;
     }
 
@@ -3022,7 +3192,7 @@ export default function HomeScreen() {
               jumpTestAttempt3Cm: toOptionalNumber(logDraft.jumpTestAttempt3Cm),
               jumpTestAverageCm: jumpTestPreview.average ?? undefined,
               jumpTestBestCm: jumpTestPreview.best ?? undefined,
-              jumpHeightCm: toOptionalNumber(logDraft.jumpHeightCm) ?? jumpTestPreview.best ?? undefined,
+              jumpHeightCm: jumpMetricValue,
             },
           }),
         },
@@ -3036,32 +3206,30 @@ export default function HomeScreen() {
       });
 
       // If the user chose to link the jump measurement to a technique, save it now.
-      if (linkedTechnique && pendingJumpHeightCm !== null) {
-        const jumpDef = linkedTechnique.measurementDefinitions[0];
-        if (jumpDef) {
-          try {
-            const metricResponse = await requestJson<AthleteTechniqueResponse>(
-              "/api/v1/athlete/technique/metrics",
-              {
-                method: "POST",
-                body: JSON.stringify({
-                  techniqueId: linkedTechnique.id,
-                  measurementDefinitionId: jumpDef.id,
-                  label: "Altura de salto (sesión)",
-                  value: pendingJumpHeightCm,
-                  unit: "cm",
-                  isBaseline: false,
-                }),
-              },
-              accessToken,
-            );
-            setTechnique(metricResponse.technique);
-            setTechniques(metricResponse.techniques ?? metricResponse.technique?.template.techniques ?? []);
-          } catch {
-            // Metric link failure is non-blocking — session log already saved.
-          }
+      if (linkedTechnique && typeof jumpMetricValue === "number") {
+        const jumpDef = linkedTechnique.measurementDefinitions[0] ?? null;
+        try {
+          const metricResponse = await requestJson<AthleteTechniqueResponse>(
+            "/api/v1/athlete/technique/metrics",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                techniqueId: linkedTechnique.id,
+                ...(jumpDef ? { measurementDefinitionId: jumpDef.id } : {}),
+                label: "Altura de salto (sesión)",
+                value: jumpMetricValue,
+                unit: "cm",
+                isBaseline: false,
+              }),
+            },
+            accessToken,
+          );
+          setTechnique(metricResponse.technique);
+          setTechniques(metricResponse.techniques ?? metricResponse.technique?.template.techniques ?? []);
+        } catch (metricError) {
+          console.error("[doSubmitLog] Failed to save technique metric:", metricError);
+          // Session log already saved; metric link failed but we continue
         }
-        setPendingJumpHeightCm(null);
       }
 
       setMessage("Registro de sesion guardado.");
@@ -3071,6 +3239,7 @@ export default function HomeScreen() {
       setTodayProgressStep(0);
       setSelectedExerciseId(null);
       setSelectedSessionGuidance(null);
+      setSelectedJumpTechniqueId(null);
       setActiveScreen("hoy");
     } catch (requestError) {
       if (requestError instanceof UnauthorizedRequestError) {
@@ -3427,7 +3596,7 @@ export default function HomeScreen() {
         }
         onMenuPress={() => setDrawerOpen(true)}
         onAvatarPress={() => setProfileModalVisible(true)}
-        avatarUrl={currentAvatarUrl}
+        avatarUrl={currentAvatarUrl ?? profile?.user.avatarUrl ?? null}
         athleteInitials={athleteInitials}
       />
 
@@ -3465,6 +3634,7 @@ export default function HomeScreen() {
           loading={loading}
           refreshing={refreshing}
           planningRecommendation={planningRecommendation}
+          bestJumpTechniqueTitles={bestJumpTechniqueTitles}
           onUpdateCheckIn={updateTodayCheckIn}
           onSaveCheckIn={saveTodayCheckIn}
           onClearCheckIn={clearTodayCheckIn}
@@ -3502,6 +3672,9 @@ export default function HomeScreen() {
           onSetLogDraft={(updater) => setLogDraft((prev) => { const r = updater(prev); return r ?? prev; })}
           onToggleExercise={toggleExercise}
           onApplyJumpTest={(cm) => setLogDraft((p) => ({ ...p, jumpHeightCm: String(cm) }))}
+          jumpTechniques={techniques.map((entry) => ({ id: entry.id, title: entry.title }))}
+          selectedJumpTechniqueId={selectedJumpTechniqueId}
+          onSelectJumpTechnique={setSelectedJumpTechniqueId}
           onSubmitLog={() => void handleSubmitLog()}
           onShowJumpGuide={() => setJumpGuideVisible(true)}
           onBack={() => setActiveScreen("hoy")}
@@ -3578,30 +3751,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* ── TECHNIQUE LINK MODAL ─────────────────────── */}
-      <Modal visible={techniqueLinkModalVisible} transparent animationType="fade" onRequestClose={() => confirmSubmitLog(null)}>
-        <View style={styles.preloadOverlay}>
-          <View style={[styles.preloadCard, { gap: 10 }]}>
-            <Text style={[styles.preloadTitle, { textAlign: "center" }]}>🏀 ¿Vincular registro a una técnica?</Text>
-            <Text style={[styles.preloadBody, { textAlign: "center" }]}>
-              Registraste {pendingJumpHeightCm} cm. ¿Guardarlo también en el historial de una técnica?
-            </Text>
-            {techniques.filter((t) => t.measurementDefinitions.length > 0).map((t) => (
-              <Pressable
-                key={t.id}
-                style={[styles.primaryButton, { marginTop: 2 }]}
-                onPress={() => void confirmSubmitLog(t)}
-              >
-                <Text style={styles.primaryButtonText}>{t.title}</Text>
-              </Pressable>
-            ))}
-            <Pressable style={[styles.ghostButton, { marginTop: 4 }]} onPress={() => void confirmSubmitLog(null)}>
-              <Text style={styles.ghostButtonText}>No vincular</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
-
       {/* ── DRAWER ────────────────────────────────────── */}
       <DrawerMenu
         open={drawerOpen}
@@ -3621,6 +3770,28 @@ export default function HomeScreen() {
         athleteEmail={profile?.user.email ?? ""}
       />
 
+      {/* ── NOTIFICATION PERMISSION PROMPT ────────────── */}
+      {profile && !isWebPlatform && notificationPermission === "unknown" ? (
+        <View style={{ position: "absolute", top: 56, left: 16, right: 16, backgroundColor: "#1E2940", borderRadius: 14, padding: 16, zIndex: 90, borderWidth: 1, borderColor: "#2CC4B033", flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, marginBottom: 2 }}>Activar recordatorios</Text>
+            <Text style={{ color: "#A3B0C8", fontSize: 12 }}>Recibe notificaciones motivacionales antes de cada sesion de entrenamiento.</Text>
+          </View>
+          <Pressable
+            style={{ backgroundColor: "#2CC4B0", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 }}
+            onPress={() => void ensureNotificationAccess()}
+          >
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Activar</Text>
+          </Pressable>
+          <Pressable
+            style={{ paddingHorizontal: 8, paddingVertical: 8 }}
+            onPress={() => setNotificationPermission("denied")}
+          >
+            <Text style={{ color: "#A3B0C8", fontSize: 18 }}>✕</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* ── JUMP GUIDE ────────────────────────────────── */}
       <JumpGuideModal visible={jumpGuideVisible} onClose={() => setJumpGuideVisible(false)} />
 
@@ -3630,7 +3801,7 @@ export default function HomeScreen() {
         onClose={() => setProfileModalVisible(false)}
         onLogout={() => handleLogout()}
         accessToken={accessToken ?? ""}
-        avatarUrl={currentAvatarUrl}
+        avatarUrl={currentAvatarUrl ?? profile?.user.avatarUrl ?? null}
         onAvatarChange={(url) => setCurrentAvatarUrl(url)}
         isOAuthUser={!!profile?.user.oauthProvider}
         apiBase={apiBaseUrl}
@@ -3786,7 +3957,13 @@ export default function HomeScreen() {
             {(profile?.sport ?? "Sin deporte definido")} · {profile?.seasonPhase ?? "OFF_SEASON"}
           </Text>
           <Text style={styles.helperText}>
-            Equipo: {profile?.team?.name ?? "Sin equipo"} · Jump: {formatWeekdays(profile?.weeklyAvailability?.availableWeekdays)} · Deporte/pista: {profile?.trainsSport ? formatWeekdays(profile?.sportTrainingDays?.trainingDays) : "No declarado"}
+            Equipo: {profile?.team?.name ?? "Sin equipo"} · Jump: {formatWeekdays(profile?.weeklyAvailability?.availableWeekdays)} · Deporte/pista: {profile?.trainsSport ? formatWeekdays(profile?.sportTrainingDays?.trainingDays) : "No declarado"} · Equipo: {formatWeekdays(profile?.programPreferences?.teamTrainingDays)}
+          </Text>
+          <Text style={styles.helperText}>
+            {profile?.programPreferences?.skipPhase1 ? "Entrada directa al bloque principal" : "Fase 1 activa"}
+            {profile?.programPreferences?.deloadEnabled
+              ? ` · descarga cada ${profile.programPreferences.deloadEveryDays ?? "-"} días por ${profile.programPreferences.deloadDurationDays ?? "-"} día(s)`
+              : " · sin descarga persistente declarada"}
           </Text>
           <View style={styles.inlineRow}>
             <Pressable style={styles.secondaryButton} onPress={() => void refreshAthleteArea()} disabled={refreshing}>
@@ -3839,6 +4016,13 @@ export default function HomeScreen() {
                 />
               ) : null}
               <TextInput
+                placeholder="Dias de entrenamiento de equipo: 2,4"
+                placeholderTextColor="#7a879d"
+                style={styles.input}
+                value={athleteSetup.teamTrainingDays}
+                onChangeText={(value) => setAthleteSetup((current) => ({ ...current, teamTrainingDays: value }))}
+              />
+              <TextInput
                 placeholder="Dias para jump: 1,3,5"
                 placeholderTextColor="#7a879d"
                 style={styles.input}
@@ -3885,19 +4069,49 @@ export default function HomeScreen() {
               ) : null}
               <View style={styles.inlineRow}>
                 <Pressable
-                  style={[styles.secondaryButton, athleteSetup.includePreparationPhase ? styles.selectedAuthButton : null]}
-                  onPress={() => setAthleteSetup((current) => ({ ...current, includePreparationPhase: !current.includePreparationPhase }))}
+                  style={[styles.secondaryButton, athleteSetup.skipPhase1 ? styles.selectedAuthButton : null]}
+                  onPress={() => setAthleteSetup((current) => ({ ...current, skipPhase1: !current.skipPhase1 }))}
                 >
                   <Text style={styles.secondaryButtonText}>
-                    {athleteSetup.includePreparationPhase ? "Incluye 3 semanas de adecuacion" : "Entrar directo al programa"}
+                    {athleteSetup.skipPhase1 ? "Saltar fase 1 / adecuación" : "Mantener fase 1 / adecuación"}
                   </Text>
                 </Pressable>
               </View>
               <Text style={styles.helperText}>
-                {athleteSetup.includePreparationPhase
-                  ? "La recomendacion por defecto es 3 semanas de isometricos, aterrizajes controlados y ejercicios basicos de bajo impacto para llegar mejor al bloque principal."
-                  : "Solo omite esta fase si ya toleras bien fuerza y contactos y no vienes de una pausa o molestias."}
+                {athleteSetup.skipPhase1
+                  ? "Actívalo solo si ya toleras fuerza y contactos y no vienes de una pausa o molestias."
+                  : "La recomendación por defecto es mantener la fase 1 con isométricos, aterrizajes controlados y bajo impacto antes del bloque principal."}
               </Text>
+              <View style={styles.inlineRow}>
+                <Pressable
+                  style={[styles.secondaryButton, athleteSetup.deloadEnabled ? styles.selectedAuthButton : null]}
+                  onPress={() => setAthleteSetup((current) => ({ ...current, deloadEnabled: !current.deloadEnabled }))}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {athleteSetup.deloadEnabled ? "Descarga persistente activa" : "Sin descarga persistente"}
+                  </Text>
+                </Pressable>
+              </View>
+              {athleteSetup.deloadEnabled ? (
+                <>
+                  <TextInput
+                    placeholder="Frecuencia de descarga (días): 21"
+                    placeholderTextColor="#7a879d"
+                    style={styles.input}
+                    value={athleteSetup.deloadEveryDays}
+                    onChangeText={(value) => setAthleteSetup((current) => ({ ...current, deloadEveryDays: value }))}
+                    keyboardType="numeric"
+                  />
+                  <TextInput
+                    placeholder="Duración de la descarga (días): 3"
+                    placeholderTextColor="#7a879d"
+                    style={styles.input}
+                    value={athleteSetup.deloadDurationDays}
+                    onChangeText={(value) => setAthleteSetup((current) => ({ ...current, deloadDurationDays: value }))}
+                    keyboardType="numeric"
+                  />
+                </>
+              ) : null}
               {availableTemplates.length > 1 ? (
                 <View style={{ marginBottom: 12 }}>
                   <Text style={styles.helperText}>Programa de entrenamiento</Text>
@@ -4255,8 +4469,32 @@ export default function HomeScreen() {
                   <Text style={styles.ghostButtonText}>Sincronizar calendario</Text>
                 </Pressable>
               </View>
+              <Text style={[styles.helperText, { marginTop: 6, fontWeight: "700" }]}>Hora del recordatorio matutino</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                {[6, 7, 8, 9, 10, 11, 12].map((hour) => (
+                  <Pressable
+                    key={hour}
+                    style={[
+                      styles.windowBtn,
+                      reminderHour === hour && styles.windowBtnActive,
+                    ]}
+                    onPress={() => void setReminderHour(hour)}
+                  >
+                    <Text style={[styles.windowBtnText, reminderHour === hour && styles.windowBtnTextActive]}>{hour}:00</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+                <Text style={styles.helperText}>Notificacion de vispera (noche anterior)</Text>
+                <Pressable
+                  style={[styles.windowBtn, eveningReminderEnabled && styles.windowBtnActive]}
+                  onPress={() => void setEveningReminderEnabled(!eveningReminderEnabled)}
+                >
+                  <Text style={[styles.windowBtnText, eveningReminderEnabled && styles.windowBtnTextActive]}>{eveningReminderEnabled ? "Activa" : "Desactivada"}</Text>
+                </Pressable>
+              </View>
               <Text style={styles.helperText}>
-                El recordatorio motivacional se agenda a las 8:00 del mismo dia y la sincronizacion actualiza el mismo evento si la sesion cambia o se recorre automaticamente.
+                La sincronizacion actualiza el mismo evento si la sesion cambia o se recorre automaticamente.
               </Text>
             </View>
 
@@ -4874,6 +5112,27 @@ const styles = StyleSheet.create({
   ghostButtonText: {
     color: "#14213d",
     fontWeight: "600",
+  },
+  windowBtn: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  windowBtnActive: {
+    backgroundColor: "rgba(44,196,176,0.15)",
+    borderColor: "#2CC4B0",
+  },
+  windowBtnText: {
+    color: "#A3B0C8",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  windowBtnTextActive: {
+    color: "#2CC4B0",
+    fontWeight: "700",
   },
   inlineRow: {
     flexDirection: "row",

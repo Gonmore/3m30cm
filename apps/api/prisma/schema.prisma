@@ -147,6 +147,7 @@ model AthleteProfile {
   seasonPhase       SeasonPhase       @default(OFF_SEASON)
   weeklyAvailability Json?
   sportTrainingDays Json?
+  programPreferences Json?
   onboardingCompletedAt DateTime?
   notes             String?
   exerciseExclusions Json?

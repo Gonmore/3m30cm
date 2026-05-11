@@ -298,7 +298,46 @@ interface ProgramTemplateMeta {
   cycleLengthDays: number;
   isEditable: boolean;
   techniqueMediaAssets: Array<{ id: string }>;
-  _count: { days: number; personalPrograms: number };
+  _count: { days: number; phases: number; personalPrograms: number };
+}
+
+interface ProgramPhaseTaskRecord {
+  id: string;
+  orderIndex: number;
+  name: string;
+  sets: number | null;
+  repsOrTimeText: string | null;
+  description: string | null;
+  requiresWeight: boolean;
+  isUnilateral: boolean;
+  evolution: string;
+  zone: string;
+  videoUrl: string | null;
+  notes: string | null;
+  exercise: {
+    id: string;
+    name: string;
+    slug: string;
+  } | null;
+}
+
+interface ProgramPhaseDayRecord {
+  id: string;
+  dayNumber: number;
+  title: string | null;
+  dayType: string;
+  notes: string | null;
+  tasks: ProgramPhaseTaskRecord[];
+}
+
+interface ProgramPhaseRecord {
+  id: string;
+  name: string;
+  orderIndex: number;
+  durationDays: number;
+  masterBlockDays: number;
+  notes: string | null;
+  days: ProgramPhaseDayRecord[];
 }
 
 interface TemplateFormState {
@@ -307,6 +346,15 @@ interface TemplateFormState {
   name: string;
   description: string;
   cycleLengthDays: string;
+}
+
+interface PhaseFormState {
+  id?: string;
+  name: string;
+  orderIndex: string;
+  durationDays: string;
+  masterBlockDays: "7" | "14";
+  notes: string;
 }
 
 interface TeamRecord {
@@ -703,6 +751,7 @@ interface ProgramTemplateResponse {
     techniqueDescription: string | null;
     techniqueMediaAssets: ProgramTechniqueMediaAsset[];
     techniques: ProgramTechniqueRecord[];
+    phases: ProgramPhaseRecord[];
     days: ProgramDay[];
   };
 }
@@ -920,6 +969,25 @@ const emptyTemplateForm = (): TemplateFormState => ({
   description: "",
   cycleLengthDays: "14",
 });
+
+const emptyPhaseForm = (): PhaseFormState => ({
+  name: "",
+  orderIndex: "1",
+  durationDays: "14",
+  masterBlockDays: "14",
+  notes: "",
+});
+
+function mapPhaseToForm(phase: ProgramPhaseRecord): PhaseFormState {
+  return {
+    id: phase.id,
+    name: phase.name,
+    orderIndex: String(phase.orderIndex),
+    durationDays: String(phase.durationDays),
+    masterBlockDays: phase.masterBlockDays === 7 ? "7" : "14",
+    notes: phase.notes ?? "",
+  };
+}
 
 function createDefaultHipProgressionStepDraft(
   eventType: TechniqueBiomechanicsEventType,
@@ -2327,6 +2395,12 @@ export default function App() {
   const [allTemplates, setAllTemplates] = useState<ProgramTemplateMeta[]>([]);
   const [selectedTemplateCode, setSelectedTemplateCode] = useState<string>(templateCode);
   const [templateForm, setTemplateForm] = useState<TemplateFormState>(emptyTemplateForm);
+  const [templatePhases, setTemplatePhases] = useState<ProgramPhaseRecord[]>([]);
+  const [selectedPhaseId, setSelectedPhaseId] = useState<string>("");
+  const [phaseForm, setPhaseForm] = useState<PhaseFormState>(emptyPhaseForm);
+  const [phaseImportContent, setPhaseImportContent] = useState("");
+  const [phaseImportStrict, setPhaseImportStrict] = useState(true);
+  const [phaseImportReplaceExisting, setPhaseImportReplaceExisting] = useState(true);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [jumpHeightDebugOpen, setJumpHeightDebugOpen] = useState(false);
   const [rimAnnotation, setRimAnnotation] = useState<RimAnnotation | null>(null);
@@ -2392,6 +2466,11 @@ export default function App() {
   const selectedTechnique = useMemo(
     () => templateTechniques.find((technique) => technique.id === selectedTechniqueId) ?? null,
     [templateTechniques, selectedTechniqueId],
+  );
+
+  const selectedPhase = useMemo(
+    () => templatePhases.find((phase) => phase.id === selectedPhaseId) ?? null,
+    [selectedPhaseId, templatePhases],
   );
 
   // Sync rimAnnotation and masterReference from persisted biomechanicsConfig when technique changes
@@ -3398,6 +3477,39 @@ export default function App() {
     return Array.from(options.values());
   }, [teams]);
 
+  function syncTemplatePhaseState(phases: ProgramPhaseRecord[], preferredPhaseId?: string) {
+    const desiredPhaseId = preferredPhaseId ?? selectedPhaseId;
+    const nextSelectedPhase = phases.find((phase) => phase.id === desiredPhaseId) ?? phases[0] ?? null;
+    setTemplatePhases(phases);
+    setSelectedPhaseId(nextSelectedPhase?.id ?? "");
+    setPhaseForm(
+      nextSelectedPhase
+        ? mapPhaseToForm(nextSelectedPhase)
+        : { ...emptyPhaseForm(), orderIndex: String(Math.max(phases.length + 1, 1)) },
+    );
+  }
+
+  function applyLoadedTemplate(template: ProgramTemplateResponse["template"], preferredPhaseId?: string) {
+    setTemplateDays(template.days);
+    syncTemplatePhaseState(template.phases ?? [], preferredPhaseId);
+
+    const techniques = template.techniques ?? [];
+    const nextTechnique = techniques[0] ?? null;
+    setTemplateTechniques(techniques);
+    setSelectedTechniqueId(nextTechnique?.id ?? "");
+    setSelectedTemplateTechniqueMediaAssets(nextTechnique?.mediaAssets ?? []);
+    setTemplateTechniqueForm(nextTechnique ? mapTechniqueToForm(nextTechnique) : emptyTechniqueForm());
+    setTechniqueUploadState(emptyTechniqueUploadState());
+    setSelectedDayNumber(template.days[0]?.dayNumber ?? 1);
+    setAllTemplates((current) =>
+      current.map((entry) =>
+        entry.code === template.code
+          ? { ...entry, _count: { ...entry._count, phases: template.phases?.length ?? 0 } }
+          : entry,
+      ),
+    );
+  }
+
   useEffect(() => {
     if (!accessToken) {
       setCurrentUser(null);
@@ -3412,6 +3524,7 @@ export default function App() {
       setSelectedProgramSession(null);
       setCoachDashboard(null);
       setTemplateDays([]);
+      setTemplatePhases([]);
       return;
     }
 
@@ -3559,14 +3672,8 @@ export default function App() {
       setTeams(teamsResponse.teams);
       setAllAthletes(athletesResponse.athletes);
       setPrograms(programsResponse.programs);
-      setTemplateDays(templateResponse.template.days);
-      const initialTechnique = templateResponse.template.techniques[0] ?? null;
-      setTemplateTechniques(templateResponse.template.techniques ?? []);
-      setSelectedTechniqueId(initialTechnique?.id ?? "");
-      setSelectedTemplateTechniqueMediaAssets(initialTechnique?.mediaAssets ?? []);
-      setTemplateTechniqueForm(initialTechnique ? mapTechniqueToForm(initialTechnique) : emptyTechniqueForm());
-      setTechniqueUploadState(emptyTechniqueUploadState());
       setAllTemplates(allTemplatesResponse.templates);
+      applyLoadedTemplate(templateResponse.template);
 
       const firstExercise = exercisesResponse.exercises[0];
       if (!selectedExerciseId && firstExercise) {
@@ -3944,22 +4051,136 @@ export default function App() {
     if (!token) return;
     try {
       const response = await requestJson<ProgramTemplateResponse>(`/api/v1/templates/program-templates/${code}`, {}, token);
-      setTemplateDays(response.template.days);
-      const techniques = response.template.techniques ?? [];
-      const nextTechnique = techniques[0] ?? null;
-      setTemplateTechniques(techniques);
-      setSelectedTechniqueId(nextTechnique?.id ?? "");
-      setSelectedTemplateTechniqueMediaAssets(nextTechnique?.mediaAssets ?? []);
-      setTemplateTechniqueForm(nextTechnique ? mapTechniqueToForm(nextTechnique) : emptyTechniqueForm());
-      setTechniqueUploadState(emptyTechniqueUploadState());
-      setSelectedDayNumber(response.template.days[0]?.dayNumber ?? 1);
+      applyLoadedTemplate(response.template);
     } catch {
       setTemplateDays([]);
+      setTemplatePhases([]);
+      setSelectedPhaseId("");
+      setPhaseForm(emptyPhaseForm());
       setTemplateTechniques([]);
       setSelectedTechniqueId("");
       setSelectedTemplateTechniqueMediaAssets([]);
       setTemplateTechniqueForm(emptyTechniqueForm());
       setTechniqueUploadState(emptyTechniqueUploadState());
+    }
+  }
+
+  function handlePhaseSelection(phaseId: string) {
+    const nextPhase = templatePhases.find((phase) => phase.id === phaseId) ?? null;
+    setSelectedPhaseId(nextPhase?.id ?? "");
+    setPhaseForm(nextPhase ? mapPhaseToForm(nextPhase) : { ...emptyPhaseForm(), orderIndex: String(Math.max(templatePhases.length + 1, 1)) });
+  }
+
+  async function handlePhaseSave() {
+    if (!accessToken || !selectedTemplateCode) {
+      return;
+    }
+
+    const orderIndex = Number(phaseForm.orderIndex);
+    const durationDays = Number(phaseForm.durationDays);
+    if (!phaseForm.name.trim() || !Number.isInteger(orderIndex) || orderIndex <= 0 || !Number.isInteger(durationDays) || durationDays <= 0) {
+      setError("Define nombre, orden y duración válidos para la fase.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+      const payload = {
+        name: phaseForm.name.trim(),
+        orderIndex,
+        durationDays,
+        masterBlockDays: Number(phaseForm.masterBlockDays) as 7 | 14,
+        notes: phaseForm.notes.trim() || null,
+      };
+
+      const response = await requestJson<{ phases: ProgramPhaseRecord[] }>(
+        phaseForm.id
+          ? `/api/v1/admin/program-templates/${selectedTemplateCode}/wizard/phases/${phaseForm.id}`
+          : `/api/v1/admin/program-templates/${selectedTemplateCode}/wizard/phases`,
+        {
+          method: phaseForm.id ? "PUT" : "POST",
+          body: JSON.stringify(payload),
+        },
+        accessToken,
+      );
+
+      const savedPhase = phaseForm.id
+        ? response.phases.find((phase) => phase.id === phaseForm.id) ?? response.phases[0] ?? null
+        : response.phases[Math.max(orderIndex - 1, 0)] ?? response.phases[response.phases.length - 1] ?? null;
+
+      syncTemplatePhaseState(response.phases, savedPhase?.id);
+      setMessage(phaseForm.id ? "Fase actualizada." : "Fase creada.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo guardar la fase");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handlePhaseDelete() {
+    if (!accessToken || !selectedTemplateCode || !selectedPhaseId) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+      const response = await requestJson<{ phases: ProgramPhaseRecord[] }>(
+        `/api/v1/admin/program-templates/${selectedTemplateCode}/wizard/phases/${selectedPhaseId}`,
+        { method: "DELETE" },
+        accessToken,
+      );
+
+      syncTemplatePhaseState(response.phases);
+      setMessage("Fase eliminada.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo eliminar la fase");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handlePhaseImport() {
+    if (!accessToken || !selectedTemplateCode) {
+      return;
+    }
+
+    const durationDays = Number(phaseForm.durationDays);
+    const orderIndex = Number(phaseForm.orderIndex);
+    if (!phaseImportContent.trim() || !phaseForm.name.trim() || !Number.isInteger(durationDays) || durationDays <= 0) {
+      setError("Define la fase y pega el bloque CSV/texto antes de importar.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+      await requestJson(
+        `/api/v1/admin/program-templates/${selectedTemplateCode}/wizard/phases/import`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            content: phaseImportContent,
+            strict: phaseImportStrict,
+            replaceExisting: phaseImportReplaceExisting,
+            phaseId: selectedPhaseId || undefined,
+            phaseName: phaseForm.name.trim(),
+            orderIndex: Number.isInteger(orderIndex) && orderIndex > 0 ? orderIndex : undefined,
+            durationDays,
+            masterBlockDays: Number(phaseForm.masterBlockDays),
+            notes: phaseForm.notes.trim() || null,
+          }),
+        },
+        accessToken,
+      );
+
+      setMessage("Bloque maestro importado en la fase.");
+      await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo importar la fase");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -6590,7 +6811,7 @@ export default function App() {
                   <strong>{tmpl.name}</strong>
                   <span>{tmpl.code}</span>
                   <p>{tmpl.description || "Sin descripcion"}</p>
-                  <small>{tmpl.cycleLengthDays} dias · {tmpl._count.days} días definidos · {tmpl._count.personalPrograms} programas activos · {tmpl.techniqueMediaAssets.length} recursos de técnica</small>
+                  <small>{tmpl.cycleLengthDays} dias · {tmpl._count.days} días legacy · {tmpl._count.phases} fases wizard · {tmpl._count.personalPrograms} programas activos · {tmpl.techniqueMediaAssets.length} recursos de técnica</small>
                   <div className="chip-row">
                     {tmpl.isEditable ? (
                       <>
@@ -6648,6 +6869,151 @@ export default function App() {
 
           {selectedTemplateMeta ? (
             <div className="detail-stack section-spacer">
+              <div className="section-header compact-header">
+                <div>
+                  <p className="eyebrow">Wizard de rendimiento</p>
+                  <h3>{selectedTemplateMeta.name}</h3>
+                </div>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => handlePhaseSelection("")}
+                >
+                  + Nueva fase
+                </button>
+              </div>
+
+              <div className="detail-list">
+                {templatePhases.length ? (
+                  templatePhases.map((phase) => (
+                    <article key={phase.id} className={`detail-card ${selectedPhaseId === phase.id ? "highlight-card" : ""}`}>
+                      <strong>{phase.orderIndex}. {phase.name}</strong>
+                      <span>{phase.durationDays} días · bloque maestro {phase.masterBlockDays}</span>
+                      <p>{phase.notes || "Sin notas de fase"}</p>
+                      <small>{phase.days.length} días configurados · {phase.days.reduce((total, day) => total + day.tasks.length, 0)} bloques de ejercicio</small>
+                      <div className="chip-row">
+                        <button type="button" className="ghost-button" onClick={() => handlePhaseSelection(phase.id)}>
+                          Editar fase
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <p className="helper-text">Todavía no hay fases wizard cargadas para este programa.</p>
+                )}
+              </div>
+
+              <form
+                className="stack-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handlePhaseSave();
+                }}
+              >
+                <div className="form-grid">
+                  <label>
+                    Nombre de fase
+                    <input
+                      value={phaseForm.name}
+                      onChange={(event) => setPhaseForm((current) => ({ ...current, name: event.target.value }))}
+                      placeholder="ej. Fuerza base / Potencia / Descarga"
+                    />
+                  </label>
+                  <label>
+                    Orden
+                    <input
+                      value={phaseForm.orderIndex}
+                      onChange={(event) => setPhaseForm((current) => ({ ...current, orderIndex: event.target.value }))}
+                      inputMode="numeric"
+                    />
+                  </label>
+                  <label>
+                    Duración (días)
+                    <input
+                      value={phaseForm.durationDays}
+                      onChange={(event) => setPhaseForm((current) => ({ ...current, durationDays: event.target.value }))}
+                      inputMode="numeric"
+                    />
+                  </label>
+                  <label>
+                    Bloque maestro
+                    <select
+                      value={phaseForm.masterBlockDays}
+                      onChange={(event) =>
+                        setPhaseForm((current) => ({ ...current, masterBlockDays: event.target.value as "7" | "14" }))
+                      }
+                    >
+                      <option value="7">7 días</option>
+                      <option value="14">14 días</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Notas de fase
+                  <textarea
+                    value={phaseForm.notes}
+                    onChange={(event) => setPhaseForm((current) => ({ ...current, notes: event.target.value }))}
+                    rows={3}
+                    placeholder="Qué persigue la fase, cómo se regula la carga y qué técnica debe priorizar el atleta."
+                  />
+                </label>
+                <div className="action-row compact-row left-row">
+                  <button className="primary-button" type="submit" disabled={loading}>
+                    {phaseForm.id ? "Guardar fase" : "Crear fase"}
+                  </button>
+                  {selectedPhaseId ? (
+                    <button className="danger-button" type="button" disabled={loading} onClick={() => void handlePhaseDelete()}>
+                      Eliminar fase
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+
+              <form
+                className="stack-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handlePhaseImport();
+                }}
+              >
+                <div className="workflow-note">
+                  <strong>Importar bloque maestro</strong>
+                  <p>
+                    Pega el CSV/texto del bloque de ejercicios para la fase seleccionada. Las técnicas siguen siendo del programa completo; aquí solo estructuras el calendario diario y los bloques.
+                  </p>
+                </div>
+                <label>
+                  CSV o texto del bloque
+                  <textarea
+                    value={phaseImportContent}
+                    onChange={(event) => setPhaseImportContent(event.target.value)}
+                    rows={10}
+                    placeholder="Día,Nombre,Series,Reps/Tiempo,Descripción,Peso(Y/N),Unilateral(Y/N),Evolución,Zona,VideoURL"
+                  />
+                </label>
+                <div className="chip-row">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={phaseImportStrict}
+                      onChange={(event) => setPhaseImportStrict(event.target.checked)}
+                    />
+                    Modo estricto
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={phaseImportReplaceExisting}
+                      onChange={(event) => setPhaseImportReplaceExisting(event.target.checked)}
+                    />
+                    Reemplazar contenido existente de la fase
+                  </label>
+                </div>
+                <button className="primary-button" type="submit" disabled={loading || !phaseImportContent.trim()}>
+                  Importar en fase
+                </button>
+              </form>
+
               <div className="section-header compact-header">
                 <div>
                   <p className="eyebrow">Técnica del programa</p>

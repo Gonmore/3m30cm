@@ -10,6 +10,7 @@ export interface AthleteGenerationProfile {
   seasonPhase: SeasonPhase;
   weeklyAvailability: Prisma.JsonValue | null;
   sportTrainingDays: Prisma.JsonValue | null;
+  programPreferences: Prisma.JsonValue | null;
   exerciseExclusions: Prisma.JsonValue | null;
   user: {
     email: string;
@@ -196,6 +197,76 @@ export function buildTrainingDaysJson(weekdays?: number[]) {
   } satisfies Prisma.InputJsonValue;
 }
 
+export interface AthleteProgramPreferences {
+  skipPhase1: boolean;
+  teamTrainingDays: number[];
+  deloadEnabled: boolean;
+  deloadEveryDays: number | null;
+  deloadDurationDays: number | null;
+}
+
+export function parseAthleteProgramPreferences(value: Prisma.JsonValue | null): AthleteProgramPreferences {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      skipPhase1: false,
+      teamTrainingDays: [],
+      deloadEnabled: false,
+      deloadEveryDays: null,
+      deloadDurationDays: null,
+    };
+  }
+
+  const record = value as {
+    skipPhase1?: unknown;
+    teamTrainingDays?: unknown;
+    deloadEnabled?: unknown;
+    deloadEveryDays?: unknown;
+    deloadDurationDays?: unknown;
+  };
+
+  return {
+    skipPhase1: Boolean(record.skipPhase1),
+    teamTrainingDays: Array.isArray(record.teamTrainingDays)
+      ? record.teamTrainingDays.filter((entry): entry is number => typeof entry === "number" && entry >= 0 && entry <= 6)
+      : [],
+    deloadEnabled: Boolean(record.deloadEnabled),
+    deloadEveryDays: typeof record.deloadEveryDays === "number" && Number.isFinite(record.deloadEveryDays)
+      ? record.deloadEveryDays
+      : null,
+    deloadDurationDays: typeof record.deloadDurationDays === "number" && Number.isFinite(record.deloadDurationDays)
+      ? record.deloadDurationDays
+      : null,
+  };
+}
+
+export function buildAthleteProgramPreferencesJson(preferences?: {
+  skipPhase1?: boolean;
+  teamTrainingDays?: number[] | undefined;
+  deloadEnabled?: boolean;
+  deloadEveryDays?: number | null | undefined;
+  deloadDurationDays?: number | null | undefined;
+}) {
+  const normalizedTeamTrainingDays = Array.from(
+    new Set((preferences?.teamTrainingDays ?? []).filter((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 6)),
+  ).sort((left, right) => left - right);
+
+  const deloadEnabled = Boolean(preferences?.deloadEnabled);
+  const deloadEveryDays = deloadEnabled && typeof preferences?.deloadEveryDays === "number"
+    ? preferences.deloadEveryDays
+    : null;
+  const deloadDurationDays = deloadEnabled && typeof preferences?.deloadDurationDays === "number"
+    ? preferences.deloadDurationDays
+    : null;
+
+  return {
+    skipPhase1: Boolean(preferences?.skipPhase1),
+    teamTrainingDays: normalizedTeamTrainingDays,
+    deloadEnabled,
+    deloadEveryDays,
+    deloadDurationDays,
+  } satisfies Prisma.InputJsonValue;
+}
+
 export function atLocalMidday(dateString: string) {
   const date = new Date(`${dateString}T12:00:00`);
   if (Number.isNaN(date.getTime())) {
@@ -254,13 +325,24 @@ function composeProgramNotes(input: {
   sportTrainingDays: number[];
 }) {
   const segments: string[] = [];
+  const preferences = parseAthleteProgramPreferences(input.athleteProfile.programPreferences);
 
   if (input.includePreparationPhase) {
     segments.push("Inicia con 3 semanas de adecuacion y prevencion de lesiones basada en isometricos, aterrizajes controlados y bajo impacto.");
+  } else if (preferences.skipPhase1) {
+    segments.push("Configurado para saltar la fase 1/adecuacion y entrar directo al bloque principal.");
   }
 
   if (input.athleteProfile.trainsSport && input.sportTrainingDays.length) {
     segments.push(`Dias de deporte/pista declarados: ${input.sportTrainingDays.join(", ")}. Ajustar volumen del plan cuando haya choque de cargas.`);
+  }
+
+  if (preferences.teamTrainingDays.length) {
+    segments.push(`Dias de entrenamiento de equipo declarados: ${preferences.teamTrainingDays.join(", ")}. Usarlos como referencia para coordinar cargas compartidas.`);
+  }
+
+  if (preferences.deloadEnabled && preferences.deloadEveryDays && preferences.deloadDurationDays) {
+    segments.push(`Preferencia de descarga persistente: cada ${preferences.deloadEveryDays} dias, durante ${preferences.deloadDurationDays} dia(s).`);
   }
 
   if (input.notes?.trim()) {

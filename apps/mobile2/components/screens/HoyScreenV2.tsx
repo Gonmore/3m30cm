@@ -150,6 +150,7 @@ interface HoyScreenV2Props {
   loading: boolean;
   refreshing: boolean;
   planningRecommendation: { summary: string; focusAreas: string[] } | null;
+  bestJumpTechniqueTitles: string[];
   onUpdateCheckIn: (field: keyof Omit<PreSessionCheckInState, "savedAt">, value: string) => void;
   onSaveCheckIn: () => void;
   onClearCheckIn: () => void;
@@ -484,20 +485,55 @@ function NoProgram({
               Seran 3 meses de constancia y sacrificio que cambiaran tu vida.
             </Text>
             <View style={styles.programSetupCard}>
-              <Text style={styles.programSetupLabel}>Fase de adecuación</Text>
+              <Text style={styles.programSetupLabel}>Entrada al programa</Text>
               <Pressable
-                style={[styles.programSetupToggle, athleteSetup.includePreparationPhase ? styles.programSetupToggleActive : null]}
-                onPress={() => onSetAthleteSetup((current) => ({ ...current, includePreparationPhase: !current.includePreparationPhase }))}
+                style={[styles.programSetupToggle, athleteSetup.skipPhase1 ? styles.programSetupToggleActive : null]}
+                onPress={() => onSetAthleteSetup((current) => ({ ...current, skipPhase1: !current.skipPhase1 }))}
               >
                 <Text style={styles.programSetupToggleText}>
-                  {athleteSetup.includePreparationPhase ? "Incluye 3 semanas de adecuación" : "Entrar directo al programa"}
+                  {athleteSetup.skipPhase1 ? "Saltar fase 1 / adecuación" : "Mantener fase 1 / adecuación"}
                 </Text>
               </Pressable>
               <Text style={styles.programSetupHint}>
-                {athleteSetup.includePreparationPhase
-                  ? "Se recomienda dejar esta fase activa si vienes de una pausa, molestias o todavía no toleras bien los contactos y la fuerza." 
-                  : "Desactívala solo si ya toleras bien fuerza y aterrizajes y no necesitas una entrada progresiva."}
+                {athleteSetup.skipPhase1
+                  ? "Actívalo solo si ya toleras bien fuerza y aterrizajes y no necesitas una entrada progresiva."
+                  : "Se recomienda mantener esta fase si vienes de una pausa, molestias o todavía no toleras bien los contactos y la fuerza."}
               </Text>
+              <TextInput
+                style={styles.profileGateInput}
+                value={athleteSetup.teamTrainingDays}
+                onChangeText={(value) => onSetAthleteSetup((current) => ({ ...current, teamTrainingDays: value }))}
+                placeholder="Días de equipo: 2,4"
+                placeholderTextColor={C.textDisabled}
+              />
+              <Pressable
+                style={[styles.programSetupToggle, athleteSetup.deloadEnabled ? styles.programSetupToggleActive : null]}
+                onPress={() => onSetAthleteSetup((current) => ({ ...current, deloadEnabled: !current.deloadEnabled }))}
+              >
+                <Text style={styles.programSetupToggleText}>
+                  {athleteSetup.deloadEnabled ? "Descarga persistente activa" : "Sin descarga persistente"}
+                </Text>
+              </Pressable>
+              {athleteSetup.deloadEnabled ? (
+                <>
+                  <TextInput
+                    style={styles.profileGateInput}
+                    value={athleteSetup.deloadEveryDays}
+                    onChangeText={(value) => onSetAthleteSetup((current) => ({ ...current, deloadEveryDays: value }))}
+                    placeholder="Cada cuántos días: 21"
+                    placeholderTextColor={C.textDisabled}
+                    keyboardType="numeric"
+                  />
+                  <TextInput
+                    style={styles.profileGateInput}
+                    value={athleteSetup.deloadDurationDays}
+                    onChangeText={(value) => onSetAthleteSetup((current) => ({ ...current, deloadDurationDays: value }))}
+                    placeholder="Duración de descarga: 3"
+                    placeholderTextColor={C.textDisabled}
+                    keyboardType="numeric"
+                  />
+                </>
+              ) : null}
             </View>
             <View style={styles.modalActions}>
               <Pressable style={styles.modalBtnNo} onPress={() => setConfirmVisible(false)}>
@@ -578,6 +614,7 @@ export default function HoyScreenV2({
   needsPhysicalOnboarding,
   loading,
   refreshing,
+  bestJumpTechniqueTitles,
   onSetAthleteSetup,
   onSaveOnboarding,
   onSaveCheckIn,
@@ -632,6 +669,7 @@ export default function HoyScreenV2({
 
   // ── Check-in expanded state ──────────────────────────────────
   const [checkInOpen, setCheckInOpen] = useState(false);
+  const [jumpMaxInfoVisible, setJumpMaxInfoVisible] = useState(false);
 
   return (
     <ScrollView
@@ -662,7 +700,7 @@ export default function HoyScreenV2({
 
         <View style={styles.heroRight}>
           {/* Jump delta bar */}
-          <View style={styles.heroMetaCard}>
+          <Pressable style={styles.heroMetaCard} onPress={() => setJumpMaxInfoVisible(true)}>
             <Text style={styles.heroMetaEyebrow}>Salto máximo</Text>
             <Text style={styles.heroMetaValue}>
               {pbJump !== null ? `${pbJump} cm` : "–"}
@@ -676,7 +714,8 @@ export default function HoyScreenV2({
                 {Math.abs(progress.phaseComparison.deltaVsReferencePhaseCm ?? 0).toFixed(1)} cm vs fase anterior
               </Text>
             ) : null}
-          </View>
+            <Text style={styles.heroMetaHint}>Toca para ver con qué técnica fue</Text>
+          </Pressable>
 
           {/* Weekly target micro-bar */}
           <View style={styles.heroWeeklyCard}>
@@ -854,6 +893,34 @@ export default function HoyScreenV2({
         </Animated.View>
       ) : null}
 
+      <Modal visible={jumpMaxInfoVisible} transparent animationType="fade" onRequestClose={() => setJumpMaxInfoVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Salto máximo</Text>
+            <Text style={styles.modalBody}>
+              {pbJump !== null ? `${pbJump} cm` : "Sin registros todavía."}
+            </Text>
+            {pbJump !== null ? (
+              bestJumpTechniqueTitles.length > 0 ? (
+                <View style={styles.jumpMaxTechniqueList}>
+                  <Text style={styles.jumpMaxTechniqueTitle}>Técnicas asociadas</Text>
+                  {bestJumpTechniqueTitles.map((title) => (
+                    <Text key={title} style={styles.jumpMaxTechniqueItem}>• {title}</Text>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.jumpMaxTechniqueEmpty}>
+                  Aún no hay una técnica identificada para este máximo.
+                </Text>
+              )
+            ) : null}
+            <Pressable style={styles.modalBtnYes} onPress={() => setJumpMaxInfoVisible(false)}>
+              <Text style={styles.modalBtnYesText}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {/* Refresh hint */}
       <Pressable style={styles.refreshHint} onPress={onRefresh} disabled={refreshing}>
         <Text style={styles.refreshHintText}>{refreshing ? "Actualizando..." : "↻ Actualizar"}</Text>
@@ -896,6 +963,7 @@ return StyleSheet.create({
   heroMetaEyebrow: { color: C.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1 },
   heroMetaValue:   { color: C.text, fontSize: 26, fontWeight: "800" },
   heroMetaDelta:   { fontSize: 12, fontWeight: "700" },
+  heroMetaHint:    { color: C.textMuted, fontSize: 11, marginTop: 2 },
 
   heroWeeklyCard:  { backgroundColor: C.surfaceRaise, borderRadius: R.lg, padding: S.sm, gap: 6 },
   heroWeeklyLabel: { color: C.textSub, fontSize: 12, fontWeight: "700" },
@@ -1147,6 +1215,10 @@ return StyleSheet.create({
   modalEmoji:     { fontSize: 44, textAlign: "center" },
   modalTitle:     { color: C.amber, fontWeight: "800", fontSize: 24, textAlign: "center" },
   modalBody:      { color: C.text, fontSize: 15, lineHeight: 23, textAlign: "center" },
+  jumpMaxTechniqueList: { backgroundColor: C.surfaceRaise, borderRadius: R.md, padding: S.sm, gap: 4, borderWidth: 1, borderColor: C.border },
+  jumpMaxTechniqueTitle: { color: C.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 },
+  jumpMaxTechniqueItem: { color: C.textSub, fontSize: 14, lineHeight: 20 },
+  jumpMaxTechniqueEmpty: { color: C.textMuted, fontSize: 13, textAlign: "center" },
   modalActions:   { flexDirection: "row", gap: S.sm },
   modalBtnNo:     { flex: 1, borderWidth: 1, borderColor: C.borderStrong, borderRadius: R.full, paddingVertical: 14, alignItems: "center" },
   modalBtnNoText: { color: C.textSub, fontWeight: "700", fontSize: 14 },

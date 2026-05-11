@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import { prisma } from "../config/prisma.js";
 import { env } from "../config/env.js";
-import { buildTrainingDaysJson, buildWeekdaysJson } from "../lib/athlete-programs.js";
+import { buildAthleteProgramPreferencesJson, buildTrainingDaysJson, buildWeekdaysJson } from "../lib/athlete-programs.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { createAccessToken, getConfiguredGoogleClientIds, verifyGoogleIdToken } from "../lib/auth.js";
 
@@ -27,6 +27,29 @@ const athleteRegistrationSchema = z.object({
   sportTrainingDays: z.array(z.number().int().min(0).max(6)).optional(),
   seasonPhase: z.nativeEnum(SeasonPhase).default(SeasonPhase.OFF_SEASON),
   availableWeekdays: z.array(z.number().int().min(0).max(6)).optional(),
+  programPreferences: z.object({
+    skipPhase1: z.boolean().default(false),
+    teamTrainingDays: z.array(z.number().int().min(0).max(6)).optional(),
+    deloadEnabled: z.boolean().default(false),
+    deloadEveryDays: z.number().int().positive().max(90).nullable().optional(),
+    deloadDurationDays: z.number().int().positive().max(14).nullable().optional(),
+  }).superRefine((value, ctx) => {
+    if (value.deloadEnabled && !value.deloadEveryDays) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "deloadEveryDays is required when deloadEnabled is true",
+        path: ["deloadEveryDays"],
+      });
+    }
+
+    if (value.deloadEnabled && !value.deloadDurationDays) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "deloadDurationDays is required when deloadEnabled is true",
+        path: ["deloadDurationDays"],
+      });
+    }
+  }).optional(),
   notes: z.string().trim().optional(),
 });
 
@@ -74,6 +97,7 @@ authRouter.post("/register/athlete", async (req: Request, res: Response) => {
         seasonPhase: payload.seasonPhase,
         weeklyAvailability: buildWeekdaysJson(payload.availableWeekdays),
         sportTrainingDays: buildTrainingDaysJson(payload.trainsSport ? payload.sportTrainingDays : undefined),
+        programPreferences: buildAthleteProgramPreferencesJson(payload.programPreferences),
         notes: payload.notes ?? null,
       },
       select: {
@@ -84,6 +108,7 @@ authRouter.post("/register/athlete", async (req: Request, res: Response) => {
         seasonPhase: true,
         weeklyAvailability: true,
         sportTrainingDays: true,
+        programPreferences: true,
         notes: true,
       },
     });

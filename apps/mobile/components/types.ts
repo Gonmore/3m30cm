@@ -45,6 +45,13 @@ export interface AthleteProfile {
   seasonPhase: string;
   weeklyAvailability: { availableWeekdays?: number[] } | null;
   sportTrainingDays: { trainingDays?: number[] } | null;
+  programPreferences: {
+    skipPhase1?: boolean;
+    teamTrainingDays?: number[];
+    deloadEnabled?: boolean;
+    deloadEveryDays?: number | null;
+    deloadDurationDays?: number | null;
+  } | null;
   onboardingCompletedAt: string | null;
   notes: string | null;
   user: {
@@ -251,10 +258,14 @@ export interface AthleteSetupState {
   sport: string;
   trainsSport: boolean;
   sportTrainingDays: string;
+  teamTrainingDays: string;
   seasonPhase: string;
   availableWeekdays: string;
   startDate: string;
-  includePreparationPhase: boolean;
+  skipPhase1: boolean;
+  deloadEnabled: boolean;
+  deloadEveryDays: string;
+  deloadDurationDays: string;
   notes: string;
   templateCode: string;
 }
