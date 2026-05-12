@@ -662,30 +662,15 @@ function NoProgram({
 
                   {athleteSetup.trainsSport ? (
                     <>
-                      <Text style={styles.obLabel}>¿Qué días entrenas tu deporte?</Text>
-                      <Text style={styles.obHint}>Selecciona los días en que tienes práctica o partido</Text>
+                      <Text style={styles.obLabel}>¿Qué días entrenas tu deporte? (incluye competencias)</Text>
+                      <Text style={styles.obHint}>Selecciona los días en que tienes práctica, partido o competencia</Text>
                       <WeekdayPicker
                         value={athleteSetup.sportTrainingDays}
-                        onChange={(v) => onSetAthleteSetup((c) => ({ ...c, sportTrainingDays: v }))}
-                      />
-
-                      <Text style={styles.obLabel}>¿Cuáles son los días de entrenamiento de equipo?</Text>
-                      <Text style={styles.obHint}>Días en los que entrenas con tu equipo (pueden coincidir o no)</Text>
-                      <WeekdayPicker
-                        value={athleteSetup.teamTrainingDays}
-                        onChange={(v) => onSetAthleteSetup((c) => ({ ...c, teamTrainingDays: v }))}
+                        onChange={(v) => onSetAthleteSetup((c) => ({ ...c, sportTrainingDays: v, teamTrainingDays: v }))}
                         accent={C.teal}
                       />
                     </>
                   ) : null}
-
-                  <Text style={styles.obLabel}>¿Qué días puedes entrenar jump?</Text>
-                  <Text style={styles.obHint}>Días libres para dedicar al entrenamiento de salto vertical</Text>
-                  <WeekdayPicker
-                    value={athleteSetup.availableWeekdays}
-                    onChange={(v) => onSetAthleteSetup((c) => ({ ...c, availableWeekdays: v }))}
-                    accent={C.amber}
-                  />
 
                   <Pressable style={styles.obNextBtn} onPress={() => setStep(2)}>
                     <Text style={styles.obNextBtnText}>Siguiente →</Text>

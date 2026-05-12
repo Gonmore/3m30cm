@@ -923,13 +923,93 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
             },
           },
         },
+        phases: {
+          orderBy: { orderIndex: "asc" },
+          include: {
+            days: {
+              orderBy: { dayNumber: "asc" },
+              include: {
+                tasks: {
+                  orderBy: { orderIndex: "asc" },
+                  where: { exerciseId: { not: null } },
+                  include: {
+                    exercise: {
+                      select: {
+                        id: true,
+                        defaultSeriesProtocol: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
 
-    if (!template || template.days.length === 0) {
+    if (!template) {
       res.status(404).json({ message: "Program template not found or empty" });
       return;
     }
+
+    // Prefer flat days; fall back to flattened phase days (newer import format)
+    let templateDays = template.days as Array<{
+      dayNumber: number;
+      title: string;
+      dayType: DayType;
+      notes: string | null;
+      prescriptions: Array<{
+        exerciseId: string;
+        orderIndex: number;
+        seriesProtocol: SeriesProtocol;
+        sets: number | null;
+        repsText: string | null;
+        durationSeconds: number | null;
+        restSeconds: number | null;
+        loadText: string | null;
+        notes: string | null;
+        exercise: { id: string; defaultSeriesProtocol: SeriesProtocol };
+      }>;
+    }>;
+
+    if (templateDays.length === 0 && template.phases.length > 0) {
+      let absoluteDay = 0;
+      templateDays = template.phases.flatMap((phase) =>
+        phase.days.map((day) => {
+          absoluteDay += 1;
+          return {
+            dayNumber: absoluteDay,
+            title: day.title ?? `Día ${absoluteDay}`,
+            dayType: day.dayType,
+            notes: day.notes,
+            prescriptions: day.tasks
+              .filter((task): task is typeof task & { exerciseId: string; exercise: { id: string; defaultSeriesProtocol: SeriesProtocol } } =>
+                task.exerciseId != null && task.exercise != null,
+              )
+              .map((task, i) => ({
+                exerciseId: task.exerciseId,
+                orderIndex: i + 1,
+                seriesProtocol: SeriesProtocol.NONE,
+                sets: task.sets ?? null,
+                repsText: task.repsOrTimeText ?? null,
+                durationSeconds: null,
+                restSeconds: null,
+                loadText: null,
+                notes: [task.description, task.notes].filter(Boolean).join(" ") || null,
+                exercise: task.exercise,
+              })),
+          };
+        }),
+      );
+    }
+
+    if (templateDays.length === 0) {
+      res.status(404).json({ message: "Program template not found or empty" });
+      return;
+    }
+
+    const templateForGeneration = { id: template.id, name: template.name, code: template.code, days: templateDays };
 
     const programPreferences = payload.programPreferences ?? parseAthleteProgramPreferences(currentAthleteProfile.programPreferences);
     const phase = payload.phase ?? payload.seasonPhase ?? currentAthleteProfile.seasonPhase;
@@ -965,7 +1045,7 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
       return generatePersonalProgram({
         transaction,
         athleteProfile: updatedAthleteProfile,
-        template,
+        template: templateForGeneration,
         startDate,
         phase,
         notes: payload.notes,
