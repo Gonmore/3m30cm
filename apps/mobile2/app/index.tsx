@@ -16,14 +16,13 @@ import { ProfileModal } from "@mobile/components/ProfileModal";
 import CoachDashboardScreen from "@mobile/components/screens/CoachDashboardScreen";
 import { apiBaseUrl, getRuntimeAppConfigExtra, rewriteLocalAssetUrl } from "@mobile/components/runtimeConfig";
 import EjerciciosScreen from "@mobile/components/screens/EjerciciosScreen";
-import EvolucionScreen from "@mobile/components/screens/EvolucionScreen";
+import EvolucionCombinedScreen from "../components/screens/EvolucionCombinedScreen";
 import HoyScreenV2 from "../components/screens/HoyScreenV2";
 import ProgramaScreen from "@mobile/components/screens/ProgramaScreen";
 import TecnicaScreen from "../components/screens/TecnicaScreen";
 import type { SessionDetail as SharedSessionDetail, SessionGuidance as SharedSessionGuidance } from "@mobile/components/types";
 import { useOverreachAdjustment } from "../components/screens/useOverreachAdjustment";
 import { useEvolutionSuggestion } from "../components/screens/useEvolutionSuggestion";
-import PathToDunkScreen from "../components/screens/PathToDunkScreen";
 import {
   ActivityIndicator,
   Image,
@@ -1458,8 +1457,9 @@ async function requestJson<T>(path: string, options: RequestInit = {}, accessTok
     },
   });
 
-  const data = (await response.json().catch(() => ({}))) as T & { message?: string; detail?: string };
-  const combinedMessage = [data.message, data.detail].filter(Boolean).join(": ");
+  const data = (await response.json().catch(() => ({}))) as T & { message?: string; detail?: string; issues?: { message?: string }[] };
+  const issueDetail = data.issues?.[0]?.message ?? null;
+  const combinedMessage = [data.message, issueDetail ?? data.detail].filter(Boolean).join(": ");
 
   if (response.status === 401) {
     throw new UnauthorizedRequestError(combinedMessage || "Invalid or expired token");
@@ -2914,6 +2914,11 @@ export default function HomeScreen() {
       setError("");
       setMessage("");
 
+      if (athleteSetup.password.length < 8) {
+        setError("La contraseña debe tener al menos 8 caracteres.");
+        return;
+      }
+
       if (athleteSetup.deloadEnabled && (!Number.isInteger(Number(athleteSetup.deloadEveryDays)) || !Number.isInteger(Number(athleteSetup.deloadDurationDays)))) {
         setError("Define una frecuencia y duración válidas para la descarga.");
         return;
@@ -3450,7 +3455,7 @@ export default function HomeScreen() {
                 <View style={authSt.pwRow}>
                   <TextInput
                     secureTextEntry={!showRegPassword}
-                    placeholder="Contraseña"
+                    placeholder="Contraseña (mín. 8 caracteres)"
                     placeholderTextColor={C.textDisabled}
                     style={authSt.pwInput}
                     value={athleteSetup.password}
@@ -3769,7 +3774,7 @@ export default function HomeScreen() {
       ) : null}
 
       {activeScreen === "evolucion" ? (
-        <EvolucionScreen
+        <EvolucionCombinedScreen
           progress={progress}
           techniques={techniques}
           comparisonTechniqueIds={comparisonTechniqueIds}
@@ -3780,14 +3785,8 @@ export default function HomeScreen() {
           onSetSelectedCycleId={setSelectedCycleId}
           onSetComparisonTechniqueIds={setComparisonTechniqueIds}
           onShowJumpGuide={() => setJumpGuideVisible(true)}
-        />
-      ) : null}
-
-      {activeScreen === "pathtodunk" ? (
-        <PathToDunkScreen
           accessToken={accessToken}
           apiBaseUrl={apiBaseUrl}
-          onBack={() => setActiveScreen("hoy")}
         />
       ) : null}
 

@@ -418,6 +418,7 @@ export default function TecnicaScreen({
   const [cameraFacing] = useState<CameraType>("back");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
+  const scrollRef = useRef<ScrollView | null>(null);
   const cameraRef = useRef<CameraView | null>(null);
   const [cameraRecording, setCameraRecording] = useState(false);
   const [cameraQuality, setCameraQuality] = useState<{ light: "ok" | "dark"; motion: "stable" | "moving" }>({ light: "ok", motion: "stable" });
@@ -1034,7 +1035,7 @@ export default function TecnicaScreen({
   }
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeaderRow}>
           <View>
@@ -1059,14 +1060,32 @@ export default function TecnicaScreen({
                       onSelectTechnique(entry.id);
                       setSelectedMeasurementId(entry.measurementDefinitions[0]?.id ?? null);
                       setUnit(parseAllowedUnits(entry.measurementDefinitions[0]?.allowedUnits)[0] ?? "");
+                      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
                     }
                   }}
                 >
-                  <Text style={styles.techniqueCardTitle}>{entry.title}</Text>
-                  <Text style={styles.techniqueCardMeta}>
-                    {entry.measurementDefinitions.length} medición(es) · {entry.metrics.length} registro(s) · {isExpanded ? "▲" : "▼"}
-                  </Text>
+                  <View style={styles.techniqueCardRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.techniqueCardTitle}>{entry.title}</Text>
+                      <Text style={styles.techniqueCardMeta}>
+                        {entry.measurementDefinitions.length} medición(es) · {entry.metrics.length} registro(s)
+                      </Text>
+                    </View>
+                    <Text style={styles.techniqueCardChevron}>{isExpanded ? "▲" : "▼"}</Text>
+                  </View>
                 </Pressable>
+                {isExpanded ? (
+                  <View style={styles.techniqueExpandedPreview}>
+                    {entry.description ? (
+                      <Text style={styles.techniquePreviewDesc}>{entry.description}</Text>
+                    ) : null}
+                    <Text style={styles.techniquePreviewHint}>
+                      {entry.metrics.length > 0
+                        ? `Último: ${[...entry.metrics].sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime())[0]?.label ?? "—"}`
+                        : "Sin registros aún ↓ ver sección de análisis"}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             );
           })}
@@ -1513,10 +1532,15 @@ function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
     sectionEyebrow: { color: C.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 },
     sectionTitle: { color: C.text, fontSize: 18, fontWeight: "800" },
     techniqueList: { gap: S.sm },
-    techniqueCard: { backgroundColor: C.surfaceRaise, borderRadius: R.lg, padding: S.md, borderWidth: 1, borderColor: C.border, gap: 4 },
+    techniqueCard: { backgroundColor: C.surfaceRaise, borderRadius: R.lg, padding: S.md, borderWidth: 1, borderColor: C.border },
     techniqueCardActive: { borderColor: C.amberBorder, backgroundColor: C.amberDim },
-    techniqueCardTitle: { color: C.text, fontWeight: "800", fontSize: 15 },
+    techniqueCardRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+    techniqueCardTitle: { color: C.text, fontWeight: "800", fontSize: 15, marginBottom: 2 },
     techniqueCardMeta: { color: C.textMuted, fontSize: 12 },
+    techniqueCardChevron: { color: C.amber, fontSize: 18, fontWeight: "800", minWidth: 20, textAlign: "center" },
+    techniqueExpandedPreview: { backgroundColor: C.amberDim, borderBottomLeftRadius: R.lg, borderBottomRightRadius: R.lg, padding: S.md, gap: 4, borderTopWidth: 1, borderColor: C.amberBorder },
+    techniquePreviewDesc: { color: C.text, fontSize: 13, lineHeight: 18 },
+    techniquePreviewHint: { color: C.amber, fontSize: 12 },
     techniqueExpandedContent: { paddingHorizontal: 8, paddingBottom: 16, gap: 8, borderLeftWidth: 2, borderLeftColor: C.teal + "40", marginLeft: 8 },
     checklistItem: { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: R.md, borderWidth: 1, borderColor: C.border, backgroundColor: C.surfaceRaise },
     checklistItemChecked: { borderColor: C.teal, backgroundColor: C.surfaceRaise },

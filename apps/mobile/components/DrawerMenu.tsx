@@ -5,7 +5,7 @@ import { R, S } from "./tokens";
 import { useTheme } from "./ThemeContext";
 import type { ColorPalette } from "./ThemeContext";
 
-export type AppScreen = "hoy" | "ejercicios" | "programa" | "evolucion" | "tecnica" | "pathtodunk";
+export type AppScreen = "hoy" | "ejercicios" | "programa" | "evolucion" | "tecnica";
 
 interface DrawerMenuProps {
   open: boolean;
@@ -24,7 +24,6 @@ const menuItems: { screen: AppScreen; icon: string; label: string }[] = [
   { screen: "programa",   icon: "▤",  label: "Programa"      },
   { screen: "tecnica",    icon: "🎯", label: "Técnica"       },
   { screen: "evolucion",  icon: "↑",  label: "Evolución"     },
-  { screen: "pathtodunk", icon: "⬆", label: "Path to Dunk"  },
 ];
 
 export default function DrawerMenu({
