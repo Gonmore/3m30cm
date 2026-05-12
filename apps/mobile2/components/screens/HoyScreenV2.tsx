@@ -165,6 +165,10 @@ interface HoyScreenV2Props {
   onSetAthleteSetup: (updater: (prev: AthleteSetupState) => AthleteSetupState) => void;
   onSaveOnboarding: () => void;
   onGenerateProgram: () => void;
+  availableTemplates?: { code: string; name: string }[];
+  startDateMode?: "hoy" | "manana" | "otra";
+  onSetStartDateMode?: (mode: "hoy" | "manana" | "otra") => void;
+  onRequestNotifications?: () => Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -421,19 +425,143 @@ function GlowCard({
 //  No-program hero (onboarding CTA)
 // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+//  Weekday multiselect chip row
+// ─────────────────────────────────────────────────────────────
+const WEEKDAYS = [
+  { label: "D", full: "Dom", value: 0 },
+  { label: "L", full: "Lun", value: 1 },
+  { label: "M", full: "Mar", value: 2 },
+  { label: "X", full: "Mié", value: 3 },
+  { label: "J", full: "Jue", value: 4 },
+  { label: "V", full: "Vie", value: 5 },
+  { label: "S", full: "Sáb", value: 6 },
+];
+
+function parseWeekdayList(str: string): number[] {
+  return Array.from(
+    new Set(
+      str.split(/[,\s]+/)
+        .map((v) => Number(v.trim()))
+        .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6),
+    ),
+  ).sort((a, b) => a - b);
+}
+
+function serializeWeekdays(days: number[]): string {
+  return Array.from(new Set(days)).sort((a, b) => a - b).join(",");
+}
+
+function WeekdayPicker({
+  value,
+  onChange,
+  accent,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  accent?: string;
+}) {
+  const { C } = useTheme();
+  const selected = parseWeekdayList(value);
+  return (
+    <View style={{ flexDirection: "row", gap: 6, justifyContent: "center" }}>
+      {WEEKDAYS.map((day) => {
+        const active = selected.includes(day.value);
+        return (
+          <Pressable
+            key={day.value}
+            style={{
+              width: 38, height: 38, borderRadius: 19,
+              alignItems: "center", justifyContent: "center",
+              backgroundColor: active ? (accent ?? C.amber) : C.surfaceRaise,
+              borderWidth: 1.5,
+              borderColor: active ? (accent ?? C.amber) : C.borderStrong,
+            }}
+            onPress={() => {
+              const next = active
+                ? selected.filter((v) => v !== day.value)
+                : [...selected, day.value];
+              onChange(serializeWeekdays(next));
+            }}
+          >
+            <Text style={{
+              color: active ? C.bg : C.textSub,
+              fontWeight: "800",
+              fontSize: 12,
+            }}>
+              {day.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Toggle checkbox row
+// ─────────────────────────────────────────────────────────────
+function CheckRow({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  const { C } = useTheme();
+  return (
+    <Pressable
+      style={{ flexDirection: "row", alignItems: "center", gap: 12 }}
+      onPress={() => onChange(!value)}
+    >
+      <View style={{
+        width: 24, height: 24, borderRadius: 6,
+        borderWidth: 2,
+        borderColor: value ? C.teal : C.borderStrong,
+        backgroundColor: value ? C.teal : "transparent",
+        alignItems: "center", justifyContent: "center",
+      }}>
+        {value ? <Text style={{ color: C.bg, fontWeight: "900", fontSize: 14 }}>✓</Text> : null}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: C.text, fontWeight: "700", fontSize: 14 }}>{label}</Text>
+        {hint ? <Text style={{ color: C.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 }}>{hint}</Text> : null}
+      </View>
+    </Pressable>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  No-program hero (onboarding CTA)
+// ─────────────────────────────────────────────────────────────
+
 function NoProgram({
   onGenerateProgram,
   athleteSetup,
   loading,
   onSetAthleteSetup,
+  availableTemplates = [],
+  startDateMode = "hoy",
+  onSetStartDateMode,
+  onRequestNotifications,
 }: {
   onGenerateProgram: () => void;
   athleteSetup: AthleteSetupState;
   loading: boolean;
   onSetAthleteSetup: (updater: (prev: AthleteSetupState) => AthleteSetupState) => void;
+  availableTemplates?: { code: string; name: string }[];
+  startDateMode?: "hoy" | "manana" | "otra";
+  onSetStartDateMode?: (mode: "hoy" | "manana" | "otra") => void;
+  onRequestNotifications?: () => Promise<void>;
 }) {
   const bounceAnim = useRef(new Animated.Value(0)).current;
   const [confirmVisible, setConfirmVisible] = useState(false);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [notifRequested, setNotifRequested] = useState(false);
   const { C } = useTheme();
   const styles = makeStyles(C);
 
@@ -447,6 +575,16 @@ function NoProgram({
     loop.start();
     return () => loop.stop();
   }, []);
+
+  // reset step when modal closes
+  useEffect(() => {
+    if (!confirmVisible) { setStep(1); }
+  }, [confirmVisible]);
+
+  function handleConfirm() {
+    setConfirmVisible(false);
+    onGenerateProgram();
+  }
 
   return (
     <>
@@ -474,81 +612,208 @@ function NoProgram({
         </Pressable>
       </View>
 
-      {/* Motivational confirm modal */}
-      <Modal visible={confirmVisible} transparent animationType="fade" onRequestClose={() => setConfirmVisible(false)}>
+      {/* ── Multi-step setup modal ─────────────────────────── */}
+      <Modal visible={confirmVisible} transparent animationType="slide" onRequestClose={() => setConfirmVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalEmoji}>🔥</Text>
-            <Text style={styles.modalTitle}>Tu aventura empieza aqui</Text>
-            <Text style={styles.modalBody}>
-              Genera tu programa personalizado y unite al{" "}
-              <Text style={{ color: C.amber, fontWeight: "800" }}>5%</Text>
-              {" "}que realmente se entrena.{"\n\n"}
-              Seran 3 meses de constancia y sacrificio que cambiaran tu vida.
-            </Text>
-            <View style={styles.programSetupCard}>
-              <Text style={styles.programSetupLabel}>Entrada al programa</Text>
-              <Pressable
-                style={[styles.programSetupToggle, athleteSetup.skipPhase1 ? styles.programSetupToggleActive : null]}
-                onPress={() => onSetAthleteSetup((current) => ({ ...current, skipPhase1: !current.skipPhase1 }))}
-              >
-                <Text style={styles.programSetupToggleText}>
-                  {athleteSetup.skipPhase1 ? "Saltar fase 1 / adecuación" : "Mantener fase 1 / adecuación"}
-                </Text>
-              </Pressable>
-              <Text style={styles.programSetupHint}>
-                {athleteSetup.skipPhase1
-                  ? "Actívalo solo si ya toleras bien fuerza y aterrizajes y no necesitas una entrada progresiva."
-                  : "Se recomienda mantener esta fase si vienes de una pausa, molestias o todavía no toleras bien los contactos y la fuerza."}
-              </Text>
-              <TextInput
-                style={styles.profileGateInput}
-                value={athleteSetup.teamTrainingDays}
-                onChangeText={(value) => onSetAthleteSetup((current) => ({ ...current, teamTrainingDays: value }))}
-                placeholder="Días de equipo: 2,4"
-                placeholderTextColor={C.textDisabled}
-              />
-              <Pressable
-                style={[styles.programSetupToggle, athleteSetup.deloadEnabled ? styles.programSetupToggleActive : null]}
-                onPress={() => onSetAthleteSetup((current) => ({ ...current, deloadEnabled: !current.deloadEnabled }))}
-              >
-                <Text style={styles.programSetupToggleText}>
-                  {athleteSetup.deloadEnabled ? "Descarga persistente activa" : "Sin descarga persistente"}
-                </Text>
-              </Pressable>
-              {athleteSetup.deloadEnabled ? (
+          <ScrollView
+            style={{ width: "100%" }}
+            contentContainerStyle={{ padding: S.lg, paddingTop: S.sm }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.modalCard}>
+              {/* Step indicator */}
+              <View style={{ flexDirection: "row", gap: 6, alignSelf: "center" }}>
+                {([1, 2, 3] as const).map((s) => (
+                  <View key={s} style={{
+                    width: s === step ? 22 : 8, height: 8,
+                    borderRadius: 4,
+                    backgroundColor: s === step ? C.amber : s < step ? C.teal : C.surfaceRaise,
+                  }} />
+                ))}
+              </View>
+
+              {/* ── STEP 1: Deporte ────────────────────────────── */}
+              {step === 1 ? (
                 <>
-                  <TextInput
-                    style={styles.profileGateInput}
-                    value={athleteSetup.deloadEveryDays}
-                    onChangeText={(value) => onSetAthleteSetup((current) => ({ ...current, deloadEveryDays: value }))}
-                    placeholder="Cada cuántos días: 21"
-                    placeholderTextColor={C.textDisabled}
-                    keyboardType="numeric"
+                  <Text style={styles.modalEmoji}>🏀</Text>
+                  <Text style={styles.modalTitle}>Tu contexto deportivo</Text>
+
+                  <Text style={styles.obLabel}>¿Entrenas algún deporte en la semana?</Text>
+                  <View style={{ flexDirection: "row", gap: S.sm }}>
+                    <Pressable
+                      style={[styles.obOptionBtn, athleteSetup.trainsSport && styles.obOptionBtnActive]}
+                      onPress={() => onSetAthleteSetup((c) => ({ ...c, trainsSport: true }))}
+                    >
+                      <Text style={[styles.obOptionText, athleteSetup.trainsSport && styles.obOptionTextActive]}>Sí</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.obOptionBtn, !athleteSetup.trainsSport && styles.obOptionBtnActive]}
+                      onPress={() => onSetAthleteSetup((c) => ({
+                        ...c,
+                        trainsSport: false,
+                        sportTrainingDays: "",
+                        teamTrainingDays: "",
+                      }))}
+                    >
+                      <Text style={[styles.obOptionText, !athleteSetup.trainsSport && styles.obOptionTextActive]}>No</Text>
+                    </Pressable>
+                  </View>
+
+                  {athleteSetup.trainsSport ? (
+                    <>
+                      <Text style={styles.obLabel}>¿Qué días entrenas tu deporte?</Text>
+                      <Text style={styles.obHint}>Selecciona los días en que tienes práctica o partido</Text>
+                      <WeekdayPicker
+                        value={athleteSetup.sportTrainingDays}
+                        onChange={(v) => onSetAthleteSetup((c) => ({ ...c, sportTrainingDays: v }))}
+                      />
+
+                      <Text style={styles.obLabel}>¿Cuáles son los días de entrenamiento de equipo?</Text>
+                      <Text style={styles.obHint}>Días en los que entrenas con tu equipo (pueden coincidir o no)</Text>
+                      <WeekdayPicker
+                        value={athleteSetup.teamTrainingDays}
+                        onChange={(v) => onSetAthleteSetup((c) => ({ ...c, teamTrainingDays: v }))}
+                        accent={C.teal}
+                      />
+                    </>
+                  ) : null}
+
+                  <Text style={styles.obLabel}>¿Qué días puedes entrenar jump?</Text>
+                  <Text style={styles.obHint}>Días libres para dedicar al entrenamiento de salto vertical</Text>
+                  <WeekdayPicker
+                    value={athleteSetup.availableWeekdays}
+                    onChange={(v) => onSetAthleteSetup((c) => ({ ...c, availableWeekdays: v }))}
+                    accent={C.amber}
                   />
-                  <TextInput
-                    style={styles.profileGateInput}
-                    value={athleteSetup.deloadDurationDays}
-                    onChangeText={(value) => onSetAthleteSetup((current) => ({ ...current, deloadDurationDays: value }))}
-                    placeholder="Duración de descarga: 3"
-                    placeholderTextColor={C.textDisabled}
-                    keyboardType="numeric"
-                  />
+
+                  <Pressable style={styles.obNextBtn} onPress={() => setStep(2)}>
+                    <Text style={styles.obNextBtnText}>Siguiente →</Text>
+                  </Pressable>
                 </>
               ) : null}
-            </View>
-            <View style={styles.modalActions}>
-              <Pressable style={styles.modalBtnNo} onPress={() => setConfirmVisible(false)}>
-                <Text style={styles.modalBtnNoText}>Mas tarde</Text>
+
+              {/* ── STEP 2: Programa ───────────────────────────── */}
+              {step === 2 ? (
+                <>
+                  <Text style={styles.modalEmoji}>🔥</Text>
+                  <Text style={styles.modalTitle}>Tu aventura empieza aquí</Text>
+                  <Text style={[styles.modalBody, { marginBottom: 4 }]}>
+                    Serán 3 meses de constancia y sacrificio que cambiarán tu vida.
+                  </Text>
+
+                  {availableTemplates.length > 0 ? (
+                    <>
+                      <Text style={styles.obLabel}>Programa de entrenamiento</Text>
+                      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                        {availableTemplates.map((tmpl) => {
+                          const active = athleteSetup.templateCode === tmpl.code;
+                          return (
+                            <Pressable
+                              key={tmpl.code}
+                              style={[styles.obOptionBtn, { flex: 1 }, active && styles.obOptionBtnActive]}
+                              onPress={() => onSetAthleteSetup((c) => ({ ...c, templateCode: tmpl.code }))}
+                            >
+                              <Text style={[styles.obOptionText, active && styles.obOptionTextActive]}>{tmpl.name}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  ) : null}
+
+                  <Text style={styles.obLabel}>¿Cuándo empezamos?</Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {(["hoy", "manana"] as const).map((mode) => {
+                      const active = startDateMode === mode;
+                      const label = mode === "hoy" ? "Hoy" : "Mañana";
+                      return (
+                        <Pressable
+                          key={mode}
+                          style={[styles.obOptionBtn, { flex: 1 }, active && styles.obOptionBtnActive]}
+                          onPress={() => {
+                            if (mode === "hoy") {
+                              onSetAthleteSetup((c) => ({ ...c, startDate: new Date().toISOString().slice(0, 10) }));
+                            } else {
+                              const d = new Date();
+                              d.setDate(d.getDate() + 1);
+                              onSetAthleteSetup((c) => ({ ...c, startDate: d.toISOString().slice(0, 10) }));
+                            }
+                            onSetStartDateMode?.(mode);
+                          }}
+                        >
+                          <Text style={[styles.obOptionText, active && styles.obOptionTextActive]}>{label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <View style={[styles.programSetupCard, { marginTop: 4 }]}>
+                    <Text style={styles.programSetupLabel}>Entrada al programa</Text>
+                    <CheckRow
+                      label="Incluir fase de adecuación"
+                      hint="Recomendado si vienes de una pausa, molestias o todavía no toleras bien los contactos. Empieza con isométricos y aterrizajes controlados."
+                      value={!athleteSetup.skipPhase1}
+                      onChange={(v) => onSetAthleteSetup((c) => ({ ...c, skipPhase1: !v }))}
+                    />
+                  </View>
+
+                  <View style={{ flexDirection: "row", gap: S.sm }}>
+                    <Pressable style={[styles.obNextBtn, { flex: 1, backgroundColor: C.surfaceRaise }]} onPress={() => setStep(1)}>
+                      <Text style={[styles.obNextBtnText, { color: C.textSub }]}>← Volver</Text>
+                    </Pressable>
+                    <Pressable style={[styles.obNextBtn, { flex: 2 }]} onPress={() => setStep(3)}>
+                      <Text style={styles.obNextBtnText}>Siguiente →</Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
+
+              {/* ── STEP 3: Notificaciones ─────────────────────── */}
+              {step === 3 ? (
+                <>
+                  <Text style={styles.modalEmoji}>🔔</Text>
+                  <Text style={styles.modalTitle}>Activa los recordatorios</Text>
+                  <Text style={styles.modalBody}>
+                    La app programará tus sesiones en el calendario y te enviará recordatorios y mensajes motivacionales antes de cada entrenamiento.
+                  </Text>
+
+                  {!notifRequested ? (
+                    <Pressable
+                      style={styles.obNextBtn}
+                      onPress={async () => {
+                        await onRequestNotifications?.();
+                        setNotifRequested(true);
+                      }}
+                    >
+                      <Text style={styles.obNextBtnText}>🔔 Activar notificaciones</Text>
+                    </Pressable>
+                  ) : (
+                    <View style={{ backgroundColor: C.tealDim, borderRadius: R.md, padding: S.md, borderWidth: 1, borderColor: C.tealBorder }}>
+                      <Text style={{ color: C.teal, fontWeight: "800", fontSize: 14, textAlign: "center" }}>✓ Notificaciones configuradas</Text>
+                    </View>
+                  )}
+
+                  <Pressable
+                    style={[styles.obNextBtn, { backgroundColor: notifRequested ? C.teal : C.amber }]}
+                    onPress={handleConfirm}
+                    disabled={loading}
+                  >
+                    <Text style={styles.obNextBtnText}>{loading ? "Generando..." : "Quiero esos 30 cm 🚀"}</Text>
+                  </Pressable>
+
+                  <Pressable style={{ alignSelf: "center" }} onPress={() => setStep(2)}>
+                    <Text style={{ color: C.textMuted, fontSize: 13 }}>← Volver</Text>
+                  </Pressable>
+                </>
+              ) : null}
+
+              {/* Cancel */}
+              <Pressable style={{ alignSelf: "center", marginTop: -4 }} onPress={() => setConfirmVisible(false)}>
+                <Text style={{ color: C.textMuted, fontSize: 13 }}>Cancelar</Text>
               </Pressable>
-              <Pressable
-                style={styles.modalBtnYes}
-                onPress={() => { setConfirmVisible(false); onGenerateProgram(); }}
-              >
-                <Text style={styles.modalBtnYesText}>Quiero esos 30 cm →</Text>
-              </Pressable>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
     </>
@@ -630,6 +895,10 @@ export default function HoyScreenV2({
   onUpdateCheckIn,
   onGenerateProgram,
   showBouncyInput = false,
+  availableTemplates,
+  startDateMode,
+  onSetStartDateMode,
+  onRequestNotifications,
 }: HoyScreenV2Props) {
   const { C } = useTheme();
   const styles = makeStyles(C);
@@ -899,6 +1168,10 @@ export default function HoyScreenV2({
           athleteSetup={athleteSetup}
           loading={loading}
           onSetAthleteSetup={onSetAthleteSetup}
+          availableTemplates={availableTemplates}
+          startDateMode={startDateMode}
+          onSetStartDateMode={onSetStartDateMode}
+          onRequestNotifications={onRequestNotifications}
         />
       )}
 
@@ -1222,15 +1495,35 @@ return StyleSheet.create({
   refreshHint:     { alignSelf: "center", paddingVertical: 10 },
   refreshHintText: { color: C.textMuted, fontSize: 13 },
 
+  // ── Onboarding step styles ────────────────────────────────────
+  obLabel: { color: C.text, fontWeight: "700", fontSize: 14, marginTop: 4 },
+  obHint: { color: C.textMuted, fontSize: 12, lineHeight: 17, marginTop: -2 },
+  obOptionBtn: {
+    flex: 1, borderWidth: 1.5, borderColor: C.borderStrong,
+    borderRadius: R.full, paddingVertical: 10,
+    alignItems: "center", backgroundColor: C.surfaceRaise,
+  },
+  obOptionBtnActive: {
+    borderColor: C.amber, backgroundColor: C.amberDim,
+  },
+  obOptionText: { color: C.textSub, fontWeight: "700", fontSize: 14 },
+  obOptionTextActive: { color: C.amber },
+  obNextBtn: {
+    backgroundColor: C.amber, borderRadius: R.full,
+    paddingVertical: 14, alignItems: "center", marginTop: 4,
+  },
+  obNextBtnText: { color: C.bg, fontWeight: "800", fontSize: 15 },
+
   // ── Modal (motivational confirm) ─────────────────────────────
   modalOverlay: {
     flex: 1, backgroundColor: C.overlay,
-    justifyContent: "center", alignItems: "center", padding: S.lg,
+    justifyContent: "flex-end", alignItems: "center",
   },
   modalCard: {
     backgroundColor: C.surface, borderRadius: R.xl,
     padding: S.lg, gap: S.md, borderWidth: 1.5,
     borderColor: C.amberBorder, width: "100%",
+    maxHeight: "90%",
   },
   modalEmoji:     { fontSize: 44, textAlign: "center" },
   modalTitle:     { color: C.amber, fontWeight: "800", fontSize: 24, textAlign: "center" },

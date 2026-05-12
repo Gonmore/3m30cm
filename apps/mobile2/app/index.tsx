@@ -3707,6 +3707,16 @@ export default function HomeScreen() {
           onSetAthleteSetup={setAthleteSetup}
           onSaveOnboarding={() => void handleSaveOnboarding()}
           onGenerateProgram={() => void handleGenerateProgramFromApp()}
+          availableTemplates={availableTemplates.map((t) => ({ code: t.code, name: t.name }))}
+          startDateMode={startDateMode}
+          onSetStartDateMode={setStartDateMode}
+          onRequestNotifications={async () => {
+            const notifications = await getNotificationsModule();
+            const current = await notifications.getPermissionsAsync();
+            if (current.status !== "granted") {
+              await notifications.requestPermissionsAsync();
+            }
+          }}
         />
       ) : null}
 
