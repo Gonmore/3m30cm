@@ -3717,6 +3717,7 @@ export default function HomeScreen() {
               await notifications.requestPermissionsAsync();
             }
           }}
+          onNavigateToEvolucion={() => setActiveScreen("evolucion")}
         />
       ) : null}
 

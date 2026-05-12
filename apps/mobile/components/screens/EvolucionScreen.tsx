@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Line, Polyline, Text as SvgText } from "react-native-svg";
 import { useState } from "react";
 
@@ -31,6 +31,7 @@ interface TechniqueEntry {
   title: string;
   description: string | null;
   measurementInstructions: string | null;
+  proVideoUrl?: string | null;
   comparisonEnabled: boolean;
   mediaAssets: Array<{ id: string; kind: "IMAGE" | "GIF" | "VIDEO"; url: string | null; title: string | null; isPrimary: boolean }>;
   measurementDefinitions: TechniqueMeasurementDefinition[];
@@ -271,6 +272,8 @@ function buildTechniqueHistory(techniques: TechniqueEntry[]) {
       id: entry.id,
       title: entry.title,
       comparisonEnabled: entry.comparisonEnabled,
+      measurementInstructions: entry.measurementInstructions,
+      proVideoUrl: entry.proVideoUrl ?? null,
       latestRecordedAt: entry.metrics[0]?.recordedAt ?? null,
       totalMetrics: entry.metrics.length,
       snapshots: getLatestMetricByLabel(entry.metrics),
@@ -623,6 +626,19 @@ export default function EvolucionScreen({
                     ))}
                   </View>
                 ) : null}
+                {(entry.measurementInstructions || entry.proVideoUrl) ? (
+                  <View style={styles.howToBlock}>
+                    <Text style={styles.howToLabel}>Cómo medir</Text>
+                    {entry.measurementInstructions ? (
+                      <Text style={styles.howToText}>{entry.measurementInstructions}</Text>
+                    ) : null}
+                    {entry.proVideoUrl ? (
+                      <Pressable onPress={() => { void Linking.openURL(entry.proVideoUrl!); }}>
+                        <Text style={styles.howToVideoBtn}>▶ Ver video de referencia</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             ))
           ) : (
@@ -781,6 +797,10 @@ function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
     snapshotMeta: { color: C.amber, fontSize: 12, fontWeight: "700" },
     recentMetricsWrap: { gap: 4 },
     recentMetricLine: { color: C.textMuted, fontSize: 12 },
+    howToBlock: { backgroundColor: C.surfaceRaise, borderRadius: R.lg, padding: S.sm, gap: 4, borderWidth: 1, borderColor: C.tealBorder },
+    howToLabel: { color: C.teal, fontWeight: "700", fontSize: 12 },
+    howToText: { color: C.textSub, fontSize: 13, lineHeight: 19 },
+    howToVideoBtn: { color: C.teal, fontWeight: "700", fontSize: 13 },
     jumpSection: { gap: S.sm },
     jumpHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     howToBtn: { backgroundColor: C.amberDim, borderRadius: R.full, paddingVertical: 6, paddingHorizontal: S.sm, borderWidth: 1, borderColor: C.amberBorder },

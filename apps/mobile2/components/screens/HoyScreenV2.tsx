@@ -169,6 +169,7 @@ interface HoyScreenV2Props {
   startDateMode?: "hoy" | "manana" | "otra";
   onSetStartDateMode?: (mode: "hoy" | "manana" | "otra") => void;
   onRequestNotifications?: () => Promise<void>;
+  onNavigateToEvolucion?: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -884,6 +885,7 @@ export default function HoyScreenV2({
   startDateMode,
   onSetStartDateMode,
   onRequestNotifications,
+  onNavigateToEvolucion,
 }: HoyScreenV2Props) {
   const { C } = useTheme();
   const styles = makeStyles(C);
@@ -928,6 +930,23 @@ export default function HoyScreenV2({
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [jumpMaxInfoVisible, setJumpMaxInfoVisible] = useState(false);
 
+  // ── Jump pulse animation (call-to-action when no PB) ────────
+  const jumpPulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (pbJump !== null) {
+      jumpPulseAnim.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(jumpPulseAnim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+        Animated.timing(jumpPulseAnim, { toValue: 1,   duration: 800, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pbJump]);
+
   return (
     <ScrollView
       style={styles.screen}
@@ -957,6 +976,7 @@ export default function HoyScreenV2({
 
         <View style={styles.heroRight}>
           {/* Jump delta bar */}
+          <Animated.View style={pbJump === null ? { borderWidth: 2, borderColor: C.teal, borderRadius: 16, opacity: jumpPulseAnim } : undefined}>
           <Pressable style={styles.heroMetaCard} onPress={() => setJumpMaxInfoVisible(true)}>
             <Text style={styles.heroMetaEyebrow}>Salto máximo</Text>
             <Text style={styles.heroMetaValue}>
@@ -971,8 +991,9 @@ export default function HoyScreenV2({
                 {Math.abs(progress.phaseComparison.deltaVsReferencePhaseCm ?? 0).toFixed(1)} cm vs fase anterior
               </Text>
             ) : null}
-            <Text style={styles.heroMetaHint}>Toca para ver con qué técnica fue</Text>
+            <Text style={styles.heroMetaHint}>{pbJump === null ? "Toca para agregar tu primer salto" : "Toca para ver con qué técnica fue"}</Text>
           </Pressable>
+          </Animated.View>
 
           {/* Weekly target micro-bar */}
           <View style={styles.heroWeeklyCard}>
@@ -1191,8 +1212,19 @@ export default function HoyScreenV2({
                 </Text>
               )
             ) : null}
-            <Pressable style={styles.modalBtnYes} onPress={() => setJumpMaxInfoVisible(false)}>
-              <Text style={styles.modalBtnYesText}>Cerrar</Text>
+            {pbJump === null ? (
+              <Pressable
+                style={styles.modalBtnYes}
+                onPress={() => { setJumpMaxInfoVisible(false); onNavigateToEvolucion?.(); }}
+              >
+                <Text style={styles.modalBtnYesText}>Agregar medición →</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={pbJump === null ? styles.modalBtnNo : styles.modalBtnYes}
+              onPress={() => setJumpMaxInfoVisible(false)}
+            >
+              <Text style={pbJump === null ? styles.modalBtnNoText : styles.modalBtnYesText}>Cerrar</Text>
             </Pressable>
           </View>
         </View>

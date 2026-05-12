@@ -39,6 +39,7 @@ interface TechniqueEntry {
   title: string;
   description: string | null;
   measurementInstructions: string | null;
+  proVideoUrl?: string | null;
   comparisonEnabled: boolean;
   mediaAssets: Array<{ id: string; kind: "IMAGE" | "GIF" | "VIDEO"; url: string | null; title: string | null; isPrimary: boolean }>;
   measurementDefinitions: TechniqueMeasurementDefinition[];

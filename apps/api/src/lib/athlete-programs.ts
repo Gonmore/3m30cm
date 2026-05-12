@@ -71,6 +71,7 @@ interface GeneratePersonalProgramInput {
   phase: SeasonPhase;
   notes?: string | undefined;
   includePreparationPhase?: boolean;
+  totalSessions?: number;
 }
 
 const preparationPhaseBlueprints: PreparationSessionBlueprint[] = [
@@ -473,8 +474,11 @@ export async function generatePersonalProgram(input: GeneratePersonalProgramInpu
     }
   }
 
-  for (let index = 0; index < 84; index += 1) {
-    const dayTemplate = template.days[index % template.days.length];
+  const sessionCount = input.totalSessions ?? 84;
+  for (let index = 0; index < sessionCount; index += 1) {
+    const dayTemplate = input.totalSessions != null
+      ? template.days[index]
+      : template.days[index % template.days.length];
 
     if (!dayTemplate) {
       throw new Error("Program template day is missing");

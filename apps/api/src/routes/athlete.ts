@@ -980,7 +980,7 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
           absoluteDay += 1;
           return {
             dayNumber: absoluteDay,
-            title: day.title ?? `Día ${absoluteDay}`,
+            title: day.title ? `${phase.name}: ${day.title}` : phase.name,
             dayType: day.dayType,
             notes: day.notes,
             prescriptions: day.tasks
@@ -1010,6 +1010,7 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
     }
 
     const templateForGeneration = { id: template.id, name: template.name, code: template.code, days: templateDays };
+    const isPhaseTemplate = template.days.length === 0 && template.phases.length > 0;
 
     const programPreferences = payload.programPreferences ?? parseAthleteProgramPreferences(currentAthleteProfile.programPreferences);
     const phase = payload.phase ?? payload.seasonPhase ?? currentAthleteProfile.seasonPhase;
@@ -1050,6 +1051,7 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
         phase,
         notes: payload.notes,
         includePreparationPhase,
+        ...(isPhaseTemplate ? { totalSessions: templateDays.length } : {}),
       });
     });
 
