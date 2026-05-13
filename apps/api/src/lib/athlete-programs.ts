@@ -496,7 +496,9 @@ export async function generatePersonalProgram(input: GeneratePersonalProgramInpu
       data: {
         personalProgramId: personalProgram.id,
         scheduledDate,
-        title: `Day ${dayTemplate.dayNumber}: ${dayTemplate.title}`,
+        title: input.totalSessions != null
+          ? dayTemplate.title
+          : `Day ${dayTemplate.dayNumber}: ${dayTemplate.title}`,
         dayType: dayTemplate.dayType,
         notes: [dayTemplate.notes, sharedDayNote].filter(Boolean).join(" ") || null,
         sessionExercises: {
