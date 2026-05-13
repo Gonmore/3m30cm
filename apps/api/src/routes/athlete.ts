@@ -975,24 +975,29 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
 
     if (templateDays.length === 0 && template.phases.length > 0) {
       let absoluteDay = 0;
-      templateDays = template.phases.flatMap((phase, phaseIndex) =>
-        phase.days.map((day, dayIndexInPhase) => {
+      templateDays = template.phases.flatMap((phase, phaseIndex) => {
+        const blockDays = phase.days; // the repeating master block
+        const totalDays = phase.durationDays; // total days this phase should last
+        const phaseLabel = `Fase ${phaseIndex + 1}`;
+        const expanded: typeof templateDays = [];
+        for (let i = 0; i < totalDays; i++) {
+          const day = blockDays[i % blockDays.length];
+          if (!day) { continue; }
           absoluteDay += 1;
-          const phaseLabel = `Fase ${phaseIndex + 1}`;
-          const dayLabel = `D\u00eda ${dayIndexInPhase + 1}`;
+          const dayIndexInBlock = (i % blockDays.length) + 1;
           const titleSuffix = day.title ? `: ${day.title}` : "";
-          return {
+          expanded.push({
             dayNumber: absoluteDay,
-            title: `${phaseLabel}/${dayLabel}${titleSuffix}`,
+            title: `${phaseLabel}/D\u00eda ${dayIndexInBlock}${titleSuffix}`,
             dayType: day.dayType,
             notes: day.notes,
             prescriptions: day.tasks
               .filter((task): task is typeof task & { exerciseId: string; exercise: { id: string; defaultSeriesProtocol: SeriesProtocol } } =>
                 task.exerciseId != null && task.exercise != null,
               )
-              .map((task, i) => ({
+              .map((task, idx) => ({
                 exerciseId: task.exerciseId,
-                orderIndex: i + 1,
+                orderIndex: idx + 1,
                 seriesProtocol: SeriesProtocol.NONE,
                 sets: task.sets ?? null,
                 repsText: task.repsOrTimeText ?? null,
@@ -1002,9 +1007,10 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
                 notes: [task.description, task.notes].filter(Boolean).join(" ") || null,
                 exercise: task.exercise,
               })),
-          };
-        }),
-      );
+          });
+        }
+        return expanded;
+      });
     }
 
     if (templateDays.length === 0) {

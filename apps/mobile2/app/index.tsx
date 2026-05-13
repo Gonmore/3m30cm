@@ -25,6 +25,7 @@ import { useOverreachAdjustment } from "../components/screens/useOverreachAdjust
 import { useEvolutionSuggestion } from "../components/screens/useEvolutionSuggestion";
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   Linking,
   Modal,
@@ -2059,6 +2060,17 @@ export default function HomeScreen() {
       setActiveScreen("hoy");
     }
   }, [activeScreen, needsPhysicalOnboarding]);
+
+  // ── Android hardware back button ──────────────────────────
+  useEffect(() => {
+    if (Platform.OS !== "android") { return; }
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (drawerOpen) { setDrawerOpen(false); return true; }
+      if (activeScreen !== "hoy") { setActiveScreen("hoy"); return true; }
+      return false; // let the system handle (exit)
+    });
+    return () => sub.remove();
+  }, [activeScreen, drawerOpen]);
 
   useEffect(() => {
     void writeStoredValue(trendWindowStorageKey, trendWindow);
