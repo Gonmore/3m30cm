@@ -42,11 +42,18 @@ const headerAliases: Record<string, string> = {
   videourl: "videoUrl",
   video: "videoUrl",
   urlvideo: "videoUrl",
+
+  titulo: "dayTitle",
+  "t\u00edtulo": "dayTitle",
+  title: "dayTitle",
+  "titulod\u00eda": "dayTitle",
+  "titulodia": "dayTitle",
 };
 
 export interface ImportedExerciseTask {
   rowNumber: number;
   day: number;
+  dayTitle: string | null;
   name: string;
   sets: number | null;
   repsOrTimeText: string | null;
@@ -298,10 +305,12 @@ export function parseExerciseTaskBlock(content: string): ExerciseTaskImportResul
     const repsOrTimeText = (row.repsOrTime ?? "").trim() || null;
     const description = (row.description ?? "").trim() || null;
     const videoUrl = (row.videoUrl ?? "").trim() || null;
+    const dayTitle = (row.dayTitle ?? "").trim() || null;
 
     tasks.push({
       rowNumber,
       day,
+      dayTitle,
       name,
       sets,
       repsOrTimeText,

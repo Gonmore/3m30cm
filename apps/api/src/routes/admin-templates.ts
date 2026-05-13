@@ -1132,10 +1132,17 @@ adminTemplatesRouter.post(
       });
 
       const groupedByDay = new Map<number, typeof mapped>();
+      const dayTitleMap = new Map<number, string | null>();
       for (const item of mapped) {
         const bucket = groupedByDay.get(item.day) ?? [];
         bucket.push(item);
         groupedByDay.set(item.day, bucket);
+        // Keep the first non-null title seen for each day
+        if (!dayTitleMap.has(item.day)) {
+          dayTitleMap.set(item.day, item.dayTitle ?? null);
+        } else if (dayTitleMap.get(item.day) == null && item.dayTitle) {
+          dayTitleMap.set(item.day, item.dayTitle);
+        }
       }
 
       const dayNumbers = Array.from(groupedByDay.keys()).sort((a, b) => a - b);
@@ -1208,12 +1215,12 @@ adminTemplatesRouter.post(
             create: {
               phaseTemplateId: phase.id,
               dayNumber,
-              title: `Day ${dayNumber}`,
+              title: dayTitleMap.get(dayNumber) ?? null,
               dayType: DayType.OTHER,
               notes: null,
             },
             update: {
-              title: `Day ${dayNumber}`,
+              title: dayTitleMap.get(dayNumber) ?? null,
             },
             select: { id: true },
           });

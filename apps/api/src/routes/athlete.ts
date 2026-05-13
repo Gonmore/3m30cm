@@ -984,11 +984,11 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
           const day = blockDays[i % blockDays.length];
           if (!day) { continue; }
           absoluteDay += 1;
-          const dayIndexInBlock = (i % blockDays.length) + 1;
+          const dayAbsolute = i + 1; // 1-based absolute day within this phase
           const titleSuffix = day.title ? `: ${day.title}` : "";
           expanded.push({
             dayNumber: absoluteDay,
-            title: `${phaseLabel}/D\u00eda ${dayIndexInBlock}${titleSuffix}`,
+            title: `${phaseLabel}/D\u00eda ${dayAbsolute}${titleSuffix}`,
             dayType: day.dayType,
             notes: day.notes,
             prescriptions: day.tasks
