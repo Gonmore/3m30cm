@@ -975,12 +975,15 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
 
     if (templateDays.length === 0 && template.phases.length > 0) {
       let absoluteDay = 0;
-      templateDays = template.phases.flatMap((phase) =>
-        phase.days.map((day) => {
+      templateDays = template.phases.flatMap((phase, phaseIndex) =>
+        phase.days.map((day, dayIndexInPhase) => {
           absoluteDay += 1;
+          const phaseLabel = `Fase ${phaseIndex + 1}`;
+          const dayLabel = `D\u00eda ${dayIndexInPhase + 1}`;
+          const titleSuffix = day.title ? `: ${day.title}` : "";
           return {
             dayNumber: absoluteDay,
-            title: day.title ? `${phase.name}: ${day.title}` : phase.name,
+            title: `${phaseLabel}/${dayLabel}${titleSuffix}`,
             dayType: day.dayType,
             notes: day.notes,
             prescriptions: day.tasks

@@ -3097,7 +3097,7 @@ export default function HomeScreen() {
     }
   }
 
-  async function handleGenerateProgramFromApp() {
+  async function handleGenerateProgramFromApp(overrideTemplateCode?: string) {
     if (!accessToken) {
       return;
     }
@@ -3134,7 +3134,7 @@ export default function HomeScreen() {
             seasonPhase: athleteSetup.seasonPhase,
             availableWeekdays: parseWeekdaysInput(athleteSetup.availableWeekdays),
             startDate: athleteSetup.startDate,
-            templateCode: athleteSetup.templateCode,
+            templateCode: overrideTemplateCode ?? athleteSetup.templateCode,
             includePreparationPhase: !athleteSetup.skipPhase1,
             programPreferences: buildProgramPreferencesPayload(athleteSetup),
             notes: athleteSetup.notes || undefined,
@@ -3763,7 +3763,7 @@ export default function HomeScreen() {
           onPreloadSession={(id, title) => void handlePreloadSession(id, title)}
           cachedSessionIds={cachedSessionIds}
           preloadSessionId={preloadState.visible ? preloadState.sessionId : null}
-          onRegenerateProgram={() => void handleGenerateProgramFromApp()}
+          onRegenerateProgram={(templateCode) => void handleGenerateProgramFromApp(templateCode)}
           onRefresh={() => void refreshAthleteArea()}
           availableTemplates={availableTemplates.map((t) => ({ code: t.code, name: t.name }))}
           currentTemplateCode={athleteSetup.templateCode}

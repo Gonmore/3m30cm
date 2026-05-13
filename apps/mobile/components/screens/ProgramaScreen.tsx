@@ -26,7 +26,7 @@ interface ProgramaScreenProps {
   onPreloadSession: (id: string, title: string) => void;
   cachedSessionIds: string[];
   preloadSessionId: string | null;
-  onRegenerateProgram: () => void;
+  onRegenerateProgram: (templateCode: string) => void;
   onRefresh: () => void;
   availableTemplates?: { code: string; name: string }[];
   currentTemplateCode?: string;
@@ -241,11 +241,8 @@ export default function ProgramaScreen({
               <Pressable
                 style={styles.modalPrimaryBtn}
                 onPress={() => {
-                  if (localTemplateCode && localTemplateCode !== currentTemplateCode) {
-                    onSetTemplateCode?.(localTemplateCode);
-                  }
                   setRegenModalVisible(false);
-                  onRegenerateProgram();
+                  onRegenerateProgram(localTemplateCode ?? currentTemplateCode ?? "");
                 }}
                 disabled={loading}
               >
