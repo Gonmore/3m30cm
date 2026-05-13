@@ -3765,6 +3765,9 @@ export default function HomeScreen() {
           preloadSessionId={preloadState.visible ? preloadState.sessionId : null}
           onRegenerateProgram={() => void handleGenerateProgramFromApp()}
           onRefresh={() => void refreshAthleteArea()}
+          availableTemplates={availableTemplates.map((t) => ({ code: t.code, name: t.name }))}
+          currentTemplateCode={athleteSetup.templateCode}
+          onSetTemplateCode={(code) => setAthleteSetup((prev) => ({ ...prev, templateCode: code }))}
         />
       ) : null}
 

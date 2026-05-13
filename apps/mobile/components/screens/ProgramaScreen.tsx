@@ -28,6 +28,9 @@ interface ProgramaScreenProps {
   preloadSessionId: string | null;
   onRegenerateProgram: () => void;
   onRefresh: () => void;
+  availableTemplates?: { code: string; name: string }[];
+  currentTemplateCode?: string;
+  onSetTemplateCode?: (code: string) => void;
 }
 
 export default function ProgramaScreen({
@@ -45,9 +48,15 @@ export default function ProgramaScreen({
   preloadSessionId,
   onRegenerateProgram,
   onRefresh,
+  availableTemplates = [],
+  currentTemplateCode,
+  onSetTemplateCode,
 }: ProgramaScreenProps) {
   const { C } = useTheme();
   const styles = makeStyles(C);
+  const [regenModalVisible, setRegenModalVisible] = useState(false);
+  // local template selection — starts from whatever is currently set
+  const [localTemplateCode, setLocalTemplateCode] = useState<string | undefined>(currentTemplateCode);
   const [pendingPreviewSession, setPendingPreviewSession] = useState<SessionSummary | null>(null);
   const cycleLabel = activeProgram
     ? `${activeProgram.name}  ·  ${activeProgram.phase}  ·  ${activeProgram.status}`
@@ -98,7 +107,11 @@ export default function ProgramaScreen({
           ) : null}
 
           <View style={styles.cardActionsRow}>
-            <Pressable style={styles.secondaryActionBtn} onPress={onRegenerateProgram} disabled={loading}>
+            <Pressable
+              style={styles.secondaryActionBtn}
+              onPress={() => { setLocalTemplateCode(currentTemplateCode); setRegenModalVisible(true); }}
+              disabled={loading}
+            >
               <Text style={styles.secondaryActionBtnText}>{loading ? "Regenerando…" : "↺ Regenerar programa"}</Text>
             </Pressable>
           </View>
@@ -108,7 +121,11 @@ export default function ProgramaScreen({
           <Text style={styles.noProgramIcon}>▤</Text>
           <Text style={styles.noProgramTitle}>Sin programa activo</Text>
           <Text style={styles.noProgramSub}>Volvé a Hoy y generá tu bloque de entrenamiento.</Text>
-          <Pressable style={styles.secondaryActionBtn} onPress={onRegenerateProgram} disabled={loading}>
+          <Pressable
+            style={styles.secondaryActionBtn}
+            onPress={() => { setLocalTemplateCode(currentTemplateCode); setRegenModalVisible(true); }}
+            disabled={loading}
+          >
             <Text style={styles.secondaryActionBtnText}>{loading ? "Generando…" : "◎ Generar / regenerar"}</Text>
           </Pressable>
         </View>
@@ -182,6 +199,62 @@ export default function ProgramaScreen({
       <Pressable style={styles.refreshBtn} onPress={onRefresh} disabled={refreshing}>
         <Text style={styles.refreshBtnText}>{refreshing ? "Actualizando…" : "↻ Actualizar"}</Text>
       </Pressable>
+
+      {/* ── Regenerate / template-picker modal ─────────────── */}
+      <Modal visible={regenModalVisible} transparent animationType="slide" onRequestClose={() => setRegenModalVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalEyebrow}>Programa</Text>
+            <Text style={styles.modalTitle}>Regenerar programa</Text>
+            <Text style={styles.modalText}>Se borrará el programa actual y se creará uno nuevo desde el inicio.</Text>
+
+            {availableTemplates.length > 1 ? (
+              <>
+                <Text style={[styles.modalText, { fontWeight: "700", marginBottom: 4 }]}>Programa de entrenamiento</Text>
+                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                  {availableTemplates.map((tmpl) => {
+                    const active = (localTemplateCode ?? currentTemplateCode) === tmpl.code;
+                    return (
+                      <Pressable
+                        key={tmpl.code}
+                        style={[
+                          styles.modalGhostBtn,
+                          { flex: 1 },
+                          active && { backgroundColor: C.amber, borderColor: C.amber },
+                        ]}
+                        onPress={() => setLocalTemplateCode(tmpl.code)}
+                      >
+                        <Text style={[styles.modalGhostBtnText, active && { color: C.bg, fontWeight: "800" }]}>
+                          {tmpl.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            ) : null}
+
+            <View style={styles.modalActions}>
+              <Pressable style={styles.modalGhostBtn} onPress={() => setRegenModalVisible(false)}>
+                <Text style={styles.modalGhostBtnText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={styles.modalPrimaryBtn}
+                onPress={() => {
+                  if (localTemplateCode && localTemplateCode !== currentTemplateCode) {
+                    onSetTemplateCode?.(localTemplateCode);
+                  }
+                  setRegenModalVisible(false);
+                  onRegenerateProgram();
+                }}
+                disabled={loading}
+              >
+                <Text style={styles.modalPrimaryBtnText}>{loading ? "Generando…" : "Confirmar"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={Boolean(pendingPreviewSession)} transparent animationType="fade" onRequestClose={() => setPendingPreviewSession(null)}>
         <View style={styles.modalBackdrop}>
