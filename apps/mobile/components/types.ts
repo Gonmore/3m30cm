@@ -78,6 +78,7 @@ export interface ActiveProgram {
     id: string;
     code: string;
     name: string;
+    phases?: Array<{ name: string; orderIndex: number }>;
     overviewTitle?: string | null;
     overviewDescription?: string | null;
     overviewMediaAsset?: {

@@ -365,7 +365,7 @@ export default function EvolucionScreen({
 
       <View style={styles.summaryRow}>
         <View style={styles.summaryCell}>
-          <Text style={styles.summaryVal}>{summary.totalSessions}</Text>
+          <Text style={styles.summaryVal}>{summary.completedSessions}/{summary.totalSessions}</Text>
           <Text style={styles.summaryLabel}>sesiones</Text>
         </View>
         <View style={styles.summaryCell}>

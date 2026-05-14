@@ -744,6 +744,10 @@ athleteRouter.get("/me", async (req: AuthenticatedRequest, res: Response) => {
             name: true,
             techniqueTitle: true,
             techniqueDescription: true,
+            phases: {
+              orderBy: { orderIndex: "asc" },
+              select: { name: true, orderIndex: true },
+            },
             techniques: {
               orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
               take: 1,
@@ -797,6 +801,7 @@ athleteRouter.get("/me", async (req: AuthenticatedRequest, res: Response) => {
                   id: activeProgram.template.id,
                   code: activeProgram.template.code,
                   name: activeProgram.template.name,
+                  phases: activeProgram.template.phases.map((p) => ({ name: p.name, orderIndex: p.orderIndex })),
                   overviewTitle: primaryTechnique?.title ?? activeProgram.template.techniqueTitle ?? null,
                   overviewDescription: primaryTechnique?.description ?? activeProgram.template.techniqueDescription ?? null,
                   overviewMediaAsset,
@@ -1224,11 +1229,17 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
       }),
     ]);
 
-    const completedSessions = sessions.filter((session) => session.status === SessionStatus.COMPLETED).length;
-    const skippedSessions = sessions.filter((session) => session.status === SessionStatus.SKIPPED).length;
-    const rescheduledSessions = sessions.filter((session) => session.status === SessionStatus.RESCHEDULED).length;
-    const dueSessions = sessions.filter((session) => session.scheduledDate <= now);
-    const upcomingSessions = sessions.filter(
+    // Scope all per-program stats to the active program only
+    const activeProgramId = activeProgram?.id ?? null;
+    const activeProgramSessions = activeProgramId
+      ? sessions.filter((s) => s.personalProgram?.id === activeProgramId)
+      : sessions;
+
+    const completedSessions = activeProgramSessions.filter((session) => session.status === SessionStatus.COMPLETED).length;
+    const skippedSessions = activeProgramSessions.filter((session) => session.status === SessionStatus.SKIPPED).length;
+    const rescheduledSessions = activeProgramSessions.filter((session) => session.status === SessionStatus.RESCHEDULED).length;
+    const dueSessions = activeProgramSessions.filter((session) => session.scheduledDate <= now);
+    const upcomingSessions = activeProgramSessions.filter(
       (session) => session.scheduledDate >= now && (session.status === SessionStatus.PLANNED || session.status === SessionStatus.RESCHEDULED),
     );
 
@@ -1256,7 +1267,7 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
     const painValues = recentLogs.flatMap((log) => (typeof log.metrics?.painScore === "number" ? [log.metrics.painScore] : []));
     const sorenessValues = recentLogs.flatMap((log) => (typeof log.metrics?.sorenessScore === "number" ? [log.metrics.sorenessScore] : []));
 
-    const weeklySessions = sessions.filter((session) => session.scheduledDate >= weekStart && session.scheduledDate <= weekEnd);
+    const weeklySessions = activeProgramSessions.filter((session) => session.scheduledDate >= weekStart && session.scheduledDate <= weekEnd);
     const currentPhase = activeProgram?.phase ?? athleteProfile.seasonPhase;
     const availableWeekdays = extractWeekdays(athleteProfile.weeklyAvailability);
     const phaseSuggestedSessions = availableWeekdays.length
@@ -1400,7 +1411,7 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
 
     res.json({
       summary: {
-        totalSessions: sessions.length,
+        totalSessions: activeProgramSessions.length,
         completedSessions,
         skippedSessions,
         rescheduledSessions,

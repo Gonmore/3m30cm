@@ -90,6 +90,24 @@ function sessionIntensity(dayType: string): "push" | "steady" | "protect" {
   return DAY_TYPE_INTENSITY[dayType] ?? "steady";
 }
 
+function parseSessionTitleParts(title: string): { phaseRaw: string | null; sessionTitle: string } {
+  const slashIdx = title.indexOf("/");
+  if (slashIdx === -1) return { phaseRaw: null, sessionTitle: title };
+  return { phaseRaw: title.slice(0, slashIdx), sessionTitle: title.slice(slashIdx + 1) };
+}
+
+function resolvePhaseLabel(phaseRaw: string, phases?: Array<{ name: string; orderIndex: number }> | null): string {
+  if (phases?.length) {
+    const m = phaseRaw.match(/^Fase\s+(\d+)/i);
+    if (m) {
+      const idx = parseInt(m[1], 10) - 1;
+      const phase = phases.find((p) => p.orderIndex === idx) ?? phases[idx];
+      if (phase?.name) return `Fase ${idx + 1}: ${phase.name}`;
+    }
+  }
+  return phaseRaw;
+}
+
 function buildMotivationText(dayType: string, streak: number) {
   const streakLine = streak > 0 ? `Vas con ${streak} dias de racha.` : "Hoy puede empezar tu primera racha fuerte.";
 
@@ -1047,9 +1065,20 @@ export default function HoyScreenV2({
           </View>
 
           {/* Session title */}
-          <Text style={styles.ctaTitle} numberOfLines={2}>
-            {todayPrimarySession.title}
-          </Text>
+          {(() => {
+            const { phaseRaw, sessionTitle } = parseSessionTitleParts(todayPrimarySession.title);
+            const phaseLabel = phaseRaw ? resolvePhaseLabel(phaseRaw, activeProgram?.template?.phases) : null;
+            return (
+              <>
+                {phaseLabel ? (
+                  <Text style={styles.ctaPhaseLabel}>{phaseLabel}</Text>
+                ) : null}
+                <Text style={styles.ctaTitle} numberOfLines={2}>
+                  {sessionTitle}
+                </Text>
+              </>
+            );
+          })()}
 
           {/* Meta row */}
           <Text style={styles.ctaMeta}>
@@ -1353,8 +1382,8 @@ return StyleSheet.create({
   ctaIntensityBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: R.full, borderWidth: 1 },
   ctaIntensityText:  { fontSize: 10, fontWeight: "800", letterSpacing: 1.2 },
   ctaFavStar: { color: C.amber, fontSize: 13, fontWeight: "700" },
-
-  ctaTitle:  { color: C.text, fontSize: 24, fontWeight: "800", lineHeight: 30, marginTop: 4 },
+  ctaPhaseLabel: { color: C.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase" as const, letterSpacing: 0.8, marginTop: 4 },
+  ctaTitle:  { color: C.text, fontSize: 24, fontWeight: "800", lineHeight: 30, marginTop: 2 },
   ctaMeta:   { color: C.textMuted, fontSize: 13, marginTop: 2 },
   ctaMotivation: { color: C.textSub, fontSize: 14, lineHeight: 21, marginTop: 8 },
 

@@ -19,6 +19,15 @@ function parseSessionPhase(title: string): { phaseKey: string; sessionTitle: str
   return { phaseKey: title.slice(0, slashIdx), sessionTitle: title.slice(slashIdx + 1) };
 }
 
+function resolvePhaseKey(phaseKey: string, phases?: Array<{ name: string; orderIndex: number }> | null): string {
+  if (!phases?.length) return phaseKey;
+  const m = phaseKey.match(/^Fase\s+(\d+)/i);
+  if (!m) return phaseKey;
+  const idx = parseInt(m[1], 10) - 1;
+  const phase = phases.find((p) => p.orderIndex === idx) ?? phases[idx];
+  return phase?.name ? `Fase ${idx + 1}: ${phase.name}` : phaseKey;
+}
+
 interface ProgramaScreenProps {
   activeProgram: ActiveProgram | null;
   programs: ProgramSummary[];
@@ -197,7 +206,7 @@ export default function ProgramaScreen({
                 <Pressable style={styles.phaseHeader} onPress={() => togglePhase(group.phaseKey)}>
                   <View style={styles.phaseHeaderLeft}>
                     <Text style={[styles.phaseTitle, group.isCompleted ? styles.phaseTitleDone : null]}>
-                      {group.phaseKey}
+                      {resolvePhaseKey(group.phaseKey, activeProgram?.template?.phases)}
                     </Text>
                     <Text style={styles.phaseSummary}>
                       {group.isCompleted
