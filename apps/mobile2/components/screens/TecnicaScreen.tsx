@@ -1076,9 +1076,6 @@ export default function TecnicaScreen({
                 </Pressable>
                 {isExpanded ? (
                   <View style={styles.techniqueExpandedPreview}>
-                    {entry.description ? (
-                      <Text style={styles.techniquePreviewDesc}>{entry.description}</Text>
-                    ) : null}
                     <Text style={styles.techniquePreviewHint}>
                       {entry.metrics.length > 0
                         ? `Último: ${[...entry.metrics].sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime())[0]?.label ?? "—"}`

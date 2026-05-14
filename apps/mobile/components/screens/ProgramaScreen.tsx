@@ -1,5 +1,5 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { R, S } from "../tokens";
 import { useTheme } from "../ThemeContext";
 import type { ActiveProgram, AthleteProgress, ProgramSummary, SessionSummary } from "../types";
@@ -12,6 +12,12 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 function formatDate(v: string) { return new Date(v).toLocaleDateString(); }
+
+function parseSessionPhase(title: string): { phaseKey: string; sessionTitle: string } {
+  const slashIdx = title.indexOf("/");
+  if (slashIdx === -1) { return { phaseKey: "General", sessionTitle: title }; }
+  return { phaseKey: title.slice(0, slashIdx), sessionTitle: title.slice(slashIdx + 1) };
+}
 
 interface ProgramaScreenProps {
   activeProgram: ActiveProgram | null;
@@ -58,6 +64,49 @@ export default function ProgramaScreen({
   // local template selection — starts from whatever is currently set
   const [localTemplateCode, setLocalTemplateCode] = useState<string | undefined>(currentTemplateCode);
   const [pendingPreviewSession, setPendingPreviewSession] = useState<SessionSummary | null>(null);
+
+  const phaseGroups = useMemo(() => {
+    if (sessions.length === 0) { return []; }
+    const map = new Map<string, SessionSummary[]>();
+    for (const s of sessions) {
+      const { phaseKey } = parseSessionPhase(s.title);
+      const arr = map.get(phaseKey) ?? [];
+      arr.push(s);
+      map.set(phaseKey, arr);
+    }
+    return Array.from(map.entries()).map(([phaseKey, phaseSessions]) => ({
+      phaseKey,
+      sessions: phaseSessions,
+      completedCount: phaseSessions.filter((s) => s.status === "COMPLETED").length,
+      isCompleted: phaseSessions.every((s) => s.status === "COMPLETED" || s.status === "SKIPPED"),
+    }));
+  }, [sessions]);
+
+  const defaultExpandedPhase = useMemo(() => {
+    for (const s of sessions) {
+      if (s.status === "PLANNED") { return parseSessionPhase(s.title).phaseKey; }
+    }
+    return phaseGroups[phaseGroups.length - 1]?.phaseKey ?? null;
+  }, [sessions, phaseGroups]);
+
+  const [phaseOverrides, setPhaseOverrides] = useState<Map<string, boolean>>(() => new Map());
+
+  function isPhaseExpanded(phaseKey: string): boolean {
+    const ov = phaseOverrides.get(phaseKey);
+    return ov !== undefined ? ov : phaseKey === defaultExpandedPhase;
+  }
+
+  function togglePhase(phaseKey: string) {
+    const defPhase = defaultExpandedPhase;
+    setPhaseOverrides((prev) => {
+      const next = new Map(prev);
+      const ov = prev.get(phaseKey);
+      const isExp = ov !== undefined ? ov : phaseKey === defPhase;
+      next.set(phaseKey, !isExp);
+      return next;
+    });
+  }
+
   const cycleLabel = activeProgram
     ? `${activeProgram.name}  ·  ${activeProgram.phase}  ·  ${activeProgram.status}`
     : null;
@@ -131,43 +180,77 @@ export default function ProgramaScreen({
         </View>
       )}
 
-      {/* ── Sessions list ────────────────────────────────── */}
-      {sessions.length > 0 ? (
+      {/* ── Phase-grouped sessions ──────────────────────── */}
+      {phaseGroups.length > 0 ? (
         <View style={styles.sessionsList}>
           <Text style={styles.sectionTitle}>Sesiones</Text>
-          {sessions.map((s) => {
-            const color = {
-              COMPLETED: C.teal,
-              PLANNED: C.amber,
-              SKIPPED: C.textMuted,
-              RESCHEDULED: C.textSub,
-            }[s.status ?? "available"] ?? C.textMuted;
-            const isActive = s.id === selectedSessionId;
-            const isCached = cachedSessionIds.includes(s.id);
+          {phaseGroups.map((group) => {
+            const expanded = isPhaseExpanded(group.phaseKey);
             return (
-              <Pressable
-                key={s.id}
-                style={[styles.sessionRow, isActive && styles.sessionRowActive]}
-                onPress={() => {
-                  onSelectSession(s.id);
-                  setPendingPreviewSession(s);
-                }}
+              <View
+                key={group.phaseKey}
+                style={[
+                  styles.phaseBlock,
+                  group.isCompleted ? styles.phaseBlockDone : expanded ? styles.phaseBlockActive : null,
+                ]}
               >
-                <View style={[styles.sessionDot, { backgroundColor: color }]} />
-                <View style={styles.sessionInfo}>
-                  <Text style={styles.sessionName}>{s.title}</Text>
-                  <Text style={styles.sessionMeta}>
-                    {s.scheduledDate ? formatDate(s.scheduledDate) : "Sin fecha"}
-                    {"  ·  "}{STATUS_LABEL[s.status ?? "available"] ?? s.status}
+                <Pressable style={styles.phaseHeader} onPress={() => togglePhase(group.phaseKey)}>
+                  <View style={styles.phaseHeaderLeft}>
+                    <Text style={[styles.phaseTitle, group.isCompleted ? styles.phaseTitleDone : null]}>
+                      {group.phaseKey}
+                    </Text>
+                    <Text style={styles.phaseSummary}>
+                      {group.isCompleted
+                        ? `${group.completedCount} sesiones completadas`
+                        : `${group.completedCount} / ${group.sessions.length} sesiones`}
+                    </Text>
+                  </View>
+                  <Text style={[styles.phaseChevron, group.isCompleted ? { color: C.teal } : null]}>
+                    {group.isCompleted ? "✓" : expanded ? "▲" : "▼"}
                   </Text>
-                  {isCached ? <Text style={styles.sessionOfflineTag}>Lista offline</Text> : null}
-                </View>
-                {isActive ? (
-                  <View style={styles.activeTag}>
-                    <Text style={styles.activeTagText}>◎</Text>
+                </Pressable>
+
+                {expanded ? (
+                  <View style={styles.phaseContent}>
+                    {group.sessions.map((s) => {
+                      const { sessionTitle } = parseSessionPhase(s.title);
+                      const color = {
+                        COMPLETED: C.teal,
+                        PLANNED: C.amber,
+                        SKIPPED: C.textMuted,
+                        RESCHEDULED: C.textSub,
+                      }[s.status ?? "available"] ?? C.textMuted;
+                      const isActive = s.id === selectedSessionId;
+                      const isCached = cachedSessionIds.includes(s.id);
+                      return (
+                        <Pressable
+                          key={s.id}
+                          style={[styles.sessionRow, isActive && styles.sessionRowActive]}
+                          onPress={() => {
+                            onSelectSession(s.id);
+                            setPendingPreviewSession(s);
+                          }}
+                        >
+                          <View style={[styles.sessionDot, { backgroundColor: color }]} />
+                          <View style={styles.sessionInfo}>
+                            <Text style={styles.sessionName}>{sessionTitle}</Text>
+                            <Text style={styles.sessionMeta}>
+                              {s.scheduledDate ? formatDate(s.scheduledDate) : "Sin fecha"}
+                              {"  ·  "}{STATUS_LABEL[s.status ?? "available"] ?? s.status}
+                            </Text>
+                            {isCached ? <Text style={styles.sessionOfflineTag}>Lista offline</Text> : null}
+                          </View>
+                          {isActive ? (
+                            <View style={styles.activeTag}>
+                              <Text style={styles.activeTagText}>◎</Text>
+                            </View>
+                          ) : null}
+                        </Pressable>
+                      );
+                    })}
                   </View>
                 ) : null}
-              </Pressable>
+              </View>
             );
           })}
         </View>
@@ -340,6 +423,18 @@ return StyleSheet.create({
   activeTagText: { color: C.amber, fontWeight: "800", fontSize: 14 },
   noSessions: { padding: S.md },
   noSessionsText: { color: C.textMuted, fontSize: 13 },
+
+  // Phase blocks
+  phaseBlock: { backgroundColor: C.surface, borderRadius: R.xl, borderWidth: 1, borderColor: C.border, overflow: "hidden" },
+  phaseBlockActive: { borderColor: C.amberBorder },
+  phaseBlockDone: { borderColor: C.tealBorder, backgroundColor: C.tealDim },
+  phaseHeader: { flexDirection: "row", alignItems: "center", padding: S.md, gap: S.sm },
+  phaseHeaderLeft: { flex: 1, gap: 3 },
+  phaseTitle: { color: C.text, fontWeight: "800", fontSize: 15 },
+  phaseTitleDone: { color: C.teal },
+  phaseSummary: { color: C.textMuted, fontSize: 12 },
+  phaseChevron: { color: C.amber, fontSize: 16, fontWeight: "800" },
+  phaseContent: { borderTopWidth: 1, borderColor: C.border, paddingHorizontal: S.sm, paddingBottom: S.sm, paddingTop: S.xs, gap: 4 },
 
   // History
   allPrograms: { gap: S.xs },
