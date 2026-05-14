@@ -20,6 +20,7 @@ import EvolucionCombinedScreen from "../components/screens/EvolucionCombinedScre
 import HoyScreenV2 from "../components/screens/HoyScreenV2";
 import ProgramaScreen from "@mobile/components/screens/ProgramaScreen";
 import TecnicaScreen from "../components/screens/TecnicaScreen";
+import NutricionScreen from "../components/screens/NutricionScreen";
 import type { SessionDetail as SharedSessionDetail, SessionGuidance as SharedSessionGuidance } from "@mobile/components/types";
 import { useOverreachAdjustment } from "../components/screens/useOverreachAdjustment";
 import { useEvolutionSuggestion } from "../components/screens/useEvolutionSuggestion";
@@ -3642,6 +3643,7 @@ export default function HomeScreen() {
           activeScreen === "ejercicios" ? "⚡  SESIÓN" :
           activeScreen === "programa" ? "▤  PROGRAMA" :
           activeScreen === "tecnica" ? "🎯  TÉCNICA" :
+          activeScreen === "nutricion" ? "🥗  NUTRICIÓN" :
           "↑  EVOLUCIÓN"
         }
         subtitle={
@@ -3653,6 +3655,8 @@ export default function HomeScreen() {
                 ? (activeProgram?.name ?? "Sin programa activo")
                 : activeScreen === "tecnica"
                   ? (selectedTechniqueEntry?.title ?? technique?.template.techniqueTitle ?? technique?.template.name ?? "Sin técnica cargada")
+                : activeScreen === "nutricion"
+                  ? "Artículos y consejos"
                 : `Racha: ${progress?.summary.currentStreak ?? 0}`
         }
         onMenuPress={() => setDrawerOpen(true)}
@@ -3797,6 +3801,13 @@ export default function HomeScreen() {
           onSelectTechnique={setSelectedTechniqueId}
           onRefresh={() => void refreshAthleteArea()}
           onSubmitMetric={(payload) => void handleSaveTechniqueMetric(payload)}
+        />
+      ) : null}
+
+      {activeScreen === "nutricion" ? (
+        <NutricionScreen
+          accessToken={accessToken}
+          apiBaseUrl={apiBaseUrl}
         />
       ) : null}
 

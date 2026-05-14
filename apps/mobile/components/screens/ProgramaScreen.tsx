@@ -24,7 +24,7 @@ function resolvePhaseKey(phaseKey: string, phases?: Array<{ name: string; orderI
   const m = phaseKey.match(/^Fase\s+(\d+)/i);
   if (!m) return phaseKey;
   const idx = parseInt(m[1], 10) - 1;
-  const phase = phases.find((p) => p.orderIndex === idx) ?? phases[idx];
+  const phase = phases[idx];
   return phase?.name ? `Fase ${idx + 1}: ${phase.name}` : phaseKey;
 }
 

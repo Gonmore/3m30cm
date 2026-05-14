@@ -115,7 +115,7 @@ type TeamRole = "TEAM_ADMIN" | "COACH" | "ATHLETE";
 type SeasonPhase = (typeof seasonPhaseOptions)[number];
 type SessionStatus = (typeof sessionStatusOptions)[number];
 type SeriesProtocol = (typeof seriesProtocolOptions)[number];
-type AdminView = "home" | "users" | "training" | "templates" | "technique";
+type AdminView = "home" | "users" | "training" | "templates" | "technique" | "nutrition";
 type LandmarkName = (typeof poseLandmarkOptions)[number]["value"];
 type TechniqueBiomechanicsEventType = (typeof biomechanicsEventTypeOptions)[number];
 type TechniqueBiomechanicsEventSource = (typeof biomechanicsEventSourceOptions)[number];
@@ -377,6 +377,37 @@ interface WizardTemplateFormState {
   firstPhaseDurationDays: string;
   firstPhaseMasterBlockDays: "7" | "14";
   firstPhaseNotes: string;
+}
+
+interface NutritionArticleRecord {
+  id: string;
+  title: string;
+  category: string;
+  content: string;
+  icon: string;
+  orderIndex: number;
+  isPublished: boolean;
+}
+
+interface NutritionTipRecord {
+  id: string;
+  message: string;
+  isActive: boolean;
+}
+
+const nutritionCategoryOptions = [
+  { value: "PRE_WORKOUT", label: "Pre-entrenamiento" },
+  { value: "POST_WORKOUT", label: "Post-entrenamiento" },
+  { value: "REST_DAY", label: "Día de descanso" },
+  { value: "COMPETITION", label: "Competencia" },
+  { value: "SUPPLEMENTS", label: "Suplementos" },
+] as const;
+
+function emptyArticleForm() {
+  return { title: "", category: "PRE_WORKOUT" as string, content: "", icon: "🥗", orderIndex: "0", isPublished: true };
+}
+function emptyTipForm() {
+  return { message: "", isActive: true };
 }
 
 interface TeamRecord {
@@ -2467,6 +2498,15 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const [variantForm, setVariantForm] = useState({ weekNumber: "2", exerciseId: "", sets: "", repsOrTimeText: "", notes: "" });
 
+  // ── Nutrition state ────────────────────────────────────────────────────────
+  const [nutritionArticles, setNutritionArticles] = useState<NutritionArticleRecord[]>([]);
+  const [nutritionTips, setNutritionTips] = useState<NutritionTipRecord[]>([]);
+  const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
+  const [selectedTipId, setSelectedTipId] = useState<string | null>(null);
+  const [articleForm, setArticleForm] = useState(emptyArticleForm());
+  const [tipForm, setTipForm] = useState(emptyTipForm());
+  // ─────────────────────────────────────────────────────────────────────────
+
   type AngleWizardState =
     | { open: false }
     | {
@@ -3688,6 +3728,18 @@ export default function App() {
 
     void loadCoachDashboard(selectedCoachDashboardId, accessToken);
   }, [selectedCoachDashboardId, accessToken]);
+
+  useEffect(() => {
+    if (!accessToken || adminView !== "nutrition") return;
+    void (async () => {
+      const [articlesRes, tipsRes] = await Promise.all([
+        requestJson<{ articles: NutritionArticleRecord[] }>("/api/v1/admin/nutrition/articles", {}, accessToken),
+        requestJson<{ tips: NutritionTipRecord[] }>("/api/v1/admin/nutrition/tips", {}, accessToken),
+      ]);
+      setNutritionArticles(articlesRes.articles);
+      setNutritionTips(tipsRes.tips);
+    })();
+  }, [adminView, accessToken]);
 
   async function refreshDashboard(token = accessToken ?? undefined) {
     if (!token) {
@@ -5155,6 +5207,15 @@ export default function App() {
             <span className="nav-icon">🎯</span>
             <span>Técnica</span>
           </button>
+          <button
+            type="button"
+            className={`nav-item${adminView === "nutrition" ? " active" : ""}`}
+            onClick={() => setAdminView("nutrition")}
+            title="Nutrición"
+          >
+            <span className="nav-icon">🥗</span>
+            <span>Nutrición</span>
+          </button>
         </nav>
         <div className="sidebar-footer">
           <span className="sidebar-user">{currentUser?.email}</span>
@@ -5189,7 +5250,9 @@ export default function App() {
                   ? "Programas"
                   : adminView === "technique"
                     ? "Técnica"
-                    : "Entrenamiento"}
+                    : adminView === "nutrition"
+                      ? "Nutrición"
+                      : "Entrenamiento"}
           </h1>
         </header>
 
@@ -10837,6 +10900,257 @@ export default function App() {
           )}
         </article>
       </section>
+      ) : null}
+
+      {adminView === "nutrition" ? (
+        <div className="nutrition-view">
+          {/* ── Articles ─────────────────────────────────────────── */}
+          <section className="admin-section">
+            <h2>Artículos de nutrición</h2>
+            <form
+              className="inline-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!accessToken) return;
+                const payload = {
+                  title: articleForm.title,
+                  category: articleForm.category,
+                  content: articleForm.content,
+                  icon: articleForm.icon,
+                  orderIndex: parseInt(articleForm.orderIndex, 10) || 0,
+                  isPublished: articleForm.isPublished,
+                };
+                if (selectedArticleId) {
+                  await requestJson(`/api/v1/admin/nutrition/articles/${selectedArticleId}`, { method: "PUT", body: JSON.stringify(payload) }, accessToken);
+                } else {
+                  await requestJson("/api/v1/admin/nutrition/articles", { method: "POST", body: JSON.stringify(payload) }, accessToken);
+                }
+                const res = await requestJson<{ articles: NutritionArticleRecord[] }>("/api/v1/admin/nutrition/articles", {}, accessToken);
+                setNutritionArticles(res.articles);
+                setSelectedArticleId(null);
+                setArticleForm(emptyArticleForm());
+              }}
+            >
+              <input
+                className="text-input"
+                placeholder="Título"
+                value={articleForm.title}
+                onChange={(e) => setArticleForm((f) => ({ ...f, title: e.target.value }))}
+                required
+              />
+              <select
+                className="select-input"
+                value={articleForm.category}
+                onChange={(e) => setArticleForm((f) => ({ ...f, category: e.target.value }))}
+              >
+                {nutritionCategoryOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              <input
+                className="text-input"
+                placeholder="Icono (emoji)"
+                value={articleForm.icon}
+                onChange={(e) => setArticleForm((f) => ({ ...f, icon: e.target.value }))}
+              />
+              <input
+                className="text-input"
+                type="number"
+                placeholder="Orden"
+                value={articleForm.orderIndex}
+                onChange={(e) => setArticleForm((f) => ({ ...f, orderIndex: e.target.value }))}
+              />
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={articleForm.isPublished}
+                  onChange={(e) => setArticleForm((f) => ({ ...f, isPublished: e.target.checked }))}
+                />
+                Publicado
+              </label>
+              <textarea
+                className="text-input"
+                rows={5}
+                placeholder="Contenido (Markdown)"
+                value={articleForm.content}
+                onChange={(e) => setArticleForm((f) => ({ ...f, content: e.target.value }))}
+                required
+              />
+              <div className="form-actions">
+                <button type="submit" className="primary-button">
+                  {selectedArticleId ? "Guardar cambios" : "Crear artículo"}
+                </button>
+                {selectedArticleId ? (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => { setSelectedArticleId(null); setArticleForm(emptyArticleForm()); }}
+                  >
+                    Cancelar
+                  </button>
+                ) : null}
+              </div>
+            </form>
+
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Icono</th>
+                  <th>Título</th>
+                  <th>Categoría</th>
+                  <th>Orden</th>
+                  <th>Publicado</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {nutritionArticles.map((article) => (
+                  <tr key={article.id}>
+                    <td>{article.icon}</td>
+                    <td>{article.title}</td>
+                    <td>{nutritionCategoryOptions.find((o) => o.value === article.category)?.label ?? article.category}</td>
+                    <td>{article.orderIndex}</td>
+                    <td>{article.isPublished ? "✅" : "—"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => {
+                          setSelectedArticleId(article.id);
+                          setArticleForm({
+                            title: article.title,
+                            category: article.category,
+                            content: article.content,
+                            icon: article.icon,
+                            orderIndex: String(article.orderIndex),
+                            isPublished: article.isPublished,
+                          });
+                        }}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="danger-button"
+                        onClick={async () => {
+                          if (!accessToken) return;
+                          if (!window.confirm(`¿Eliminar artículo "${article.title}"?`)) return;
+                          await requestJson(`/api/v1/admin/nutrition/articles/${article.id}`, { method: "DELETE" }, accessToken);
+                          setNutritionArticles((prev) => prev.filter((a) => a.id !== article.id));
+                          if (selectedArticleId === article.id) {
+                            setSelectedArticleId(null);
+                            setArticleForm(emptyArticleForm());
+                          }
+                        }}
+                      >
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          {/* ── Tips ─────────────────────────────────────────────── */}
+          <section className="admin-section">
+            <h2>Tips del día</h2>
+            <form
+              className="inline-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!accessToken) return;
+                const payload = { message: tipForm.message, isActive: tipForm.isActive };
+                if (selectedTipId) {
+                  await requestJson(`/api/v1/admin/nutrition/tips/${selectedTipId}`, { method: "PUT", body: JSON.stringify(payload) }, accessToken);
+                } else {
+                  await requestJson("/api/v1/admin/nutrition/tips", { method: "POST", body: JSON.stringify(payload) }, accessToken);
+                }
+                const res = await requestJson<{ tips: NutritionTipRecord[] }>("/api/v1/admin/nutrition/tips", {}, accessToken);
+                setNutritionTips(res.tips);
+                setSelectedTipId(null);
+                setTipForm(emptyTipForm());
+              }}
+            >
+              <textarea
+                className="text-input"
+                rows={3}
+                placeholder="Mensaje del tip"
+                value={tipForm.message}
+                onChange={(e) => setTipForm((f) => ({ ...f, message: e.target.value }))}
+                required
+              />
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={tipForm.isActive}
+                  onChange={(e) => setTipForm((f) => ({ ...f, isActive: e.target.checked }))}
+                />
+                Activo
+              </label>
+              <div className="form-actions">
+                <button type="submit" className="primary-button">
+                  {selectedTipId ? "Guardar cambios" : "Crear tip"}
+                </button>
+                {selectedTipId ? (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => { setSelectedTipId(null); setTipForm(emptyTipForm()); }}
+                  >
+                    Cancelar
+                  </button>
+                ) : null}
+              </div>
+            </form>
+
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Mensaje</th>
+                  <th>Activo</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {nutritionTips.map((tip) => (
+                  <tr key={tip.id}>
+                    <td>{tip.message}</td>
+                    <td>{tip.isActive ? "✅" : "—"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => {
+                          setSelectedTipId(tip.id);
+                          setTipForm({ message: tip.message, isActive: tip.isActive });
+                        }}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="danger-button"
+                        onClick={async () => {
+                          if (!accessToken) return;
+                          if (!window.confirm(`¿Eliminar tip?`)) return;
+                          await requestJson(`/api/v1/admin/nutrition/tips/${tip.id}`, { method: "DELETE" }, accessToken);
+                          setNutritionTips((prev) => prev.filter((t) => t.id !== tip.id));
+                          if (selectedTipId === tip.id) {
+                            setSelectedTipId(null);
+                            setTipForm(emptyTipForm());
+                          }
+                        }}
+                      >
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        </div>
       ) : null}
 
         </div>

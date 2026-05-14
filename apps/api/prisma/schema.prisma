@@ -578,3 +578,33 @@ model AuditLog {
   createdAt  DateTime @default(now())
   actor      User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 }
+
+enum NutritionCategory {
+  PRE_WORKOUT
+  POST_WORKOUT
+  REST_DAY
+  COMPETITION
+  SUPPLEMENTS
+}
+
+model NutritionArticle {
+  id          String            @id @default(cuid())
+  title       String
+  category    NutritionCategory
+  content     String            // markdown
+  icon        String            @default("🥗")
+  orderIndex  Int               @default(0)
+  isPublished Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([category, isPublished])
+}
+
+model NutritionTip {
+  id        String   @id @default(cuid())
+  message   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

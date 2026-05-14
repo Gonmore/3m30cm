@@ -1118,6 +1118,31 @@ adminTemplatesRouter.post(
         autoCreated.push(name);
       }
 
+      // Update existing exercises with fresh data from CSV.
+      // Only fields provided in the CSV are written; mediaAssets are a separate
+      // relation and are never touched here.
+      const namesToUpdate = candidateNames.filter((name) => !namesToCreate.includes(name));
+      for (const name of namesToUpdate) {
+        const existingExercise = resolveExerciseMatch(exerciseByName, name);
+        if (!existingExercise) continue;
+        // Use the first row that has data for this exercise
+        const srcTask = parseResult.tasks.find((t) => t.name.trim() === name);
+        if (!srcTask) continue;
+        await prisma.exercise.update({
+          where: { id: existingExercise.id },
+          data: {
+            ...(srcTask.description != null ? { description: srcTask.description } : {}),
+            requiresLoad: srcTask.requiresWeight,
+            perLeg: srcTask.isUnilateral,
+            ...(srcTask.evolution != null ? { evolution: srcTask.evolution } : {}),
+            ...(srcTask.zone != null ? {
+              zone: srcTask.zone,
+              category: srcTask.zone === "LOWER" || srcTask.zone === "UPPER" ? "strength" : "mobility",
+            } : {}),
+          },
+        });
+      }
+
       // Rebuild lookup map so newly created exercises are found
       const exerciseByNameFinal = autoCreated.length > 0
         ? await buildExerciseLookupMap(candidateNames)

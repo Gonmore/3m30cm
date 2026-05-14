@@ -6,6 +6,7 @@ import { adminExercisesRouter } from "./admin-exercises.js";
 import { adminProgramsRouter } from "./admin-programs.js";
 import { adminTeamsRouter } from "./admin-teams.js";
 import { adminTemplatesRouter } from "./admin-templates.js";
+import { adminNutritionRouter } from "./admin-nutrition.js";
 import { requireAuth, requireRole, type AuthenticatedRequest } from "../middleware/auth.js";
 
 export const adminRouter = Router();
@@ -14,6 +15,7 @@ adminRouter.use(adminExercisesRouter);
 adminRouter.use(adminProgramsRouter);
 adminRouter.use(adminTeamsRouter);
 adminRouter.use(adminTemplatesRouter);
+adminRouter.use(adminNutritionRouter);
 
 adminRouter.get(
   "/summary",

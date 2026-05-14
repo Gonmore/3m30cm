@@ -101,7 +101,7 @@ function resolvePhaseLabel(phaseRaw: string, phases?: Array<{ name: string; orde
     const m = phaseRaw.match(/^Fase\s+(\d+)/i);
     if (m) {
       const idx = parseInt(m[1], 10) - 1;
-      const phase = phases.find((p) => p.orderIndex === idx) ?? phases[idx];
+      const phase = phases[idx];
       if (phase?.name) return `Fase ${idx + 1}: ${phase.name}`;
     }
   }

@@ -9,6 +9,7 @@ import { bootstrapRouter } from "./bootstrap.js";
 import { catalogRouter } from "./catalog.js";
 import { healthRouter } from "./health.js";
 import { templatesRouter } from "./templates.js";
+import { nutritionRouter } from "./nutrition.js";
 
 export const apiRouter = Router();
 
@@ -21,3 +22,4 @@ apiRouter.use("/admin", adminRouter);
 apiRouter.use("/bootstrap", bootstrapRouter);
 apiRouter.use("/catalog", catalogRouter);
 apiRouter.use("/templates", templatesRouter);
+apiRouter.use("/nutrition", nutritionRouter);
