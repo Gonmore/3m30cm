@@ -5,6 +5,11 @@ import { z } from "zod";
 import { prisma } from "../config/prisma.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
+function getStringParam(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
 export const adminNutritionRouter = Router();
 
 adminNutritionRouter.use(requireAuth, requireRole([Role.SUPERADMIN]));
@@ -59,7 +64,8 @@ adminNutritionRouter.put(
   "/nutrition/articles/:id",
   async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = getStringParam(req.params["id"]);
+      if (!id) { res.status(400).json({ message: "Missing id" }); return; }
       const data = articleSchema.parse(req.body);
       const article = await prisma.nutritionArticle.update({ where: { id }, data });
       res.json({ article });
@@ -78,7 +84,8 @@ adminNutritionRouter.delete(
   "/nutrition/articles/:id",
   async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = getStringParam(req.params["id"]);
+      if (!id) { res.status(400).json({ message: "Missing id" }); return; }
       await prisma.nutritionArticle.delete({ where: { id } });
       res.json({ ok: true });
     } catch (error) {
@@ -122,7 +129,8 @@ adminNutritionRouter.put(
   "/nutrition/tips/:id",
   async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = getStringParam(req.params["id"]);
+      if (!id) { res.status(400).json({ message: "Missing id" }); return; }
       const data = tipSchema.parse(req.body);
       const tip = await prisma.nutritionTip.update({ where: { id }, data });
       res.json({ tip });
@@ -141,7 +149,8 @@ adminNutritionRouter.delete(
   "/nutrition/tips/:id",
   async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = getStringParam(req.params["id"]);
+      if (!id) { res.status(400).json({ message: "Missing id" }); return; }
       await prisma.nutritionTip.delete({ where: { id } });
       res.json({ ok: true });
     } catch (error) {

@@ -52,6 +52,9 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - `apps/mobile2` ya queda build-clean con `npm --prefix apps/mobile2 run build` y tiene helper dedicado para ensamblar APK release desde Windows cuando hay JDK + Android SDK instalados.
 - `apps/mobile2` mantiene los client IDs de Google en la config embebida de Expo (`app.config.js`), pero Android ya usa login nativo con `@react-native-google-signin/google-signin`; Expo Go y web siguen usando `expo-auth-session`.
 - El wizard de rendimiento del admin ya tiene backend inicial para importar bloques maestro 7/14 dias por fase desde CSV/texto, mapeando columnas al contrato de `ExerciseTaskTemplate` con soporte tolerante de aliases.
+- El portal web ya tiene una sección "Apps" (SUPERADMIN) que asocia slugs de apps móviles (`appSlug`) a un `ProgramTemplate` vía el modelo `MobileAppConfig`. Desde ahí se puede dar de alta o editar la asociación de la app `3m30cm-game` (y futuras apps) con su template asignado.
+- `ProgramTemplate` tiene un campo `welcomeVideoUrl` opcional: cuando se configura, `apps/mobile2` muestra el video al atleta la primera vez que entra a la app (modal WebView con opción de saltar) y un botón "🎬 Ver video del programa" en la pantalla Hoy.
+- `apps/mobile2` ya no muestra el selector de templates en el onboarding: al arrancar consulta `/api/v1/app-config/3m30cm-game` y aplica automáticamente el template y el video de bienvenida configurados desde el panel admin.
 
 ## Requisitos previos
 

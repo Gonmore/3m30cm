@@ -30,12 +30,12 @@ interface NutritionTip {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const CATEGORY_META: Record<string, { label: string; color: string; emoji: string }> = {
-  PRE_WORKOUT:  { label: "Pre-entrenamiento", color: "#FF8C42", emoji: "⚡" },
-  POST_WORKOUT: { label: "Post-entrenamiento", color: "#4CAF7D", emoji: "🔄" },
-  REST_DAY:     { label: "Día de descanso",   color: "#5B8EE6", emoji: "😴" },
-  COMPETITION:  { label: "Competencia",       color: "#E040FB", emoji: "🏆" },
-  SUPPLEMENTS:  { label: "Suplementos",       color: "#F9A825", emoji: "💊" },
+const CATEGORY_META: Record<string, { label: string; color: string; gradientFrom: string; gradientTo: string; emoji: string }> = {
+  PRE_WORKOUT:  { label: "Pre-entrenamiento", color: "#FF6B35", gradientFrom: "#FF6B3522", gradientTo: "#FF8C4208", emoji: "⚡" },
+  POST_WORKOUT: { label: "Post-entrenamiento", color: "#43A047", gradientFrom: "#43A04722", gradientTo: "#66BB6A08", emoji: "🔄" },
+  REST_DAY:     { label: "Día de descanso",   color: "#5B8EE6", gradientFrom: "#5B8EE622", gradientTo: "#7CB9E808", emoji: "😴" },
+  COMPETITION:  { label: "Competencia",       color: "#FFB300", gradientFrom: "#FFB30022", gradientTo: "#FFD54F08", emoji: "🏆" },
+  SUPPLEMENTS:  { label: "Suplementos",       color: "#7C4DFF", gradientFrom: "#7C4DFF22", gradientTo: "#AB47BC08", emoji: "💊" },
 };
 
 const ALL_CATEGORIES = Object.keys(CATEGORY_META);
@@ -68,8 +68,8 @@ export default function NutricionScreen({ accessToken, apiBaseUrl }: Props) {
     try {
       const headers = { Authorization: `Bearer ${accessToken}` };
       const [artRes, tipRes] = await Promise.all([
-        fetch(`${apiBaseUrl}/nutrition/articles`, { headers }).then((r) => r.json() as Promise<{ articles: NutritionArticle[] }>),
-        fetch(`${apiBaseUrl}/nutrition/tips/random`, { headers }).then((r) => r.json() as Promise<{ tip: NutritionTip | null }>),
+        fetch(`${apiBaseUrl}/api/v1/nutrition/articles`, { headers }).then((r) => r.json() as Promise<{ articles: NutritionArticle[] }>),
+        fetch(`${apiBaseUrl}/api/v1/nutrition/tips/random`, { headers }).then((r) => r.json() as Promise<{ tip: NutritionTip | null }>),
       ]);
       setArticles(artRes.articles ?? []);
       setTip(tipRes.tip ?? null);
@@ -83,7 +83,7 @@ export default function NutricionScreen({ accessToken, apiBaseUrl }: Props) {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={C.accent} />
+        <ActivityIndicator size="large" color={C.teal} />
       </View>
     );
   }
@@ -100,19 +100,14 @@ export default function NutricionScreen({ accessToken, apiBaseUrl }: Props) {
         ) : null}
 
         {/* ── Category pills ──────────────────────────────────── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.pillRow}
-          contentContainerStyle={styles.pillContent}
-        >
+        <View style={styles.pillRow}>
           {ALL_CATEGORIES.map((cat) => {
             const meta = CATEGORY_META[cat];
             const active = selectedCategory === cat;
             return (
               <Pressable
                 key={cat}
-                style={[styles.pill, active && { backgroundColor: meta?.color ?? C.accent }]}
+                style={[styles.pill, active && { backgroundColor: meta?.color ?? C.teal }]}
                 onPress={() => setSelectedCategory(cat)}
               >
                 <Text style={styles.pillEmoji}>{meta?.emoji}</Text>
@@ -122,7 +117,7 @@ export default function NutricionScreen({ accessToken, apiBaseUrl }: Props) {
               </Pressable>
             );
           })}
-        </ScrollView>
+        </View>
 
         {/* ── Article cards ───────────────────────────────────── */}
         {filtered.length === 0 ? (
@@ -130,22 +125,34 @@ export default function NutricionScreen({ accessToken, apiBaseUrl }: Props) {
             <Text style={styles.emptyText}>No hay artículos en esta categoría.</Text>
           </View>
         ) : (
-          filtered.map((article) => (
-            <Pressable
-              key={article.id}
-              style={styles.card}
-              onPress={() => setOpenArticle(article)}
-            >
-              <Text style={styles.cardIcon}>{article.icon}</Text>
-              <View style={styles.cardBody}>
-                <Text style={styles.cardTitle}>{article.title}</Text>
-                <Text style={styles.cardCategory}>
-                  {CATEGORY_META[article.category]?.label ?? article.category}
-                </Text>
-              </View>
-              <Text style={styles.cardChevron}>›</Text>
-            </Pressable>
-          ))
+          filtered.map((article) => {
+            const meta = CATEGORY_META[article.category];
+            return (
+              <Pressable
+                key={article.id}
+                style={[
+                  styles.card,
+                  meta && {
+                    backgroundColor: meta.gradientFrom,
+                    borderLeftWidth: 4,
+                    borderLeftColor: meta.color,
+                  },
+                ]}
+                onPress={() => setOpenArticle(article)}
+              >
+                <View style={[styles.cardIconBadge, meta && { backgroundColor: meta.gradientFrom }]}>
+                  <Text style={styles.cardIcon}>{article.icon}</Text>
+                </View>
+                <View style={styles.cardBody}>
+                  <Text style={styles.cardTitle}>{article.title}</Text>
+                  <Text style={[styles.cardCategory, meta && { color: meta.color }]}>
+                    {meta?.emoji} {meta?.label ?? article.category}
+                  </Text>
+                </View>
+                <Text style={[styles.cardChevron, meta && { color: meta.color }]}>›</Text>
+              </Pressable>
+            );
+          })
         )}
       </ScrollView>
 
@@ -198,17 +205,23 @@ function makeStyles(C: Record<string, any>) {
     tipMessage: { fontSize: 14, color: C.text, lineHeight: 20 },
 
     // Category pills
-    pillRow: { marginTop: S.lg, marginBottom: S.md },
-    pillContent: { paddingHorizontal: 4, gap: S.sm },
+    pillRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      marginTop: S.lg,
+      marginBottom: S.md,
+      gap: S.xs,
+    },
     pill: {
       flexDirection: "row",
       alignItems: "center",
       paddingHorizontal: S.md,
-      paddingVertical: S.xs,
+      paddingVertical: 8,
       borderRadius: R.full ?? 100,
       backgroundColor: C.surface ?? C.card,
       borderWidth: 1,
       borderColor: C.border ?? "transparent",
+      marginBottom: S.xs,
       gap: 4,
     },
     pillEmoji: { fontSize: 14 },
@@ -223,13 +236,23 @@ function makeStyles(C: Record<string, any>) {
       borderRadius: R.lg,
       padding: S.md,
       marginBottom: S.sm,
-      elevation: 1,
+      elevation: 2,
+      overflow: "hidden",
     },
-    cardIcon: { fontSize: 28, marginRight: S.md },
+    cardIconBadge: {
+      width: 48,
+      height: 48,
+      borderRadius: R.md ?? 10,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: S.md,
+      backgroundColor: "transparent",
+    },
+    cardIcon: { fontSize: 28 },
     cardBody: { flex: 1 },
-    cardTitle: { fontSize: 15, fontWeight: "600", color: C.text, marginBottom: 2 },
-    cardCategory: { fontSize: 12, color: C.textSecondary ?? C.text },
-    cardChevron: { fontSize: 24, color: C.textSecondary ?? C.text, marginLeft: S.sm },
+    cardTitle: { fontSize: 15, fontWeight: "700", color: C.text, marginBottom: 3 },
+    cardCategory: { fontSize: 12, fontWeight: "600", color: C.textSecondary ?? C.text },
+    cardChevron: { fontSize: 22, color: C.textSecondary ?? C.text, marginLeft: S.sm },
 
     // Empty
     emptyBox: { alignItems: "center", marginTop: S.xl },

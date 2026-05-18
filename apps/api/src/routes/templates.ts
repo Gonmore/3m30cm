@@ -14,6 +14,7 @@ templatesRouter.get("/program-templates", async (_req: Request, res: Response) =
         code: true,
         name: true,
         description: true,
+        welcomeVideoUrl: true,
         techniqueTitle: true,
         techniqueDescription: true,
         cycleLengthDays: true,

@@ -115,7 +115,7 @@ type TeamRole = "TEAM_ADMIN" | "COACH" | "ATHLETE";
 type SeasonPhase = (typeof seasonPhaseOptions)[number];
 type SessionStatus = (typeof sessionStatusOptions)[number];
 type SeriesProtocol = (typeof seriesProtocolOptions)[number];
-type AdminView = "home" | "users" | "training" | "templates" | "technique" | "nutrition";
+type AdminView = "home" | "users" | "training" | "templates" | "technique" | "nutrition" | "apps";
 type LandmarkName = (typeof poseLandmarkOptions)[number]["value"];
 type TechniqueBiomechanicsEventType = (typeof biomechanicsEventTypeOptions)[number];
 type TechniqueBiomechanicsEventSource = (typeof biomechanicsEventSourceOptions)[number];
@@ -295,6 +295,7 @@ interface ProgramTemplateMeta {
   description: string | null;
   techniqueTitle: string | null;
   techniqueDescription: string | null;
+  welcomeVideoUrl: string | null;
   cycleLengthDays: number;
   isEditable: boolean;
   techniqueMediaAssets: Array<{ id: string }>;
@@ -358,6 +359,7 @@ interface TemplateFormState {
   name: string;
   description: string;
   cycleLengthDays: string;
+  welcomeVideoUrl: string;
 }
 
 interface PhaseFormState {
@@ -393,6 +395,13 @@ interface NutritionTipRecord {
   id: string;
   message: string;
   isActive: boolean;
+}
+
+interface AppConfigRecord {
+  id: string;
+  appSlug: string;
+  displayName: string;
+  templateCode: string;
 }
 
 const nutritionCategoryOptions = [
@@ -1021,6 +1030,7 @@ const emptyTemplateForm = (): TemplateFormState => ({
   name: "",
   description: "",
   cycleLengthDays: "14",
+  welcomeVideoUrl: "",
 });
 
 const emptyPhaseForm = (): PhaseFormState => ({
@@ -2505,6 +2515,9 @@ export default function App() {
   const [selectedTipId, setSelectedTipId] = useState<string | null>(null);
   const [articleForm, setArticleForm] = useState(emptyArticleForm());
   const [tipForm, setTipForm] = useState(emptyTipForm());
+  // ── Apps state ─────────────────────────────────────────────────────────────
+  const [appConfigs, setAppConfigs] = useState<AppConfigRecord[]>([]);
+  const [appConfigDraft, setAppConfigDraft] = useState<Record<string, string>>({});
   // ─────────────────────────────────────────────────────────────────────────
 
   type AngleWizardState =
@@ -3741,6 +3754,17 @@ export default function App() {
     })();
   }, [adminView, accessToken]);
 
+  useEffect(() => {
+    if (!accessToken || adminView !== "apps") return;
+    void (async () => {
+      const res = await requestJson<{ appConfigs: AppConfigRecord[] }>("/api/v1/admin/app-configs", {}, accessToken);
+      setAppConfigs(res.appConfigs);
+      const draft: Record<string, string> = {};
+      for (const cfg of res.appConfigs) draft[cfg.appSlug] = cfg.templateCode;
+      setAppConfigDraft(draft);
+    })();
+  }, [adminView, accessToken]);
+
   async function refreshDashboard(token = accessToken ?? undefined) {
     if (!token) {
       return;
@@ -4662,7 +4686,7 @@ export default function App() {
         cycleLengthDays: Number(templateForm.cycleLengthDays),
       };
       if (templateForm.id) {
-        await requestJson(`/api/v1/admin/program-templates/${templateForm.code}`, { method: "PUT", body: JSON.stringify({ name: payload.name, description: payload.description, cycleLengthDays: payload.cycleLengthDays }) }, accessToken);
+        await requestJson(`/api/v1/admin/program-templates/${templateForm.code}`, { method: "PUT", body: JSON.stringify({ name: payload.name, description: payload.description, cycleLengthDays: payload.cycleLengthDays, welcomeVideoUrl: templateForm.welcomeVideoUrl || null }) }, accessToken);
         setMessage("Programa actualizado.");
       } else {
         await requestJson("/api/v1/admin/program-templates", { method: "POST", body: JSON.stringify(payload) }, accessToken);
@@ -4673,6 +4697,24 @@ export default function App() {
       await refreshDashboard(accessToken);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Error al guardar el programa");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSaveAppConfig(appSlug: string, displayName: string) {
+    if (!accessToken) return;
+    const templateCode = appConfigDraft[appSlug];
+    if (!templateCode) return;
+    try {
+      setLoading(true);
+      setError("");
+      await requestJson(`/api/v1/admin/app-configs/${appSlug}`, { method: "PUT", body: JSON.stringify({ displayName, templateCode }) }, accessToken);
+      setMessage(`Config de "${displayName}" guardada.`);
+      const res = await requestJson<{ appConfigs: AppConfigRecord[] }>("/api/v1/admin/app-configs", {}, accessToken);
+      setAppConfigs(res.appConfigs);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al guardar config");
     } finally {
       setLoading(false);
     }
@@ -5216,6 +5258,15 @@ export default function App() {
             <span className="nav-icon">🥗</span>
             <span>Nutrición</span>
           </button>
+          <button
+            type="button"
+            className={`nav-item${adminView === "apps" ? " active" : ""}`}
+            onClick={() => setAdminView("apps")}
+            title="Apps"
+          >
+            <span className="nav-icon">📱</span>
+            <span>Apps</span>
+          </button>
         </nav>
         <div className="sidebar-footer">
           <span className="sidebar-user">{currentUser?.email}</span>
@@ -5252,7 +5303,9 @@ export default function App() {
                     ? "Técnica"
                     : adminView === "nutrition"
                       ? "Nutrición"
-                      : "Entrenamiento"}
+                      : adminView === "apps"
+                        ? "Apps"
+                        : "Entrenamiento"}
           </h1>
         </header>
 
@@ -7084,7 +7137,7 @@ export default function App() {
                             type="button"
                             className="ghost-button"
                             onClick={() => {
-                              setTemplateForm({ id: tmpl.id, code: tmpl.code, name: tmpl.name, description: tmpl.description ?? "", cycleLengthDays: String(tmpl.cycleLengthDays) });
+                              setTemplateForm({ id: tmpl.id, code: tmpl.code, name: tmpl.name, description: tmpl.description ?? "", cycleLengthDays: String(tmpl.cycleLengthDays), welcomeVideoUrl: tmpl.welcomeVideoUrl ?? "" });
                               setTemplateModalOpen(true);
                             }}
                           >
@@ -7157,6 +7210,15 @@ export default function App() {
                         value={templateForm.description}
                         onChange={(e) => setTemplateForm((f) => ({ ...f, description: e.target.value }))}
                         rows={2}
+                      />
+                    </label>
+                    <label>
+                      Video de bienvenida (URL)
+                      <input
+                        type="url"
+                        value={templateForm.welcomeVideoUrl}
+                        onChange={(e) => setTemplateForm((f) => ({ ...f, welcomeVideoUrl: e.target.value }))}
+                        placeholder="https://..."
                       />
                     </label>
                   </div>
@@ -11151,6 +11213,112 @@ export default function App() {
             </table>
           </section>
         </div>
+      ) : null}
+
+      {adminView === "apps" ? (
+        <section className="management-grid">
+          <article className="panel-card">
+            <div className="section-header">
+              <div>
+                <p className="eyebrow">Configuración de apps móviles</p>
+                <h2>Apps</h2>
+              </div>
+            </div>
+            <p className="helper-text">
+              Asocia cada app móvil con un programa de entrenamiento. La app descargará automáticamente el programa asignado.
+            </p>
+            {appConfigs.length === 0 ? (
+              <p className="helper-text">No hay apps configuradas. Crea una usando el formulario.</p>
+            ) : (
+              <div className="detail-list section-spacer">
+                {appConfigs.map((cfg) => (
+                  <article key={cfg.id} className="detail-card">
+                    <strong>{cfg.displayName}</strong>
+                    <span className="session-chip">{cfg.appSlug}</span>
+                    <div className="chip-row" style={{ marginTop: 8, alignItems: "center", gap: 8 }}>
+                      <label style={{ flex: 1 }}>
+                        Programa asignado
+                        <select
+                          value={appConfigDraft[cfg.appSlug] ?? cfg.templateCode}
+                          onChange={(e) => setAppConfigDraft((d) => ({ ...d, [cfg.appSlug]: e.target.value }))}
+                        >
+                          {allTemplates.map((t) => (
+                            <option key={t.code} value={t.code}>{t.name} ({t.code})</option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={loading}
+                        onClick={() => void handleSaveAppConfig(cfg.appSlug, cfg.displayName)}
+                      >
+                        Guardar
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </article>
+
+          {/* Right panel: create new app config */}
+          <article className="panel-card">
+            <div className="section-header">
+              <h3>Nueva app</h3>
+            </div>
+            <form
+              className="stack-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const fd = new FormData(e.currentTarget);
+                const slug = String(fd.get("newAppSlug") ?? "").trim();
+                const displayName = String(fd.get("newAppDisplayName") ?? "").trim();
+                const templateCode = String(fd.get("newAppTemplateCode") ?? "").trim();
+                if (!slug || !displayName || !templateCode) return;
+                setAppConfigDraft((d) => ({ ...d, [slug]: templateCode }));
+                void (async () => {
+                  if (!accessToken) return;
+                  try {
+                    setLoading(true);
+                    setError("");
+                    await requestJson(`/api/v1/admin/app-configs/${slug}`, { method: "PUT", body: JSON.stringify({ displayName, templateCode }) }, accessToken);
+                    setMessage(`App "${displayName}" guardada.`);
+                    const res = await requestJson<{ appConfigs: AppConfigRecord[] }>("/api/v1/admin/app-configs", {}, accessToken);
+                    setAppConfigs(res.appConfigs);
+                    e.currentTarget.reset();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Error al crear app");
+                  } finally {
+                    setLoading(false);
+                  }
+                })();
+              }}
+            >
+              <div className="form-grid">
+                <label>
+                  Slug de la app
+                  <input name="newAppSlug" placeholder="ej. 3m30cm-game" required />
+                </label>
+                <label>
+                  Nombre para mostrar
+                  <input name="newAppDisplayName" placeholder="ej. 3m30cm GAME" required />
+                </label>
+                <label>
+                  Programa de entrenamiento
+                  <select name="newAppTemplateCode" required>
+                    {allTemplates.map((t) => (
+                      <option key={t.code} value={t.code}>{t.name} ({t.code})</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <button type="submit" className="primary-button" disabled={loading}>
+                Crear app
+              </button>
+            </form>
+          </article>
+        </section>
       ) : null}
 
         </div>

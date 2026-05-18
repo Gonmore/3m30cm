@@ -20,7 +20,6 @@ const DRAWER_WIDTH = 280;
 
 const menuItems: { screen: AppScreen; icon: string; label: string }[] = [
   { screen: "hoy",        icon: "◉", label: "Hoy"           },
-  { screen: "ejercicios", icon: "⚡", label: "Ejercicios"    },
   { screen: "programa",   icon: "▤",  label: "Programa"      },
   { screen: "tecnica",    icon: "🎯", label: "Técnica"       },
   { screen: "nutricion",  icon: "🥗", label: "Nutrición"     },

@@ -622,7 +622,7 @@ export default function EjerciciosScreen({
         }
         const summary = instructions?.summary ?? null;
 
-        // Timer params — only show if BOTH durationSeconds and restSeconds are set
+        // Timer params — only show if durationSeconds is set (restSeconds=0 is allowed)
         const workSec = currentExercise.durationSeconds ?? 0;
         const restSec = currentExercise.restSeconds ?? 0;
         // Use adjusted sets if overreach is active
@@ -630,7 +630,7 @@ export default function EjerciciosScreen({
         const sets = overreachAdjustment?.isOverreach
           ? (overreachAdjustment.adjustedSets[currentExercise.id] ?? originalSets)
           : originalSets;
-        const hasTimer = !!(currentExercise.durationSeconds && currentExercise.restSeconds);
+        const hasTimer = !!(currentExercise.durationSeconds);
 
         // Build prescription label
         const parts: string[] = [];

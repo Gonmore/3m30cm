@@ -254,6 +254,7 @@ model ProgramTemplate {
   description     String?
   techniqueTitle  String?
   techniqueDescription String?
+  welcomeVideoUrl String?
   cycleLengthDays Int                  @default(14)
   isEditable      Boolean              @default(true)
   createdAt       DateTime             @default(now())
@@ -607,4 +608,13 @@ model NutritionTip {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model MobileAppConfig {
+  id           String   @id @default(cuid())
+  appSlug      String   @unique
+  displayName  String
+  templateCode String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }

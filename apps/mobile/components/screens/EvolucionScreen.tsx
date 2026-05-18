@@ -633,7 +633,11 @@ export default function EvolucionScreen({
                       <Text style={styles.howToText}>{entry.measurementInstructions}</Text>
                     ) : null}
                     {entry.proVideoUrl ? (
-                      <Pressable onPress={() => { void Linking.openURL(entry.proVideoUrl!); }}>
+                      <Pressable onPress={() => {
+                        const raw = entry.proVideoUrl!;
+                        const url = raw.startsWith("http") ? raw : `https://${raw}`;
+                        Linking.openURL(url).catch(() => {});
+                      }}>
                         <Text style={styles.howToVideoBtn}>▶ Ver video de referencia</Text>
                       </Pressable>
                     ) : null}

@@ -123,8 +123,9 @@ function parseRecordedAt(recordedAt: string) {
 
 function formatMetricMeta(metric: TechniqueMetric) {
   const date = new Date(metric.recordedAt).toLocaleDateString();
-  const completedSessions = metric.completedSessionsAtMeasurement ?? 0;
-  return `${date} · ${completedSessions} sesiones`;
+  const completedSessions = metric.completedSessionsAtMeasurement;
+  const sessionsStr = completedSessions != null ? `${completedSessions} sesiones` : "–";
+  return `${date} · ${sessionsStr}`;
 }
 
 function buildMetricComparisons(metrics: TechniqueMetric[]) {
@@ -1211,29 +1212,6 @@ export default function TecnicaScreen({
               </View>
             ) : null}
           </View>
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionEyebrow}>Comparativas</Text>
-            <Text style={styles.sectionTitle}>Base vs última medición</Text>
-            {comparisons.length ? (
-              <View style={styles.metricList}>
-                <MetricLineChart metrics={sortedTechniqueMetrics} />
-                {comparisons.map((comparison) => (
-                  <View key={comparison.key} style={styles.metricCard}>
-                    <Text style={styles.metricLabel}>{comparison.label}</Text>
-                    <Text style={styles.metricMeta}>
-                      Base: {comparison.baseline ? formatMetricValue(comparison.baseline) : "-"} · Última: {comparison.latest ? formatMetricValue(comparison.latest) : "-"}
-                    </Text>
-                    <Text style={styles.metricNotes}>
-                      Delta: {comparison.delta === null ? "Sin referencia" : `${comparison.delta > 0 ? "+" : ""}${comparison.delta}${comparison.unit ? ` ${comparison.unit}` : ""}`}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.helperText}>Aún no hay métricas suficientes para mostrar comparativas por técnica.</Text>
-            )}
-          </View>
-
           <View style={styles.sectionCard}>
             <Text style={styles.sectionEyebrow}>Historial</Text>
             <Text style={styles.sectionTitle}>Registros de {selectedTechnique.title}</Text>

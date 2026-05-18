@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { assetsRouter } from "./assets.js";
 import { adminRouter } from "./admin.js";
+import { appConfigRouter } from "./app-config.js";
 import { athleteRouter } from "./athlete.js";
 import { coachRouter } from "./coach.js";
 import { authRouter } from "./auth.js";
@@ -23,3 +24,4 @@ apiRouter.use("/bootstrap", bootstrapRouter);
 apiRouter.use("/catalog", catalogRouter);
 apiRouter.use("/templates", templatesRouter);
 apiRouter.use("/nutrition", nutritionRouter);
+apiRouter.use("/app-config", appConfigRouter);

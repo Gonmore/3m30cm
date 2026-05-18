@@ -612,39 +612,56 @@ function pickBestLogByMetric(
 function serializeSessionDetail<T extends Awaited<ReturnType<typeof getOwnedSession>>>(session: NonNullable<T>) {
   return {
     ...serializeSessionLogs(session),
-    sessionExercises: session.sessionExercises.map((sessionExercise) => ({
-      ...sessionExercise,
-      guidance: buildExerciseGuidance({
-        sessionDayType: session.dayType,
-        sessionStatus: session.status,
-        exercise: {
-          name: sessionExercise.exercise.name,
-          category: sessionExercise.exercise.category,
-          description: sessionExercise.exercise.description ?? null,
-          equipment: sessionExercise.exercise.equipment ?? null,
-          requiresLoad: sessionExercise.exercise.requiresLoad,
-          perLeg: sessionExercise.exercise.perLeg,
-          defaultSeriesProtocol: sessionExercise.exercise.defaultSeriesProtocol,
-        },
-        seriesProtocol: sessionExercise.seriesProtocol,
-        sets: sessionExercise.sets,
-        repsText: sessionExercise.repsText,
-        durationSeconds: sessionExercise.durationSeconds,
-        restSeconds: sessionExercise.restSeconds,
-        loadText: sessionExercise.loadText,
-      }),
-    })),
+    sessionExercises: session.sessionExercises.map((sessionExercise) => {
+      // Retroactively derive durationSeconds from repsText if it was stored as a time string
+      const durationSeconds = sessionExercise.durationSeconds ?? parseTimeTextToSeconds(sessionExercise.repsText);
+      const repsText = durationSeconds && !sessionExercise.durationSeconds ? null : sessionExercise.repsText;
+      return {
+        ...sessionExercise,
+        durationSeconds,
+        repsText,
+        guidance: buildExerciseGuidance({
+          sessionDayType: session.dayType,
+          sessionStatus: session.status,
+          exercise: {
+            name: sessionExercise.exercise.name,
+            category: sessionExercise.exercise.category,
+            description: sessionExercise.exercise.description ?? null,
+            equipment: sessionExercise.exercise.equipment ?? null,
+            requiresLoad: sessionExercise.exercise.requiresLoad,
+            perLeg: sessionExercise.exercise.perLeg,
+            defaultSeriesProtocol: sessionExercise.exercise.defaultSeriesProtocol,
+          },
+          seriesProtocol: sessionExercise.seriesProtocol,
+          sets: sessionExercise.sets,
+          repsText,
+          durationSeconds,
+          restSeconds: sessionExercise.restSeconds,
+          loadText: sessionExercise.loadText,
+        }),
+      };
+    }),
   };
 }
 
 function computeCurrentStreak(sessions: Array<{ scheduledDate: Date; status: SessionStatus }>) {
-  const pastSessions = sessions
-    .filter((session) => session.scheduledDate <= new Date())
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // Always count COMPLETED sessions. For non-completed sessions, only include
+  // past days so they can break the streak (future scheduled days are ignored).
+  const relevantSessions = sessions
+    .filter((session) => {
+      if (session.status === SessionStatus.COMPLETED) return true;
+      const d = session.scheduledDate;
+      const sessionDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      return +sessionDay < +todayStart;
+    })
     .sort((left, right) => right.scheduledDate.getTime() - left.scheduledDate.getTime());
 
   let streak = 0;
 
-  for (const session of pastSessions) {
+  for (const session of relevantSessions) {
     if (session.status === SessionStatus.COMPLETED) {
       streak += 1;
       continue;
@@ -879,6 +896,25 @@ athleteRouter.put("/onboarding", async (req: AuthenticatedRequest, res: Response
   }
 });
 
+/**
+ * Parses a time-based repsOrTimeText value (e.g. "30s", "1:30", "2 min") into seconds.
+ * Returns null if the text does not match a known time pattern.
+ */
+function parseTimeTextToSeconds(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const t = text.trim().toLowerCase();
+  // "30s", "30 s", "30sec", "30secs", "30 seconds", "30 seg", "30 segundos"
+  const secMatch = /^(\d+)\s*(s(ec(s|onds?)?)?|seg(undos?)?)(\s|$)/i.exec(t);
+  if (secMatch?.[1]) return parseInt(secMatch[1], 10);
+  // "1:30" (mm:ss)
+  const mmssMatch = /^(\d+):(\d{2})$/.exec(t);
+  if (mmssMatch?.[1] && mmssMatch?.[2]) return parseInt(mmssMatch[1], 10) * 60 + parseInt(mmssMatch[2], 10);
+  // "2 min", "2 mins", "2 minutos"
+  const minMatch = /^(\d+)\s*(min(utos?|s?)?)(\s|$)/i.exec(t);
+  if (minMatch?.[1]) return parseInt(minMatch[1], 10) * 60;
+  return null;
+}
+
 athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = getUserId(req);
@@ -1000,18 +1036,21 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
               .filter((task): task is typeof task & { exerciseId: string; exercise: { id: string; defaultSeriesProtocol: SeriesProtocol } } =>
                 task.exerciseId != null && task.exercise != null,
               )
-              .map((task, idx) => ({
-                exerciseId: task.exerciseId,
-                orderIndex: idx + 1,
-                seriesProtocol: SeriesProtocol.NONE,
-                sets: task.sets ?? null,
-                repsText: task.repsOrTimeText ?? null,
-                durationSeconds: null,
-                restSeconds: null,
-                loadText: null,
-                notes: [task.description, task.notes].filter(Boolean).join(" ") || null,
-                exercise: task.exercise,
-              })),
+              .map((task, idx) => {
+                const parsedDuration = parseTimeTextToSeconds(task.repsOrTimeText);
+                return {
+                  exerciseId: task.exerciseId,
+                  orderIndex: idx + 1,
+                  seriesProtocol: SeriesProtocol.NONE,
+                  sets: task.sets ?? null,
+                  repsText: parsedDuration ? null : (task.repsOrTimeText ?? null),
+                  durationSeconds: parsedDuration,
+                  restSeconds: null,
+                  loadText: null,
+                  notes: [task.description, task.notes].filter(Boolean).join(" ") || null,
+                  exercise: task.exercise,
+                };
+              }),
           });
         }
         return expanded;
@@ -1275,7 +1314,11 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
       : getAdaptivePhaseTarget(currentPhase);
     const scheduledTrainingSessions = weeklySessions.filter((session) => isGoalSessionDay(session.dayType)).length;
     const weeklyTarget = scheduledTrainingSessions || phaseSuggestedSessions;
-    const completedThisWeek = weeklySessions.filter((session) => session.status === SessionStatus.COMPLETED).length;
+    // Count completed sessions this week across ALL programs (not just the active one), so
+    // sessions completed before a program regeneration still contribute to the weekly count.
+    const completedThisWeek = sessions.filter(
+      (session) => session.scheduledDate >= weekStart && session.scheduledDate <= weekEnd && session.status === SessionStatus.COMPLETED,
+    ).length;
     const remainingThisWeek = Math.max(weeklyTarget - completedThisWeek, 0);
     const weekCompliance = weeklyTarget ? roundMetric((completedThisWeek / weeklyTarget) * 100) : 0;
     const jumpTestsThisWeek = recentLogs.filter(
@@ -1417,7 +1460,7 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
         rescheduledSessions,
         upcomingSessions: upcomingSessions.length,
         completionRate: dueSessions.length ? roundMetric((completedSessions / dueSessions.length) * 100) : 0,
-        currentStreak: computeCurrentStreak(sessions),
+        currentStreak: computeCurrentStreak(activeProgramSessions),
       },
       nextSession: upcomingSessions[0] ?? null,
       recentAverages,
@@ -2069,15 +2112,35 @@ athleteRouter.get("/technique", async (req: AuthenticatedRequest, res: Response)
       return;
     }
 
-    const metrics = await prisma.athleteTechniqueMetric.findMany({
-      where: {
-        athleteProfileId: athleteProfile.id,
-        programTemplateId: template.id,
-      },
-      include: {
-        measurementDefinition: true,
-      },
-      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
+    const [metrics, completedSessionDates] = await Promise.all([
+      prisma.athleteTechniqueMetric.findMany({
+        where: {
+          athleteProfileId: athleteProfile.id,
+          programTemplateId: template.id,
+        },
+        include: {
+          measurementDefinition: true,
+        },
+        orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
+      }),
+      prisma.scheduledSession.findMany({
+        where: {
+          personalProgram: { athleteProfileId: athleteProfile.id },
+          status: SessionStatus.COMPLETED,
+        },
+        select: { scheduledDate: true },
+      }),
+    ]);
+
+    // Recompute completedSessionsAtMeasurement from live data so historical metrics
+    // (saved before this field was correctly populated) also show the right count.
+    const completedMsSorted = completedSessionDates
+      .map((s) => s.scheduledDate.getTime())
+      .sort((a, b) => a - b);
+    const metricsWithCount = metrics.map((metric) => {
+      const cutoff = metric.recordedAt.getTime();
+      const count = completedMsSorted.filter((ms) => ms <= cutoff).length;
+      return { ...metric, completedSessionsAtMeasurement: count };
     });
 
     const techniques = template.techniques.map((technique) => ({
@@ -2091,7 +2154,7 @@ athleteRouter.get("/technique", async (req: AuthenticatedRequest, res: Response)
       comparisonEnabled: technique.comparisonEnabled,
       mediaAssets: technique.mediaAssets,
       measurementDefinitions: technique.measurementDefinitions,
-      metrics: metrics.filter((metric) => metric.techniqueId === technique.id),
+      metrics: metricsWithCount.filter((metric) => metric.techniqueId === technique.id),
     }));
 
     const primaryTechnique = template.techniques[0] ?? null;
@@ -2109,7 +2172,7 @@ athleteRouter.get("/technique", async (req: AuthenticatedRequest, res: Response)
           mediaAssets: primaryTechnique?.mediaAssets ?? [],
           techniques,
         },
-        metrics: primaryTechnique ? metrics.filter((metric) => metric.techniqueId === primaryTechnique.id) : [],
+        metrics: primaryTechnique ? metricsWithCount.filter((metric) => metric.techniqueId === primaryTechnique.id) : [],
       },
       techniques,
     });
@@ -2207,19 +2270,9 @@ athleteRouter.post("/technique/metrics", async (req: AuthenticatedRequest, res: 
     const recordedAt = payload.recordedAt ? new Date(payload.recordedAt) : new Date();
     const completedSessionsAtMeasurement = await prisma.scheduledSession.count({
       where: {
-        personalProgramId: program.id,
+        personalProgram: { athleteProfileId: athleteProfile.id },
         scheduledDate: { lte: recordedAt },
-        OR: [
-          { status: "COMPLETED" },
-          {
-            logs: {
-              some: {
-                athleteProfileId: athleteProfile.id,
-                createdAt: { lte: recordedAt },
-              },
-            },
-          },
-        ],
+        status: SessionStatus.COMPLETED,
       },
     });
 
@@ -2245,16 +2298,33 @@ athleteRouter.post("/technique/metrics", async (req: AuthenticatedRequest, res: 
       },
     });
 
-    const metrics = await prisma.athleteTechniqueMetric.findMany({
-      where: {
-        athleteProfileId: athleteProfile.id,
-        programTemplateId: technique.programTemplateId,
-      },
-      include: {
-        measurementDefinition: true,
-      },
-      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
-    });
+    const [metrics, postCompletedSessionDates] = await Promise.all([
+      prisma.athleteTechniqueMetric.findMany({
+        where: {
+          athleteProfileId: athleteProfile.id,
+          programTemplateId: technique.programTemplateId,
+        },
+        include: {
+          measurementDefinition: true,
+        },
+        orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
+      }),
+      prisma.scheduledSession.findMany({
+        where: {
+          personalProgram: { athleteProfileId: athleteProfile.id },
+          status: SessionStatus.COMPLETED,
+        },
+        select: { scheduledDate: true },
+      }),
+    ]);
+
+    const postCompletedMsSorted = postCompletedSessionDates
+      .map((s) => s.scheduledDate.getTime())
+      .sort((a, b) => a - b);
+    const metricsWithCount = metrics.map((m) => ({
+      ...m,
+      completedSessionsAtMeasurement: postCompletedMsSorted.filter((ms) => ms <= m.recordedAt.getTime()).length,
+    }));
 
     const hydratedTemplate = await ensureTemplateTechniqueStructure(prisma, technique.programTemplateId);
     const techniques = hydratedTemplate?.techniques.map((entry) => ({
@@ -2268,7 +2338,7 @@ athleteRouter.post("/technique/metrics", async (req: AuthenticatedRequest, res: 
       comparisonEnabled: entry.comparisonEnabled,
       mediaAssets: entry.mediaAssets,
       measurementDefinitions: entry.measurementDefinitions,
-      metrics: metrics.filter((existingMetric) => existingMetric.techniqueId === entry.id),
+      metrics: metricsWithCount.filter((existingMetric) => existingMetric.techniqueId === entry.id),
     })) ?? [];
     const primaryTechnique = techniques[0] ?? null;
 
@@ -2286,7 +2356,7 @@ athleteRouter.post("/technique/metrics", async (req: AuthenticatedRequest, res: 
           mediaAssets: primaryTechnique?.mediaAssets ?? technique.mediaAssets,
           techniques,
         },
-        metrics: primaryTechnique ? metrics.filter((existingMetric) => existingMetric.techniqueId === primaryTechnique.id) : [],
+        metrics: primaryTechnique ? metricsWithCount.filter((existingMetric) => existingMetric.techniqueId === primaryTechnique.id) : [],
       },
       techniques,
     });

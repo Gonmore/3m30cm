@@ -188,6 +188,17 @@ interface HoyScreenV2Props {
   onSetStartDateMode?: (mode: "hoy" | "manana" | "otra") => void;
   onRequestNotifications?: () => Promise<void>;
   onNavigateToEvolucion?: () => void;
+  nutritionTip?: { message: string } | null;
+  preWorkoutArticle?: { title: string; icon: string; content: string } | null;
+  postWorkoutArticle?: { title: string; icon: string; content: string } | null;
+  restDayArticle?: { title: string; icon: string; content: string } | null;
+  sessionCompletedAt?: number | null;
+  /** When true, show the full program-setup form (e.g. after pressing Regenerar from Programa) */
+  forceShowSetup?: boolean;
+  /** URL of the program welcome video, if any */
+  welcomeVideoUrl?: string | null;
+  /** Called when the user wants to watch the welcome video */
+  onShowWelcomeVideo?: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -706,25 +717,7 @@ function NoProgram({
                     Serán 3 meses de constancia y sacrificio que cambiarán tu vida.
                   </Text>
 
-                  {availableTemplates.length > 0 ? (
-                    <>
-                      <Text style={styles.obLabel}>Programa de entrenamiento</Text>
-                      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                        {availableTemplates.map((tmpl) => {
-                          const active = athleteSetup.templateCode === tmpl.code;
-                          return (
-                            <Pressable
-                              key={tmpl.code}
-                              style={[styles.obOptionBtn, { flex: 1 }, active && styles.obOptionBtnActive]}
-                              onPress={() => onSetAthleteSetup((c) => ({ ...c, templateCode: tmpl.code }))}
-                            >
-                              <Text style={[styles.obOptionText, active && styles.obOptionTextActive]}>{tmpl.name}</Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    </>
-                  ) : null}
+                  {availableTemplates.length > 0 ? null : null}
 
                   <Text style={styles.obLabel}>¿Cuándo empezamos?</Text>
                   <View style={{ flexDirection: "row", gap: 8 }}>
@@ -904,9 +897,19 @@ export default function HoyScreenV2({
   onSetStartDateMode,
   onRequestNotifications,
   onNavigateToEvolucion,
+  nutritionTip = null,
+  preWorkoutArticle = null,
+  postWorkoutArticle = null,
+  restDayArticle = null,
+  sessionCompletedAt = null,
+  forceShowSetup = false,
+  welcomeVideoUrl = null,
+  onShowWelcomeVideo,
 }: HoyScreenV2Props) {
   const { C } = useTheme();
   const styles = makeStyles(C);
+  const [nutritionModal, setNutritionModal] = useState<{ title: string; icon: string; content: string } | null>(null);
+  const sessionJustCompleted = sessionCompletedAt != null && (Date.now() - sessionCompletedAt) < 4 * 60 * 60 * 1000;
   const hasProgram   = !!activeProgram;
   const streak       = progress?.summary.currentStreak ?? 0;
   const weeklyPct    = Math.min(progress?.weeklyGoal.completionRate ?? 0, 100);
@@ -978,6 +981,17 @@ export default function HoyScreenV2({
           onSetAthleteSetup={onSetAthleteSetup}
           onSaveOnboarding={onSaveOnboarding}
         />
+      ) : forceShowSetup ? (
+        <NoProgram
+          onGenerateProgram={onGenerateProgram}
+          athleteSetup={athleteSetup}
+          loading={loading}
+          onSetAthleteSetup={onSetAthleteSetup}
+          availableTemplates={availableTemplates}
+          startDateMode={startDateMode}
+          onSetStartDateMode={onSetStartDateMode}
+          onRequestNotifications={onRequestNotifications}
+        />
       ) : (
         <>
       {/* ╔══════════════════════════════════════════════╗
@@ -1016,7 +1030,7 @@ export default function HoyScreenV2({
           {/* Weekly target micro-bar */}
           <View style={styles.heroWeeklyCard}>
             <Text style={styles.heroWeeklyLabel}>
-              Semana: {progress?.weeklyGoal.completedSessions ?? 0}/{progress?.weeklyGoal.targetSessions ?? 0}
+              Sesiones esta semana: {progress?.weeklyGoal.completedSessions ?? 0}/{progress?.weeklyGoal.targetSessions ?? 0}
             </Text>
             <View style={styles.heroWeeklyTrack}>
               <Animated.View
@@ -1039,6 +1053,16 @@ export default function HoyScreenV2({
           <WeekTimeline sessions={sessions} colors={C} styles={styles} />
         </View>
       </Animated.View>
+
+      {/* ╔══════════════════════════════════════════════╗
+          ║  TIP DEL DÍA                                 ║
+          ╚══════════════════════════════════════════════╝ */}
+      {nutritionTip ? (
+        <View style={styles.tipChip}>
+          <Text style={styles.tipChipLabel}>💡 Tip del día</Text>
+          <Text style={styles.tipChipText}>{nutritionTip.message}</Text>
+        </View>
+      ) : null}
 
       {/* ╔══════════════════════════════════════════════╗
           ║  TODAY'S TRAINING CTA                        ║
@@ -1099,6 +1123,28 @@ export default function HoyScreenV2({
 
           {/* Primary CTA */}
           <View style={styles.ctaActionStack}>
+            {/* Pre-workout nutrition shortcut */}
+            {todayCompletion < 100 && todayPrimarySession?.status !== "COMPLETED" && !sessionJustCompleted && preWorkoutArticle ? (
+              <Pressable
+                style={styles.nutritionRow}
+                onPress={() => setNutritionModal(preWorkoutArticle)}
+              >
+                <Text style={styles.nutritionRowIcon}>{preWorkoutArticle.icon}</Text>
+                <Text style={styles.nutritionRowText}>Nutrición pre-entreno</Text>
+                <Text style={styles.nutritionRowChevron}>›</Text>
+              </Pressable>
+            ) : null}
+            {/* Post-workout nutrition shortcut */}
+            {(todayCompletion === 100 || todayPrimarySession?.status === "COMPLETED" || sessionJustCompleted) && postWorkoutArticle ? (
+              <Pressable
+                style={[styles.nutritionRow, styles.nutritionRowPost]}
+                onPress={() => setNutritionModal(postWorkoutArticle)}
+              >
+                <Text style={styles.nutritionRowIcon}>{postWorkoutArticle.icon}</Text>
+                <Text style={styles.nutritionRowText}>Sesión completa · Ver post-entreno</Text>
+                <Text style={styles.nutritionRowChevron}>›</Text>
+              </Pressable>
+            ) : null}
             <Animated.View style={{ transform: [{ scale: ctaScale }], marginTop: S.md }}>
               <Pressable
                 style={[styles.ctaStartBtn, { backgroundColor: intensityColor[intensity] }]}
@@ -1196,6 +1242,16 @@ export default function HoyScreenV2({
           <Text style={styles.restDayEmoji}>😴</Text>
           <Text style={styles.restDayTitle}>Día de descanso</Text>
           <Text style={styles.restDaySub}>El descanso también es entrenamiento. Mañana va a haber sesión.</Text>
+          {restDayArticle ? (
+            <Pressable
+              style={styles.nutritionRow}
+              onPress={() => setNutritionModal(restDayArticle)}
+            >
+              <Text style={styles.nutritionRowIcon}>{restDayArticle.icon}</Text>
+              <Text style={styles.nutritionRowText}>Nutrición en descanso</Text>
+              <Text style={styles.nutritionRowChevron}>›</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : (
         <NoProgram
@@ -1218,6 +1274,17 @@ export default function HoyScreenV2({
           <Text style={styles.feedbackChipTitle}>{progress.feedback.title}</Text>
           <Text style={styles.feedbackChipBody}>{progress.feedback.summary}</Text>
         </Animated.View>
+      ) : null}
+
+      {/* ── Welcome video button ──────────────────────── */}
+      {hasProgram && welcomeVideoUrl && onShowWelcomeVideo ? (
+        <Pressable
+          style={{ marginHorizontal: 20, marginBottom: 8, padding: 12, borderRadius: 12, backgroundColor: C.surface, flexDirection: "row", alignItems: "center", gap: 8 }}
+          onPress={onShowWelcomeVideo}
+        >
+          <Text style={{ fontSize: 18 }}>🎬</Text>
+          <Text style={{ color: C.teal, fontWeight: "600", fontSize: 15 }}>Ver video del programa</Text>
+        </Pressable>
       ) : null}
 
       <Modal visible={jumpMaxInfoVisible} transparent animationType="fade" onRequestClose={() => setJumpMaxInfoVisible(false)}>
@@ -1255,6 +1322,29 @@ export default function HoyScreenV2({
             >
               <Text style={pbJump === null ? styles.modalBtnNoText : styles.modalBtnYesText}>Cerrar</Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Nutrition article modal ──────────────────────── */}
+      <Modal
+        visible={nutritionModal !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setNutritionModal(null)}
+      >
+        <View style={styles.nutModalOverlay}>
+          <View style={styles.nutModalSheet}>
+            <View style={styles.nutModalHeader}>
+              <Text style={styles.nutModalIcon}>{nutritionModal?.icon}</Text>
+              <Text style={styles.nutModalTitle}>{nutritionModal?.title}</Text>
+              <Pressable onPress={() => setNutritionModal(null)} style={styles.nutModalClose}>
+                <Text style={styles.nutModalCloseText}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.nutModalBody} showsVerticalScrollIndicator={false}>
+              <Text style={styles.nutModalContent}>{nutritionModal?.content}</Text>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1463,6 +1553,61 @@ return StyleSheet.create({
   restDayEmoji: { fontSize: 42 },
   restDayTitle: { color: C.text, fontWeight: "800", fontSize: 20 },
   restDaySub:   { color: C.textMuted, fontSize: 14, textAlign: "center", lineHeight: 20 },
+
+  // ── Tip del día chip ─────────────────────────────────────────
+  tipChip: {
+    backgroundColor: C.surface,
+    borderRadius: R.lg,
+    padding: S.md,
+    borderLeftWidth: 3,
+    borderLeftColor: C.teal,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  tipChipLabel: { fontSize: 11, fontWeight: "700", color: C.teal, marginBottom: 4, letterSpacing: 0.5 },
+  tipChipText:  { fontSize: 13, color: C.text, lineHeight: 19 },
+
+  // ── Nutrition contextual row ─────────────────────────────────
+  nutritionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: C.surfaceRaise ?? C.surface,
+    borderRadius: R.md,
+    paddingHorizontal: S.md,
+    paddingVertical: 10,
+    marginTop: S.sm,
+    gap: S.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  nutritionRowPost: { borderColor: C.teal + "55", backgroundColor: C.tealDim ?? C.surface },
+  nutritionRowIcon:    { fontSize: 20 },
+  nutritionRowText:    { flex: 1, fontSize: 13, color: C.text, fontWeight: "600" },
+  nutritionRowChevron: { fontSize: 20, color: C.textMuted },
+
+  // ── Nutrition article modal ──────────────────────────────────
+  nutModalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.55)" },
+  nutModalSheet: {
+    backgroundColor: C.bg,
+    borderTopLeftRadius: R.xl,
+    borderTopRightRadius: R.xl,
+    maxHeight: "80%",
+    paddingBottom: S.xl,
+  },
+  nutModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: S.md,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    gap: S.sm,
+  },
+  nutModalIcon:      { fontSize: 26 },
+  nutModalTitle:     { flex: 1, fontSize: 16, fontWeight: "700", color: C.text },
+  nutModalClose:     { padding: S.xs },
+  nutModalCloseText: { fontSize: 18, color: C.textMuted },
+  nutModalBody:      { padding: S.md },
+  nutModalContent:   { fontSize: 14, color: C.text, lineHeight: 22 },
 
   // ── No program / onboarding ──────────────────────────────────
   noProgramCard: {

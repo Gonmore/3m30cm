@@ -42,6 +42,7 @@ const updateTemplateSchema = z.object({
   description: z.string().trim().nullable().optional(),
   techniqueTitle: z.string().trim().nullable().optional(),
   techniqueDescription: z.string().trim().nullable().optional(),
+  welcomeVideoUrl: z.string().url().nullable().optional(),
   cycleLengthDays: z.number().int().min(1).max(365).optional(),
 });
 
@@ -1700,6 +1701,7 @@ adminTemplatesRouter.put("/program-templates/:code", async (req: Request, res: R
         ...(payload.description !== undefined && { description: payload.description }),
         ...(payload.techniqueTitle !== undefined && { techniqueTitle: payload.techniqueTitle }),
         ...(payload.techniqueDescription !== undefined && { techniqueDescription: payload.techniqueDescription }),
+        ...(payload.welcomeVideoUrl !== undefined && { welcomeVideoUrl: payload.welcomeVideoUrl }),
         ...(payload.cycleLengthDays !== undefined && { cycleLengthDays: payload.cycleLengthDays }),
       },
       include: {

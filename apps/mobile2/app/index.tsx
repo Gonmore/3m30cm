@@ -39,12 +39,15 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { WebView } from "react-native-webview";
 
 // Required for expo-auth-session to handle browser redirects
 WebBrowser.maybeCompleteAuthSession();
 
 const accessTokenStorageKey = "jump-athlete-access-token";
 const calendarSyncStorageKey = "jump-athlete-calendar-sync";
+const welcomeVideoSeenStorageKey = "wv_seen_v1";
+const MOBILE_APP_SLUG = "3m30cm-game";
 
 /** Decode a JWT payload without verifying the signature (client-side only). */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -1531,6 +1534,14 @@ export default function HomeScreen() {
   const [activeProgram, setActiveProgram] = useState<AthleteProfileResponse["activeProgram"] | null>(null);
   const [technique, setTechnique] = useState<AthleteTechniqueResponse["technique"] | null>(null);
   const [techniques, setTechniques] = useState<TechniqueEntry[]>([]);
+  // Nutrition context (tip + contextual articles)
+  const [nutritionTip, setNutritionTip] = useState<{ message: string } | null>(null);
+  const [preWorkoutArticle, setPreWorkoutArticle] = useState<{ title: string; icon: string; content: string } | null>(null);
+  const [postWorkoutArticle, setPostWorkoutArticle] = useState<{ title: string; icon: string; content: string } | null>(null);
+  const [restDayArticle, setRestDayArticle] = useState<{ title: string; icon: string; content: string } | null>(null);
+  const [sessionCompletedAt, setSessionCompletedAt] = useState<number | null>(null);
+  const [showSetupForRegenerate, setShowSetupForRegenerate] = useState(false);
+  const [postWorkoutGateVisible, setPostWorkoutGateVisible] = useState(false);
   const [selectedTechniqueId, setSelectedTechniqueId] = useState<string | null>(null);
   const [selectedJumpTechniqueId, setSelectedJumpTechniqueId] = useState<string | null>(null);
   const linkableTechniques = useMemo(
@@ -1569,6 +1580,8 @@ export default function HomeScreen() {
   const [athleteSetup, setAthleteSetup] = useState<AthleteSetupState>(emptyAthleteSetup);
   const [startDateMode, setStartDateMode] = useState<'hoy' | 'manana' | 'otra'>('hoy');
   const [availableTemplates, setAvailableTemplates] = useState<PublicTemplateMeta[]>([]);
+  const [welcomeVideoUrl, setWelcomeVideoUrl] = useState<string | null>(null);
+  const [showWelcomeVideo, setShowWelcomeVideo] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [techniqueSaving, setTechniqueSaving] = useState(false);
@@ -1606,14 +1619,28 @@ export default function HomeScreen() {
   }, [resetToken]);
 
   useEffect(() => {
+    // Fetch public template list (for ProgramaScreen regenerate UI)
     requestJson<{ templates: PublicTemplateMeta[] }>("/api/v1/templates/program-templates")
       .then((res) => {
         setAvailableTemplates(res.templates);
-        if (res.templates.length > 0) {
-          setAthleteSetup((s) => ({ ...s, templateCode: res.templates[0].code }));
-        }
       })
       .catch(() => {/* use default */});
+
+    // Fetch app-specific config: assigned template + welcome video
+    fetch(`${apiBaseUrl}/api/v1/app-config/${MOBILE_APP_SLUG}`)
+      .then((r) => (r.ok ? r.json() as Promise<{ templateCode: string; welcomeVideoUrl: string | null }> : null))
+      .then(async (cfg) => {
+        if (!cfg) return;
+        setAthleteSetup((s) => ({ ...s, templateCode: cfg.templateCode }));
+        if (cfg.welcomeVideoUrl) {
+          setWelcomeVideoUrl(cfg.welcomeVideoUrl);
+          const seen = await readStoredValue(welcomeVideoSeenStorageKey);
+          if (!seen) {
+            setShowWelcomeVideo(true);
+          }
+        }
+      })
+      .catch(() => {/* use default template */});
   }, []);
 
   const [notificationPermission, setNotificationPermission] = useState<PermissionState>("unknown");
@@ -2021,6 +2048,25 @@ export default function HomeScreen() {
     }
 
     void refreshAthleteArea(accessToken);
+
+    // Load nutrition context once per session (tip + contextual articles)
+    void (async () => {
+      try {
+        const headers = { Authorization: `Bearer ${accessToken}` };
+        const [tipRes, preRes, postRes, restRes] = await Promise.all([
+          fetch(`${apiBaseUrl}/api/v1/nutrition/tips/random`, { headers }).then((r) => r.json() as Promise<{ tip: { message: string } | null }>),
+          fetch(`${apiBaseUrl}/api/v1/nutrition/articles?category=PRE_WORKOUT`, { headers }).then((r) => r.json() as Promise<{ articles: { title: string; icon: string; content: string }[] }>),
+          fetch(`${apiBaseUrl}/api/v1/nutrition/articles?category=POST_WORKOUT`, { headers }).then((r) => r.json() as Promise<{ articles: { title: string; icon: string; content: string }[] }>),
+          fetch(`${apiBaseUrl}/api/v1/nutrition/articles?category=REST_DAY`, { headers }).then((r) => r.json() as Promise<{ articles: { title: string; icon: string; content: string }[] }>),
+        ]);
+        setNutritionTip(tipRes.tip ?? null);
+        setPreWorkoutArticle(preRes.articles?.[0] ?? null);
+        setPostWorkoutArticle(postRes.articles?.[0] ?? null);
+        setRestDayArticle(restRes.articles?.[0] ?? null);
+      } catch {
+        // nutrition is non-critical; ignore fetch errors
+      }
+    })();
   }, [accessToken]);
 
   useEffect(() => {
@@ -3158,6 +3204,7 @@ export default function HomeScreen() {
       );
 
       setMessage("Programa generado desde la app. Actualizando sesiones y seguimiento...");
+      setShowSetupForRegenerate(false);
       await refreshAthleteArea(accessToken);
     } catch (requestError) {
       if (requestError instanceof UnauthorizedRequestError) {
@@ -3185,6 +3232,14 @@ export default function HomeScreen() {
         ? current.completedExerciseIds
         : [...current.completedExerciseIds, exerciseId],
     }));
+  }
+
+  function handleSubmitWithNutritionGate() {
+    if (postWorkoutArticle) {
+      setPostWorkoutGateVisible(true);
+    } else {
+      void handleSubmitLog();
+    }
   }
 
   async function handleSubmitLog() {
@@ -3302,6 +3357,7 @@ export default function HomeScreen() {
       setSelectedExerciseId(null);
       setSelectedSessionGuidance(null);
       setSelectedJumpTechniqueId(null);
+      setSessionCompletedAt(Date.now());
       setActiveScreen("hoy");
     } catch (requestError) {
       if (requestError instanceof UnauthorizedRequestError) {
@@ -3729,12 +3785,21 @@ export default function HomeScreen() {
           onSetStartDateMode={setStartDateMode}
           onRequestNotifications={async () => {
             const notifications = await getNotificationsModule();
+            if (!notifications) return;
             const current = await notifications.getPermissionsAsync();
             if (current.status !== "granted") {
               await notifications.requestPermissionsAsync();
             }
           }}
           onNavigateToEvolucion={() => setActiveScreen("evolucion")}
+          nutritionTip={nutritionTip}
+          preWorkoutArticle={preWorkoutArticle}
+          postWorkoutArticle={postWorkoutArticle}
+          restDayArticle={restDayArticle}
+          forceShowSetup={showSetupForRegenerate}
+          sessionCompletedAt={sessionCompletedAt}
+          welcomeVideoUrl={welcomeVideoUrl}
+          onShowWelcomeVideo={() => setShowWelcomeVideo(true)}
         />
       ) : null}
 
@@ -3752,7 +3817,7 @@ export default function HomeScreen() {
           jumpTechniques={techniques.map((entry) => ({ id: entry.id, title: entry.title }))}
           selectedJumpTechniqueId={selectedJumpTechniqueId}
           onSelectJumpTechnique={setSelectedJumpTechniqueId}
-          onSubmitLog={() => void handleSubmitLog()}
+          onSubmitLog={handleSubmitWithNutritionGate}
           onShowJumpGuide={() => setJumpGuideVisible(true)}
           onBack={() => setActiveScreen("hoy")}
           overreachAdjustment={overreachAdjustment}
@@ -3780,7 +3845,11 @@ export default function HomeScreen() {
           onPreloadSession={(id, title) => void handlePreloadSession(id, title)}
           cachedSessionIds={cachedSessionIds}
           preloadSessionId={preloadState.visible ? preloadState.sessionId : null}
-          onRegenerateProgram={(templateCode) => void handleGenerateProgramFromApp(templateCode)}
+          onRegenerateProgram={(templateCode) => {
+            setAthleteSetup((prev) => ({ ...prev, templateCode }));
+            setShowSetupForRegenerate(true);
+            setActiveScreen("hoy");
+          }}
           onRefresh={() => void refreshAthleteArea()}
           availableTemplates={availableTemplates.map((t) => ({ code: t.code, name: t.name }))}
           currentTemplateCode={athleteSetup.templateCode}
@@ -3886,6 +3955,82 @@ export default function HomeScreen() {
 
       {/* ── JUMP GUIDE ────────────────────────────────── */}
       <JumpGuideModal visible={jumpGuideVisible} onClose={() => setJumpGuideVisible(false)} />
+
+      {/* ── WELCOME VIDEO ─────────────────────────────── */}
+      {welcomeVideoUrl ? (
+        <Modal
+          visible={showWelcomeVideo}
+          animationType="slide"
+          onRequestClose={() => setShowWelcomeVideo(false)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: "#000" }}>
+            <View style={{ flex: 1 }}>
+              <WebView
+                source={{ uri: welcomeVideoUrl }}
+                style={{ flex: 1 }}
+                allowsInlineMediaPlayback
+                mediaPlaybackRequiresUserAction={false}
+              />
+            </View>
+            <View style={{ flexDirection: "row", gap: 12, padding: 16, backgroundColor: C.bg }}>
+              <Pressable
+                style={[styles.secondaryButton, { flex: 1 }]}
+                onPress={() => setShowWelcomeVideo(false)}
+              >
+                <Text style={styles.secondaryButtonText}>Saltar</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.primaryButton, { flex: 1 }]}
+                onPress={async () => {
+                  await writeStoredValue(welcomeVideoSeenStorageKey, "true");
+                  setShowWelcomeVideo(false);
+                }}
+              >
+                <Text style={styles.primaryButtonText}>Continuar</Text>
+              </Pressable>
+            </View>
+          </SafeAreaView>
+        </Modal>
+      ) : null}
+
+      {/* ── POST-WORKOUT NUTRITION GATE ───────────────── */}
+      {postWorkoutArticle ? (
+        <Modal
+          visible={postWorkoutGateVisible}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setPostWorkoutGateVisible(false)}
+        >
+          <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.6)" }}>
+            <View style={{ backgroundColor: C.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "85%", paddingBottom: S.xl }}>
+              {/* Header */}
+              <View style={{ flexDirection: "row", alignItems: "center", padding: S.md, borderBottomWidth: 1, borderBottomColor: "#2a2a2a", gap: S.sm }}>
+                <Text style={{ fontSize: 32 }}>{postWorkoutArticle.icon}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: "#43A047", letterSpacing: 1, marginBottom: 2 }}>NUTRICIÓN POST-ENTRENO</Text>
+                  <Text style={{ fontSize: 16, fontWeight: "700", color: C.text }}>{postWorkoutArticle.title}</Text>
+                </View>
+              </View>
+              {/* Content */}
+              <ScrollView style={{ paddingHorizontal: S.md, paddingTop: S.md }} showsVerticalScrollIndicator={false}>
+                <Text style={{ fontSize: 14, color: C.text, lineHeight: 22, paddingBottom: S.xl }}>{postWorkoutArticle.content}</Text>
+              </ScrollView>
+              {/* Confirm button */}
+              <View style={{ paddingHorizontal: S.md, paddingTop: S.sm }}>
+                <Pressable
+                  style={{ backgroundColor: "#43A047", borderRadius: R.md ?? 12, paddingVertical: 16, alignItems: "center" }}
+                  onPress={() => {
+                    setPostWorkoutGateVisible(false);
+                    void handleSubmitLog();
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>✅  Ok, me alimentaré ahora</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
 
       {/* ── PROFILE MODAL ─────────────────────────────── */}
       <ProfileModal
@@ -4204,20 +4349,7 @@ export default function HomeScreen() {
                   />
                 </>
               ) : null}
-              {availableTemplates.length > 1 ? (
-                <View style={{ marginBottom: 12 }}>
-                  <Text style={styles.helperText}>Programa de entrenamiento</Text>
-                  {availableTemplates.map((tmpl) => (
-                    <Pressable
-                      key={tmpl.code}
-                      style={[styles.secondaryButton, athleteSetup.templateCode === tmpl.code ? styles.selectedAuthButton : null]}
-                      onPress={() => setAthleteSetup((current) => ({ ...current, templateCode: tmpl.code }))}
-                    >
-                      <Text style={styles.secondaryButtonText}>{tmpl.name}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
+              {availableTemplates.length > 1 ? null : null}
               <TextInput
                 multiline
                 placeholder="Notas sobre historial, molestias o contexto competitivo"
@@ -4873,7 +5005,7 @@ export default function HomeScreen() {
                 value={logDraft.notes}
                 onChangeText={(value) => setLogDraft((current) => ({ ...current, notes: value }))}
               />
-              <Pressable style={styles.primaryButton} onPress={() => void handleSubmitLog()} disabled={loading}>
+              <Pressable style={styles.primaryButton} onPress={handleSubmitWithNutritionGate} disabled={loading}>
                 <Text style={styles.primaryButtonText}>{loading ? "Guardando..." : "Guardar registro"}</Text>
               </Pressable>
             </View>

@@ -37,8 +37,10 @@ nutritionRouter.get(
 nutritionRouter.get(
   "/articles/:id",
   async (req: Request, res: Response) => {
+    const id = Array.isArray(req.params["id"]) ? req.params["id"][0] : req.params["id"];
+    if (!id) { res.status(400).json({ message: "Missing id" }); return; }
     const article = await prisma.nutritionArticle.findFirst({
-      where: { id: req.params.id, isPublished: true },
+      where: { id, isPublished: true },
       select: {
         id: true,
         title: true,

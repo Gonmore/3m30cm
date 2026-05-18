@@ -13,6 +13,81 @@
 
 ## Registro de trabajo
 
+### 15. Apps view en web admin, welcomeVideoUrl en templates, auto-selección de template en mobile2 (2026-05-18)
+
+**Objetivos:**
+1. Sección "Apps" en el panel web admin para asociar slugs de apps móviles a un `ProgramTemplate`.
+2. Campo `welcomeVideoUrl` en `ProgramTemplate` para enlazar un video de bienvenida.
+3. `apps/mobile2` auto-selecciona su template asignado al arranque (sin selector manual).
+4. `apps/mobile2` muestra el video de bienvenida antes del onboarding (solo la primera vez) y un botón "Ver video del programa" en la pantalla Hoy.
+
+**Cambios aplicados:**
+
+1. **Schema Prisma** (`apps/api/prisma/schema.prisma`)
+   - Nuevo campo `welcomeVideoUrl String?` en `ProgramTemplate` (después de `techniqueDescription`).
+   - Nuevo modelo `MobileAppConfig` con `id`, `appSlug` (unique), `displayName`, `templateCode`, `createdAt`, `updatedAt`.
+   - No hay FK de `MobileAppConfig` a `ProgramTemplate` (referencia flexible por string `templateCode`).
+
+2. **Migración** (`apps/api/prisma/migrations/20260518_add_welcome_video_and_app_config/migration.sql`)
+   - `ALTER TABLE "ProgramTemplate" ADD COLUMN "welcomeVideoUrl" TEXT;`
+   - `CREATE TABLE "MobileAppConfig"` con índice unique en `appSlug`.
+
+3. **API: admin-templates.ts**
+   - `updateTemplateSchema` acepta `welcomeVideoUrl: z.string().url().nullable().optional()`.
+   - Handler `PUT /program-templates/:code` propaga `welcomeVideoUrl` al update de Prisma.
+
+4. **API: templates.ts**
+   - `GET /program-templates` select incluye `welcomeVideoUrl: true`.
+   - `GET /program-templates/:code` ya devolvía todos los escalares; sin cambio adicional necesario.
+
+5. **API: nuevo archivo `app-config.ts`**
+   - Router público `appConfigRouter`: `GET /app-config/:appSlug` → devuelve `{ templateCode, welcomeVideoUrl }` para que la app se auto-configure sin auth.
+   - Router admin `adminAppConfigRouter` (SUPERADMIN):
+     - `GET /admin/app-configs` → lista todos los `MobileAppConfig`.
+     - `PUT /admin/app-configs/:appSlug` → upsert con `{ displayName, templateCode }`.
+
+6. **API: index.ts / admin.ts**
+   - `appConfigRouter` montado en `/api/v1/app-config`.
+   - `adminAppConfigRouter` montado en `/api/v1/admin`.
+
+7. **Web admin** (`apps/web/src/App.tsx`)
+   - Nuevo tipo `AdminView = "... | "apps"`.
+   - Nueva interfaz `AppConfigRecord`.
+   - `ProgramTemplateMeta` e `TemplateFormState` incluyen `welcomeVideoUrl`.
+   - `emptyTemplateForm()` inicializa `welcomeVideoUrl: ""`.
+   - `handleTemplateSubmit` envía `welcomeVideoUrl` al PUT.
+   - Nuevo estado `appConfigs` + `appConfigDraft` + `handleSaveAppConfig`.
+   - useEffect carga app-configs cuando `adminView === "apps"`.
+   - Formulario de metadatos de template incluye campo "Video de bienvenida (URL)".
+   - Sidebar: botón "📱 Apps" después de Nutrición.
+   - Nueva sección JSX "Apps": lista de configs existentes con selector de template y botón Guardar; formulario de alta de nueva app (slug + display name + template).
+
+8. **mobile2: `apps/mobile2/app/index.tsx`**
+   - `import { WebView }` de `react-native-webview` (ya instalado v13.15.0).
+   - Constantes `welcomeVideoSeenStorageKey = "wv_seen_v1"` y `MOBILE_APP_SLUG = "3m30cm-game"`.
+   - Estado `welcomeVideoUrl` y `showWelcomeVideo`.
+   - useEffect de templates ampliado: además de cargar la lista pública, hace `fetch /api/v1/app-config/3m30cm-game` y si hay `templateCode` lo aplica a `athleteSetup`; si hay `welcomeVideoUrl` y no se ha visto antes, muestra el modal.
+   - Modal de video de bienvenida (`<WebView>`) con botones "Saltar" (cierra sin marcar) y "Continuar" (marca visto en AsyncStorage y cierra).
+   - Selector de templates eliminado del formulario de onboarding (la app ya recibe el template del servidor).
+   - Props `welcomeVideoUrl` y `onShowWelcomeVideo` pasadas a `<HoyScreenV2>`.
+
+9. **mobile2: `HoyScreenV2.tsx`**
+   - Props `welcomeVideoUrl?: string | null` y `onShowWelcomeVideo?: () => void` añadidas a `HoyScreenV2Props`.
+   - Botón "🎬 Ver video del programa" visible cuando `hasProgram && welcomeVideoUrl`.
+   - Selector de templates eliminado del step 2 del onboarding (solo queda selector de fecha de inicio).
+
+10. **mobile2: `NutricionScreen.tsx`**
+    - Corregido `C.accent` → `C.teal` (la paleta no tiene `.accent`).
+
+**Validación:**
+- `npx prisma generate` (sin DB) ✓
+- `npx tsc --noEmit` en `apps/api` ✓
+- `npx tsc --noEmit` en `apps/web` ✓
+- `npx tsc --noEmit` en `apps/mobile2` ✓
+- Migración pendiente de aplicar contra DB: `cd apps/api && npx prisma migrate dev`
+
+---
+
 ### 14. Fix cycleLengthDays, variantes de ejercicio por semana, reestructura UI /programas (2026-05-11)
 
 **Problemas resueltos:**

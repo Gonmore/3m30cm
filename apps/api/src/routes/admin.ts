@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { type Response, Router } from "express";
 
 import { prisma } from "../config/prisma.js";
+import { adminAppConfigRouter } from "./app-config.js";
 import { adminExercisesRouter } from "./admin-exercises.js";
 import { adminProgramsRouter } from "./admin-programs.js";
 import { adminTeamsRouter } from "./admin-teams.js";
@@ -11,6 +12,7 @@ import { requireAuth, requireRole, type AuthenticatedRequest } from "../middlewa
 
 export const adminRouter = Router();
 
+adminRouter.use(adminAppConfigRouter);
 adminRouter.use(adminExercisesRouter);
 adminRouter.use(adminProgramsRouter);
 adminRouter.use(adminTeamsRouter);
