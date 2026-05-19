@@ -427,3 +427,113 @@ adminExercisesRouter.put("/exercises/:id/block-items", async (req: Request, res:
     res.status(500).json({ message: "Failed to update block items" });
   }
 });
+
+// ── Populate exercise GIFs from ExerciseDB (RapidAPI) ─────────────────────────
+
+interface PopulateGifsResult {
+  slug: string;
+  name: string;
+  status: "ok" | "skipped" | "error";
+  matchedName?: string;
+  message?: string;
+}
+
+async function searchExerciseDb(name: string): Promise<{ name: string; gifUrl: string } | null> {
+  const key = process.env.X_RAPIDAPI_KEY ?? "";
+  const host = process.env.X_RAPIDAPI_HOST ?? "exercisedb.p.rapidapi.com";
+
+  if (!key) return null;
+
+  const url = `https://${host}/exercises/name/${encodeURIComponent(name.toLowerCase())}?limit=1&offset=0`;
+
+  const res = await fetch(url, {
+    headers: {
+      "x-rapidapi-key": key,
+      "x-rapidapi-host": host,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`ExerciseDB ${res.status}: ${res.statusText}`);
+  }
+
+  const data = (await res.json()) as Array<{ name: string; gifUrl: string }>;
+  return data[0] ?? null;
+}
+
+adminExercisesRouter.post("/exercises/populate-gifs", async (_req: Request, res: Response) => {
+  const rapidApiKey = process.env.X_RAPIDAPI_KEY ?? "";
+
+  if (!rapidApiKey) {
+    res.status(400).json({ message: "X_RAPIDAPI_KEY is not configured on the server." });
+    return;
+  }
+
+  const exercises = await prisma.exercise.findMany({
+    select: { id: true, slug: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
+  const results: PopulateGifsResult[] = [];
+  let ok = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  for (const exercise of exercises) {
+    await new Promise<void>((r) => setTimeout(r, 300));
+
+    try {
+      const match = await searchExerciseDb(exercise.name);
+
+      if (!match) {
+        results.push({ slug: exercise.slug, name: exercise.name, status: "skipped", message: "not found in ExerciseDB" });
+        skipped++;
+        continue;
+      }
+
+      // Download GIF
+      const gifRes = await fetch(match.gifUrl);
+      if (!gifRes.ok) throw new Error(`Download failed: ${gifRes.status}`);
+      const data = Buffer.from(await gifRes.arrayBuffer());
+      const contentType = gifRes.headers.get("content-type") ?? "image/gif";
+
+      // Upload to MinIO (reuse existing helper — filename drives the .gif extension)
+      const { objectKey, url } = await uploadExerciseMedia({
+        exerciseId: exercise.id,
+        fileName: "image.gif",
+        contentType,
+        data,
+      });
+
+      // Upsert primary GIF record
+      await prisma.$transaction([
+        prisma.exerciseMediaAsset.updateMany({
+          where: { exerciseId: exercise.id, kind: "GIF", isPrimary: true },
+          data: { isPrimary: false },
+        }),
+        prisma.exerciseMediaAsset.create({
+          data: {
+            exerciseId: exercise.id,
+            kind: "GIF",
+            bucket: env.MINIO_BUCKET,
+            objectKey,
+            url,
+            title: match.name,
+            isPrimary: true,
+          },
+        }),
+      ]);
+
+      results.push({ slug: exercise.slug, name: exercise.name, status: "ok", matchedName: match.name });
+      ok++;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      results.push({ slug: exercise.slug, name: exercise.name, status: "error", message });
+      errors++;
+      console.error(`populate-gifs [${exercise.slug}]:`, err);
+    }
+  }
+
+  res.json({ ok, skipped, errors, results });
+});

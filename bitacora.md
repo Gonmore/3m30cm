@@ -13,6 +13,87 @@
 
 ## Registro de trabajo
 
+### 16. Welcome video upload UI, populate-gifs endpoint, media downloader, bug fixes (2026-05-19)
+
+**Objetivos:**
+1. Completar UI de upload de video de bienvenida en web admin + selector de apps.
+2. Crear endpoint `POST /api/v1/admin/exercises/populate-gifs` para descargar GIFs de ExerciseDB y guardarlos en MinIO.
+3. Crear script standalone `populate-exercise-gifs.ts` para correr manualmente con `npm run populate:gifs`.
+4. Agregar botón "Obtener media" en el catálogo de ejercicios del web admin.
+5. Corregir bugs encontrados en sesiones previas: URL input rechazando rutas relativas, Apps view con paneles no seleccionables, mobile video URL con ERR_ACCESS_DENIED.
+
+**Bugs corregidos:**
+
+1. **Welcome video URL input** (`apps/web/src/App.tsx` ~line 7250)
+   - Cambio: `type="url"` → `type="text"` (porque admitimos rutas relativas `/api/v1/assets/...`).
+   - Placeholder ahora clarifica formato: `/api/v1/assets/... o https://...`.
+
+2. **Apps view panels no seleccionables** (`apps/web/src/App.tsx` ~line 3762)
+   - Raíz: `Promise.all()` fallaba silenciosamente cuando uno de los fetches fallaba.
+   - Solución: Cambio a try/catch individual para cada fetch (app-configs, available-apps).
+   - Resultado: Ambos paneles ahora renderean con su contenido correspondiente.
+
+3. **"Asociar app" form siempre muestra opciones** (`apps/web/src/App.tsx` ~line 11332)
+   - Raíz: Sin `availableApps` no había forma visible de crear una nueva app config.
+   - Solución: Formulario de alta siempre visible con:
+     - Si `availableApps.length > 0`: selector de directorio (auto-llena slug/displayName).
+     - Si `availableApps.length === 0`: inputs de texto para slug/displayName.
+     - Siempre: selector de template.
+   - Post-submit: Refresh independiente de ambos listados (try/catch por separado).
+
+4. **Mobile welcome video `net::ERR_ACCESS_DENIED`**
+   - Raíz: URLs relativas `/api/v1/assets/...` se interpretaban como rutas de archivo local en el WebView.
+   - Solución: Implementación de `rewriteLocalAssetUrl` en `apps/mobile2/components/runtimeConfig.ts`.
+     - Prepend `apiBaseUrl` a rutas relativas que empiezan con `/api/v1/assets/`.
+     - URLs absolutas (http/https) pasan intactas.
+
+5. **Welcome video auto-play solo para nuevos usuarios**
+   - Raíz: Modal de video mostraba cada vez que se ejecutaba `useEffect` de templates.
+   - Solución: Flag `welcomeVideoSeenStorageKey` en AsyncStorage (persiste entre sesiones).
+   - Lógica: Si `!seen && welcomeVideoUrl` en arranque, muestra modal; botón "Continuar" marca visto.
+   - "Ver video del programa" en pantalla Hoy siempre disponible si `hasProgram && welcomeVideoUrl`.
+
+**Cambios aplicados:**
+
+1. **API: nuevo endpoint `POST /api/v1/admin/exercises/populate-gifs`** (`apps/api/src/routes/admin-exercises.ts`)
+   - SUPERADMIN required.
+   - Validación: `X_RAPIDAPI_KEY` en `.env` (retorna 400 si falta).
+   - Flujo:
+     1. Fetch todos los ejercicios: `id`, `slug`, `name`.
+     2. Para cada uno (300ms delay): `searchExerciseDb(name)` → download GIF → `uploadExerciseMedia()` → upsert `ExerciseMediaAsset` (primary GIF).
+     3. Retorna `{ ok: number; skipped: number; errors: number; results: PopulateGifsResult[] }`.
+   - Helper `searchExerciseDb(name)`: Fetch a ExerciseDB RapidAPI con X_RAPIDAPI_KEY/HOST, retorna URL del GIF del primer match.
+
+2. **API: nuevo script `populate-exercise-gifs.ts`** (`apps/api/src/scripts/populate-exercise-gifs.ts`)
+   - Ejecutable: `npm run populate:gifs` (desde `apps/api`).
+   - Independiente del server; carga `.env` con dotenv.
+   - Reutiliza: `S3Client`, `searchExerciseDb()`, `uploadExerciseMedia()`, Prisma.
+   - 600ms de delay entre ejercicios (rate limit).
+   - Reporta: ok/skipped/errors al final.
+
+3. **API: package.json script** (`apps/api/package.json`)
+   - Nuevo: `"populate:gifs": "tsx src/scripts/populate-exercise-gifs.ts"`.
+
+4. **Web admin: estados + handler + button** (`apps/web/src/App.tsx`)
+   - Estados: `populatingGifs: boolean`, `populateGifsResult: { ok, skipped, errors, results[] }`.
+   - Handler `handlePopulateGifs()`: POST a `/api/v1/admin/exercises/populate-gifs`, setea resultado.
+   - Botón "Obtener media" en header de ejercicios (junto a "Nuevo"):
+     - Disabled mientras `populatingGifs === true`.
+     - Label cambia a "Obteniendo…" durante ejecución.
+     - Tooltip: "Descarga GIFs desde ExerciseDB y los sube a MinIO para cada ejercicio del catálogo".
+   - Panel expandible `<details>` debajo del header:
+     - Summary: `✅ N ok · ⏭️ N omitidos · ❌ N errores`.
+     - Lista: Cada ejercicio con nombre, nombre matched de ExerciseDB, status icon, y mensaje de error si aplica.
+
+5. **Welcome video fixes en App.tsx**
+   - Lineas ~4704 y ~7309: Agregan `setWelcomeVideoFile(null)` al resetear template (evita que persista archivo anterior).
+
+**Validación:**
+- TypeScript: `npx tsc --noEmit` en `apps/api` y `apps/web` ✓
+- Todos los cambios compilables, sin errores.
+
+---
+
 ### 15. Apps view en web admin, welcomeVideoUrl en templates, auto-selección de template en mobile2 (2026-05-18)
 
 **Objetivos:**

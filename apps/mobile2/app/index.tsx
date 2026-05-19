@@ -1582,6 +1582,7 @@ export default function HomeScreen() {
   const [availableTemplates, setAvailableTemplates] = useState<PublicTemplateMeta[]>([]);
   const [welcomeVideoUrl, setWelcomeVideoUrl] = useState<string | null>(null);
   const [showWelcomeVideo, setShowWelcomeVideo] = useState(false);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [techniqueSaving, setTechniqueSaving] = useState(false);
@@ -1633,15 +1634,25 @@ export default function HomeScreen() {
         if (!cfg) return;
         setAthleteSetup((s) => ({ ...s, templateCode: cfg.templateCode }));
         if (cfg.welcomeVideoUrl) {
-          setWelcomeVideoUrl(cfg.welcomeVideoUrl);
-          const seen = await readStoredValue(welcomeVideoSeenStorageKey);
-          if (!seen) {
-            setShowWelcomeVideo(true);
-          }
+          setWelcomeVideoUrl(rewriteLocalAssetUrl(cfg.welcomeVideoUrl));
         }
       })
       .catch(() => {/* use default template */});
   }, []);
+
+  // Auto-play welcome video only for new users who have no sessions yet.
+  // Fires once sessionsLoaded becomes true (after first successful refreshAthleteArea).
+  useEffect(() => {
+    if (!welcomeVideoUrl || !sessionsLoaded) return;
+    if (sessions.length > 0) return; // existing user — don't auto-play
+    void (async () => {
+      const seen = await readStoredValue(welcomeVideoSeenStorageKey);
+      if (!seen) {
+        setShowWelcomeVideo(true);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [welcomeVideoUrl, sessionsLoaded]);
 
   const [notificationPermission, setNotificationPermission] = useState<PermissionState>("unknown");
   const [calendarPermission, setCalendarPermission] = useState<PermissionState>("unknown");
@@ -2040,6 +2051,7 @@ export default function HomeScreen() {
       setPlanningRecommendation(null);
       setPrograms([]);
       setSessions([]);
+      setSessionsLoaded(false);
       setSelectedSessionId(null);
       setSelectedSession(null);
       setSelectedSessionGuidance(null);
@@ -2246,6 +2258,7 @@ export default function HomeScreen() {
       setCurrentAvatarUrl(profileResponse.athleteProfile.user.avatarUrl ?? null);
       setPrograms(programsResponse.programs);
       setSessions(sessionsResponse.sessions);
+      setSessionsLoaded(true);
       setProgress(progressResponse);
       setTechnique(techniqueResponse.technique);
       setTechniques(techniqueResponse.techniques ?? techniqueResponse.technique?.template.techniques ?? []);

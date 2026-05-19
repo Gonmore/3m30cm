@@ -2447,6 +2447,11 @@ export default function App() {
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   const [exerciseModalOpen, setExerciseModalOpen] = useState(false);
   const [exerciseSearch, setExerciseSearch] = useState("");
+  const [populatingGifs, setPopulatingGifs] = useState(false);
+  const [populateGifsResult, setPopulateGifsResult] = useState<{
+    ok: number; skipped: number; errors: number;
+    results: { slug: string; name: string; status: string; matchedName?: string; message?: string }[];
+  } | null>(null);
   const [selectedDayNumber, setSelectedDayNumber] = useState<number>(1);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedAthleteProfileId, setSelectedAthleteProfileId] = useState<string>("");
@@ -4040,6 +4045,23 @@ export default function App() {
     }
   }
 
+  async function handlePopulateGifs() {
+    if (!accessToken || populatingGifs) return;
+    setPopulatingGifs(true);
+    setPopulateGifsResult(null);
+    try {
+      const result = await requestJson<{
+        ok: number; skipped: number; errors: number;
+        results: { slug: string; name: string; status: string; matchedName?: string; message?: string }[];
+      }>("/api/v1/admin/exercises/populate-gifs", { method: "POST" }, accessToken);
+      setPopulateGifsResult(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al obtener media");
+    } finally {
+      setPopulatingGifs(false);
+    }
+  }
+
   async function handleMediaUpload(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -5458,18 +5480,46 @@ export default function App() {
               <p className="eyebrow">Catalogo</p>
               <h2>Ejercicios</h2>
             </div>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => {
-                setSelectedExerciseId(null);
-                setExerciseForm(emptyExerciseForm());
-                setExerciseModalOpen(true);
-              }}
-            >
-              Nuevo
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setSelectedExerciseId(null);
+                  setExerciseForm(emptyExerciseForm());
+                  setExerciseModalOpen(true);
+                }}
+              >
+                Nuevo
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={populatingGifs}
+                onClick={() => void handlePopulateGifs()}
+                title="Descarga GIFs desde ExerciseDB y los sube a MinIO para cada ejercicio del catálogo"
+              >
+                {populatingGifs ? "Obteniendo…" : "Obtener media"}
+              </button>
+            </div>
           </div>
+          {populateGifsResult ? (
+            <details style={{ marginBottom: 8, fontSize: 12 }}>
+              <summary style={{ cursor: "pointer", userSelect: "none" }}>
+                ✅ {populateGifsResult.ok} ok · ⏭️ {populateGifsResult.skipped} omitidos · ❌ {populateGifsResult.errors} errores
+              </summary>
+              <ul style={{ margin: "6px 0 0 16px", lineHeight: 1.6 }}>
+                {populateGifsResult.results.map((r) => (
+                  <li key={r.slug}>
+                    {r.status === "ok" ? "✅" : r.status === "skipped" ? "⏭️" : "❌"}{" "}
+                    <strong>{r.name}</strong>
+                    {r.matchedName ? <> → {r.matchedName}</> : null}
+                    {r.message ? <span className="helper-text"> ({r.message})</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
 
           <input
             className="exercise-search"
