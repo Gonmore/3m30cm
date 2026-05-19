@@ -607,26 +607,46 @@ function csvRowToCandidate(r: CsvRow): ExerciseDbCandidate {
   };
 }
 
-/** Returns up to `limit` CSV candidates for `keyword`, sorted by score desc. */
-function searchCsvCandidates(keyword: string, limit = 5): ExerciseDbCandidate[] {
+/**
+ * Returns up to `limit` CSV candidates for `keyword`, sorted by score desc.
+ * `auxText` is optional extra text (Spanish description + steps from DB) used as
+ * secondary signal via cross-language cognate matching (gym terms like "squat",
+ * "press", "curl" survive the language boundary).
+ */
+function searchCsvCandidates(keyword: string, limit = 5, auxText = ""): ExerciseDbCandidate[] {
   const rows = getCsvRows();
+
+  // Multi-signal score: take the MAX of three signals so any strong match wins
+  const scoreRow = (r: CsvRow): number => {
+    // Primary: keyword vs CSV exercise name
+    const nameScore = f1Score(keyword, r.name);
+    // Secondary: keyword vs CSV instructions (EN-EN; helps when names differ but movements match)
+    const keywordVsInstr = f1Score(keyword, r.instructions.join(" ")) * 0.55;
+    // Tertiary: Spanish aux text vs CSV name (cross-lang cognates for gym terms)
+    const auxVsName = auxText ? f1Score(auxText, r.name) * 0.5 : 0;
+    return Math.max(nameScore, keywordVsInstr, auxVsName);
+  };
+
+  // Threshold slightly lower than before because the combined score is multi-signal
+  const THRESHOLD = 0.25;
+
   // Exact match wins immediately
   const exact = rows.find((r) => r.name.toLowerCase() === keyword.toLowerCase());
   if (exact) {
     const top: ExerciseDbCandidate[] = [csvRowToCandidate(exact)];
-    // Fill remaining slots with fuzzy matches (skip the exact row)
+    // Fill remaining slots with multi-signal matches (skip the exact row)
     const rest = rows
       .filter((r) => r !== exact)
-      .map((r) => ({ r, s: f1Score(keyword, r.name) }))
-      .filter(({ s }) => s >= 0.35)
+      .map((r) => ({ r, s: scoreRow(r) }))
+      .filter(({ s }) => s >= THRESHOLD)
       .sort((a, b) => b.s - a.s)
       .slice(0, limit - 1)
       .map(({ r }) => csvRowToCandidate(r));
     return [...top, ...rest];
   }
   return rows
-    .map((r) => ({ r, s: f1Score(keyword, r.name) }))
-    .filter(({ s }) => s >= 0.35)
+    .map((r) => ({ r, s: scoreRow(r) }))
+    .filter(({ s }) => s >= THRESHOLD)
     .sort((a, b) => b.s - a.s)
     .slice(0, limit)
     .map(({ r }) => csvRowToCandidate(r));
@@ -650,7 +670,9 @@ adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Reques
 
   for (const ex of exercises) {
     const keyword = EXERCISE_MAP[ex.name] ?? ex.name;
-    const all = searchCsvCandidates(keyword, 5);
+    // Combine description + Spanish steps as auxiliary text for cross-language scoring
+    const auxText = [ex.description ?? "", ex.instructions[0]?.steps ?? ""].filter(Boolean).join(" ");
+    const all = searchCsvCandidates(keyword, 5, auxText);
     const first = all[0] ?? null;
     // Auto-match when the best candidate has strong overlap (F1 ≥ 0.7) or exact hit
     const autoMatch =
