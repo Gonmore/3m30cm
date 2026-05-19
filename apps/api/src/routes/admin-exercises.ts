@@ -674,6 +674,29 @@ adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Reques
   res.json({ results });
 });
 
+// POST /exercises/populate-gifs/translate — proxy to MyMemory free translation (ES→EN)
+adminExercisesRouter.post("/exercises/populate-gifs/translate", async (req: Request, res: Response) => {
+  const schema = z.object({ text: z.string().min(1).max(1000) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: "Invalid payload" });
+    return;
+  }
+  try {
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(parsed.data.text)}&langpair=es|en`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!resp.ok) { res.status(502).json({ message: "Translation service error" }); return; }
+    const data = await resp.json() as { responseData?: { translatedText?: string }; responseStatus?: number };
+    if (data.responseStatus === 200 && data.responseData?.translatedText) {
+      res.json({ translated: data.responseData.translatedText });
+    } else {
+      res.status(502).json({ message: "Translation failed" });
+    }
+  } catch {
+    res.status(502).json({ message: "Translation service unavailable" });
+  }
+});
+
 // POST /exercises/populate-gifs/apply — download + upload + save chosen GIFs
 adminExercisesRouter.post("/exercises/populate-gifs/apply", async (req: Request, res: Response) => {
   const schema = z.array(

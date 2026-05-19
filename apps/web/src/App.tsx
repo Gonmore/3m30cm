@@ -2469,6 +2469,8 @@ export default function App() {
   const [populateSelections, setPopulateSelections] = useState<Record<string, string>>({});
   const [populateApplyResult, setPopulateApplyResult] = useState<{ ok: number; skipped: number; errors: number } | null>(null);
   const [populateStep, setPopulateStep] = useState(0);
+  const [populateTranslations, setPopulateTranslations] = useState<Record<string, string>>({});
+  const [translateLoadingIds, setTranslateLoadingIds] = useState<Set<string>>(new Set());
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedAthleteProfileId, setSelectedAthleteProfileId] = useState<string>("");
   const [selectedMembershipId, setSelectedMembershipId] = useState<string>("");
@@ -4088,12 +4090,31 @@ export default function App() {
       setPopulateSearchItems(result.results);
       setPopulateSelections(selections);
       setPopulateStep(0);
+      setPopulateTranslations({});
+      setTranslateLoadingIds(new Set());
       setPopulatePhase("review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al buscar media");
       setPopulatePhase("idle");
     } finally {
       setPopulatingGifs(false);
+    }
+  }
+
+  async function handleTranslate(exerciseId: string, text: string) {
+    if (!accessToken || !text.trim() || translateLoadingIds.has(exerciseId)) return;
+    setTranslateLoadingIds((prev) => new Set([...prev, exerciseId]));
+    try {
+      const result = await requestJson<{ translated: string }>(
+        "/api/v1/admin/exercises/populate-gifs/translate",
+        { method: "POST", body: JSON.stringify({ text: text.slice(0, 1000) }) },
+        accessToken,
+      );
+      setPopulateTranslations((prev) => ({ ...prev, [exerciseId]: result.translated }));
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setTranslateLoadingIds((prev) => { const s = new Set(prev); s.delete(exerciseId); return s; });
     }
   }
 
@@ -6041,6 +6062,31 @@ export default function App() {
                             )}
                             {!item.description && !item.stepsEs && (
                               <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>Sin descripción disponible.</div>
+                            )}
+                            {/* Translate button + result */}
+                            {(item.description || item.stepsEs) && (
+                              <div style={{ marginTop: 10 }}>
+                                {!populateTranslations[item.exerciseId] && (
+                                  <button
+                                    type="button"
+                                    className="secondary-button"
+                                    style={{ fontSize: 11, padding: "3px 10px" }}
+                                    disabled={translateLoadingIds.has(item.exerciseId)}
+                                    onClick={() => {
+                                      const text = [item.description, item.stepsEs].filter(Boolean).join(". ");
+                                      void handleTranslate(item.exerciseId, text);
+                                    }}
+                                  >
+                                    {translateLoadingIds.has(item.exerciseId) ? "Traduciendo…" : "🌐 Traducir (ES→EN)"}
+                                  </button>
+                                )}
+                                {populateTranslations[item.exerciseId] && (
+                                  <div style={{ padding: "8px 10px", background: "var(--bg-subtle, #f0f4ff)", borderRadius: 6, borderLeft: "3px solid var(--primary, #4f46e5)" }}>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--primary, #4f46e5)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>EN (auto)</div>
+                                    <div style={{ fontSize: 12, lineHeight: 1.6 }}>{populateTranslations[item.exerciseId]}</div>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
 
