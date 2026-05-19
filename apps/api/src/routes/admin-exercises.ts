@@ -486,12 +486,18 @@ const EXERCISE_MAP: Record<string, string> = {
 interface ExerciseDbCandidate {
   name: string;
   gifUrl: string;
+  bodyPart: string;
+  target: string;
+  secondaryMuscles: string[];
+  instructions: string;
 }
 
 interface ExerciseSearchResult {
   exerciseId: string;
   slug: string;
   name: string;
+  description: string | null;
+  stepsEs: string | null;
   /** Best candidate if score is strong (≥ 0.7); null otherwise */
   autoMatch: ExerciseDbCandidate | null;
   /** Remaining candidates sorted by score — up to 4 */
@@ -505,6 +511,9 @@ interface ExerciseSearchResult {
 interface CsvRow {
   id: string;
   name: string;
+  bodyPart: string;
+  target: string;
+  secondaryMuscles: string[];
   instructions: string[];
 }
 
@@ -539,8 +548,14 @@ function getCsvRows(): CsvRow[] {
   const header = parseCsvLine(lines[0]!);
   const idxId = header.indexOf("id");
   const idxName = header.indexOf("name");
+  const idxBodyPart = header.indexOf("bodyPart");
+  const idxTarget = header.indexOf("target");
   const instrCols = header
     .map((c, i) => (c.startsWith("instructions/") ? { i, n: parseInt(c.split("/")[1]!, 10) } : null))
+    .filter((x): x is { i: number; n: number } => x !== null)
+    .sort((a, b) => a.n - b.n);
+  const secMusCols = header
+    .map((c, i) => (c.startsWith("secondaryMuscles/") ? { i, n: parseInt(c.split("/")[1]!, 10) } : null))
     .filter((x): x is { i: number; n: number } => x !== null)
     .sort((a, b) => a.n - b.n);
   _csvRows = lines.slice(1).map((line) => {
@@ -548,6 +563,9 @@ function getCsvRows(): CsvRow[] {
     return {
       id: f[idxId]?.trim() ?? "",
       name: f[idxName]?.trim() ?? "",
+      bodyPart: f[idxBodyPart]?.trim() ?? "",
+      target: f[idxTarget]?.trim() ?? "",
+      secondaryMuscles: secMusCols.map(({ i }) => f[i]?.trim()).filter((v): v is string => !!v),
       instructions: instrCols.map(({ i }) => f[i]?.trim()).filter((v): v is string => !!v),
     };
   });
@@ -578,15 +596,24 @@ function f1Score(keyword: string, rowName: string): number {
   return (2 * p * r) / (p + r);
 }
 
+function csvRowToCandidate(r: CsvRow): ExerciseDbCandidate {
+  return {
+    name: r.name,
+    gifUrl: `${GIF_CDN_BASE}/${r.id}.gif`,
+    bodyPart: r.bodyPart,
+    target: r.target,
+    secondaryMuscles: r.secondaryMuscles,
+    instructions: r.instructions.join(" "),
+  };
+}
+
 /** Returns up to `limit` CSV candidates for `keyword`, sorted by score desc. */
 function searchCsvCandidates(keyword: string, limit = 5): ExerciseDbCandidate[] {
   const rows = getCsvRows();
   // Exact match wins immediately
   const exact = rows.find((r) => r.name.toLowerCase() === keyword.toLowerCase());
   if (exact) {
-    const top: ExerciseDbCandidate[] = [
-      { name: exact.name, gifUrl: `${GIF_CDN_BASE}/${exact.id}.gif` },
-    ];
+    const top: ExerciseDbCandidate[] = [csvRowToCandidate(exact)];
     // Fill remaining slots with fuzzy matches (skip the exact row)
     const rest = rows
       .filter((r) => r !== exact)
@@ -594,7 +621,7 @@ function searchCsvCandidates(keyword: string, limit = 5): ExerciseDbCandidate[] 
       .filter(({ s }) => s >= 0.35)
       .sort((a, b) => b.s - a.s)
       .slice(0, limit - 1)
-      .map(({ r }) => ({ name: r.name, gifUrl: `${GIF_CDN_BASE}/${r.id}.gif` }));
+      .map(({ r }) => csvRowToCandidate(r));
     return [...top, ...rest];
   }
   return rows
@@ -602,13 +629,20 @@ function searchCsvCandidates(keyword: string, limit = 5): ExerciseDbCandidate[] 
     .filter(({ s }) => s >= 0.35)
     .sort((a, b) => b.s - a.s)
     .slice(0, limit)
-    .map(({ r }) => ({ name: r.name, gifUrl: `${GIF_CDN_BASE}/${r.id}.gif` }));
+    .map(({ r }) => csvRowToCandidate(r));
 }
 
 // POST /exercises/populate-gifs/search — dry-run: find candidates per exercise (CSV-based, no DB writes)
 adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Request, res: Response) => {
   const exercises = await prisma.exercise.findMany({
-    select: { id: true, slug: true, name: true, mediaAssets: { select: { url: true } } },
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      description: true,
+      mediaAssets: { select: { url: true } },
+      instructions: { where: { locale: "es" }, select: { steps: true }, take: 1 },
+    },
     orderBy: { name: "asc" },
   });
 
@@ -628,6 +662,8 @@ adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Reques
       exerciseId: ex.id,
       slug: ex.slug,
       name: ex.name,
+      description: ex.description ?? null,
+      stepsEs: ex.instructions[0]?.steps ?? null,
       autoMatch,
       candidates: rest,
       hasMedia: ex.mediaAssets.length > 0,

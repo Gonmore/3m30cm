@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   detectTechniqueKeyEventsWithDebug,
@@ -2457,8 +2457,10 @@ export default function App() {
     exerciseId: string;
     slug: string;
     name: string;
-    autoMatch: { name: string; gifUrl: string } | null;
-    candidates: { name: string; gifUrl: string }[];
+    description: string | null;
+    stepsEs: string | null;
+    autoMatch: { name: string; gifUrl: string; bodyPart: string; target: string; secondaryMuscles: string[]; instructions: string } | null;
+    candidates: { name: string; gifUrl: string; bodyPart: string; target: string; secondaryMuscles: string[]; instructions: string }[];
     hasMedia: boolean;
     existingUrls: string[];
   }
@@ -2466,6 +2468,7 @@ export default function App() {
   const [populateSearchItems, setPopulateSearchItems] = useState<PopulateSearchItem[]>([]);
   const [populateSelections, setPopulateSelections] = useState<Record<string, string>>({});
   const [populateApplyResult, setPopulateApplyResult] = useState<{ ok: number; skipped: number; errors: number } | null>(null);
+  const [populateStep, setPopulateStep] = useState(0);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedAthleteProfileId, setSelectedAthleteProfileId] = useState<string>("");
   const [selectedMembershipId, setSelectedMembershipId] = useState<string>("");
@@ -4084,6 +4087,7 @@ export default function App() {
       }
       setPopulateSearchItems(result.results);
       setPopulateSelections(selections);
+      setPopulateStep(0);
       setPopulatePhase("review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al buscar media");
@@ -5955,7 +5959,7 @@ export default function App() {
             }
           }}
         >
-          <div className="modal-panel" style={{ maxWidth: 780, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+          <div className="modal-panel" style={{ maxWidth: 960, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
             <div className="modal-header">
               <div>
                 <p className="eyebrow">Catálogo</p>
@@ -5985,79 +5989,163 @@ export default function App() {
             ) : (
               <>
                 {(() => {
-                  const autoCount = populateSearchItems.filter((i) => i.autoMatch).length;
-                  const candidateCount = populateSearchItems.filter((i) => !i.autoMatch && i.candidates.length > 0).length;
-                  const notFoundCount = populateSearchItems.filter((i) => !i.autoMatch && i.candidates.length === 0).length;
+                  const total = populateSearchItems.length;
+                  const step = Math.min(populateStep, Math.max(0, total - 1));
+                  const item = populateSearchItems[step];
+                  if (!item) return null;
                   const toApplyCount = populateSearchItems.filter((i) => (populateSelections[i.exerciseId] ?? "skip") !== "skip").length;
+                  const allCandidates = item.autoMatch ? [item.autoMatch, ...item.candidates] : item.candidates;
+                  const selected = populateSelections[item.exerciseId] ?? "skip";
+                  const previewUrl = selected !== "skip" ? selected : null;
+                  const selectedCandidate = allCandidates.find((c) => c.gifUrl === selected) ?? null;
                   return (
-                    <div style={{ padding: "10px 24px", borderBottom: "1px solid var(--border)", display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                        🎯 {autoCount} auto &nbsp;·&nbsp; 🔀 {candidateCount} a elegir &nbsp;·&nbsp; ❓ {notFoundCount} no encontrados
-                      </span>
-                      <button
-                        className="primary-button"
-                        type="button"
-                        disabled={populatePhase === "applying" || toApplyCount === 0}
-                        onClick={() => void handlePopulateApply()}
-                        style={{ marginLeft: "auto" }}
-                      >
-                        {populatePhase === "applying" ? "Subiendo…" : `Aplicar ${toApplyCount}`}
-                      </button>
-                    </div>
+                    <>
+                      {/* Progress bar */}
+                      <div style={{ padding: "8px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 12 }}>
+                        <span style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap" }}>{step + 1} / {total}</span>
+                        <div style={{ flex: 1, height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
+                          <div style={{ width: `${((step + 1) / total) * 100}%`, height: "100%", background: "var(--primary, #4f46e5)", transition: "width 0.2s" }} />
+                        </div>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={populatePhase === "applying" || toApplyCount === 0}
+                          onClick={() => void handlePopulateApply()}
+                          style={{ fontSize: 12, padding: "4px 14px", whiteSpace: "nowrap" }}
+                        >
+                          {populatePhase === "applying" ? "Subiendo\u2026" : `Aplicar (${toApplyCount})`}
+                        </button>
+                      </div>
+
+                      {/* Step card */}
+                      <div className="modal-body" style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, alignItems: "start" }}>
+
+                          {/* Left: exercise info */}
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>{item.name}</div>
+                            {item.hasMedia && (
+                              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>{"\uD83D\uDDBC\uFE0F"} ya tiene media asignada</div>
+                            )}
+                            {item.description && (
+                              <div style={{ marginBottom: 10 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Descripción</div>
+                                <div style={{ fontSize: 12, lineHeight: 1.6 }}>{item.description}</div>
+                              </div>
+                            )}
+                            {item.stepsEs && (
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Pasos / Ejecución</div>
+                                <div style={{ fontSize: 12, lineHeight: 1.6, maxHeight: 200, overflowY: "auto", whiteSpace: "pre-wrap" }}>{item.stepsEs}</div>
+                              </div>
+                            )}
+                            {!item.description && !item.stepsEs && (
+                              <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>Sin descripción disponible.</div>
+                            )}
+                          </div>
+
+                          {/* Right: candidates + GIF preview */}
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Opciones del CSV</div>
+                            {allCandidates.length > 0 ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                                {allCandidates.map((c) => (
+                                  <label
+                                    key={c.gifUrl}
+                                    style={{
+                                      display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer",
+                                      padding: "8px 10px", borderRadius: 6, fontSize: 12,
+                                      background: selected === c.gifUrl ? "var(--primary-subtle, #ede9fe)" : "var(--bg-subtle, #f5f5f5)",
+                                      border: `1px solid ${selected === c.gifUrl ? "var(--primary, #4f46e5)" : "var(--border)"}`,
+                                    }}
+                                  >
+                                    <input
+                                      type="radio"
+                                      name={`candidate-${item.exerciseId}`}
+                                      value={c.gifUrl}
+                                      checked={selected === c.gifUrl}
+                                      onChange={() => setPopulateSelections((prev) => ({ ...prev, [item.exerciseId]: c.gifUrl }))}
+                                      disabled={populatePhase === "applying"}
+                                      style={{ marginTop: 2, flexShrink: 0 }}
+                                    />
+                                    <div>
+                                      <div style={{ fontWeight: 600 }}>{c.name}</div>
+                                      <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                                        {[c.target, c.bodyPart].filter(Boolean).join(" \u00b7 ")}
+                                      </div>
+                                      {c.secondaryMuscles.length > 0 && (
+                                        <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{c.secondaryMuscles.slice(0, 3).join(", ")}</div>
+                                      )}
+                                    </div>
+                                  </label>
+                                ))}
+                                <label
+                                  style={{
+                                    display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
+                                    padding: "6px 10px", borderRadius: 6, fontSize: 12, color: "var(--text-muted)",
+                                    border: `1px solid ${selected === "skip" ? "var(--border)" : "transparent"}`,
+                                    background: selected === "skip" ? "var(--bg-subtle, #f5f5f5)" : "transparent",
+                                  }}
+                                >
+                                  <input
+                                    type="radio"
+                                    name={`candidate-${item.exerciseId}`}
+                                    value="skip"
+                                    checked={selected === "skip"}
+                                    onChange={() => setPopulateSelections((prev) => ({ ...prev, [item.exerciseId]: "skip" }))}
+                                    disabled={populatePhase === "applying"}
+                                  />
+                                  {"\u23ed\ufe0f"} Omitir este ejercicio
+                                </label>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>{"\u2753"} Sin coincidencias en el CSV</div>
+                            )}
+                            {previewUrl && (
+                              <div style={{ marginTop: 14, textAlign: "center" }}>
+                                <img
+                                  src={previewUrl}
+                                  alt="GIF preview"
+                                  style={{ maxHeight: 200, maxWidth: "100%", objectFit: "contain", borderRadius: 6, border: "1px solid var(--border)" }}
+                                  loading="lazy"
+                                />
+                              </div>
+                            )}
+                            {selectedCandidate?.instructions && (
+                              <details style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
+                                <summary style={{ cursor: "pointer" }}>Ver instrucciones CSV (EN)</summary>
+                                <div style={{ marginTop: 6, lineHeight: 1.5, maxHeight: 100, overflowY: "auto" }}>{selectedCandidate.instructions}</div>
+                              </details>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Navigation footer */}
+                      <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", gap: 10, alignItems: "center" }}>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={step === 0 || populatePhase === "applying"}
+                          onClick={() => setPopulateStep((s) => Math.max(0, s - 1))}
+                        >
+                          ← Anterior
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={step === total - 1 || populatePhase === "applying"}
+                          onClick={() => setPopulateStep((s) => Math.min(total - 1, s + 1))}
+                        >
+                          Siguiente →
+                        </button>
+                        <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>
+                          {toApplyCount} seleccionados
+                        </span>
+                      </div>
+                    </>
                   );
                 })()}
-
-                <div className="modal-body" style={{ flex: 1, overflowY: "auto", padding: 0 }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-subtle, #f5f5f5)", position: "sticky", top: 0 }}>
-                        <th style={{ textAlign: "left", padding: "8px 16px", fontWeight: 600 }}>Ejercicio</th>
-                        <th style={{ textAlign: "left", padding: "8px 16px", fontWeight: 600 }}>Coincidencia</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {populateSearchItems.map((item) => {
-                        const selected = populateSelections[item.exerciseId] ?? "skip";
-                        const allCandidates = item.autoMatch ? [item.autoMatch, ...item.candidates] : item.candidates;
-                        const isSkipped = selected === "skip";
-                        return (
-                          <tr
-                            key={item.exerciseId}
-                            style={{ borderBottom: "1px solid var(--border-subtle, #eee)", opacity: isSkipped ? 0.5 : 1 }}
-                          >
-                            <td style={{ padding: "8px 16px", verticalAlign: "top" }}>
-                              <div style={{ fontWeight: 500 }}>{item.name}</div>
-                              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                                {item.hasMedia ? "🖼 ya tiene media" : "sin media aún"}
-                              </div>
-                            </td>
-                            <td style={{ padding: "8px 16px", verticalAlign: "top" }}>
-                              {allCandidates.length > 0 ? (
-                                <select
-                                  value={selected}
-                                  onChange={(e) =>
-                                    setPopulateSelections((prev) => ({ ...prev, [item.exerciseId]: e.target.value }))
-                                  }
-                                  style={{ width: "100%", fontSize: 12, maxWidth: 340 }}
-                                  disabled={populatePhase === "applying"}
-                                >
-                                  <option value="skip">⏭️ Omitir</option>
-                                  {allCandidates.map((c) => (
-                                    <option key={c.gifUrl} value={c.gifUrl}>
-                                      {c.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>❓ Sin coincidencias</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
               </>
             )}
           </div>

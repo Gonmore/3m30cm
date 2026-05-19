@@ -13,6 +13,50 @@
 
 ## Registro de trabajo
 
+### 18. Modal paso a paso + candidatos enriquecidos para "Buscar media" (2026-05-19)
+
+**Objetivos:**
+1. Reemplazar el modal de tabla con un modal paso a paso (un ejercicio a la vez) con vista previa del GIF.
+2. Enriquecer los candidatos CSV con `bodyPart`, `target`, `secondaryMuscles[]` e `instructions` (EN).
+3. Mostrar la descripción y pasos en español del ejercicio de la DB en el modal.
+4. Mostrar instrucciones CSV en inglés (expandible) para comparación manual.
+
+**Cambios aplicados:**
+
+1. **API: `apps/api/src/routes/admin-exercises.ts`**
+   - `CsvRow` ampliada: añadidos `bodyPart`, `target`, `secondaryMuscles[]`.
+   - `getCsvRows()` ahora extrae columnas `bodyPart`, `target` y `secondaryMuscles/X`.
+   - `ExerciseDbCandidate` ampliada: añadidos `bodyPart`, `target`, `secondaryMuscles[]`, `instructions` (EN, joined).
+   - `ExerciseSearchResult` ampliada: añadidos `description` (ES, de la DB) y `stepsEs` (ES, de la DB).
+   - Nueva función helper `csvRowToCandidate(r: CsvRow): ExerciseDbCandidate`.
+   - `searchCsvCandidates()` actualizada para devolver candidatos enriquecidos usando `csvRowToCandidate`.
+   - Endpoint `POST /exercises/populate-gifs/search` actualizado: consulta `description` e `instructions` (locale "es") de la DB; incluye `description` y `stepsEs` en cada resultado.
+
+2. **Web: `apps/web/src/App.tsx`**
+   - `PopulateSearchItem` interface ampliada: añadidos `description`, `stepsEs`, y nuevos campos en `autoMatch`/`candidates`.
+   - Nuevo estado `populateStep` (número de ejercicio actual, 0-indexed).
+   - `handlePopulateSearch()` resetea `populateStep` a 0 al iniciar revisión.
+   - Modal `maxWidth` aumentado de 780 a 960px.
+   - Modal de revisión reescrito: de tabla a card paso a paso:
+     - Barra de progreso con `paso / total`.
+     - Columna izquierda: nombre, descripción (ES), pasos/ejecución (ES), badge "ya tiene media".
+     - Columna derecha: radios para cada candidato CSV (nombre + target + bodyPart + muscles); radio "Omitir".
+     - Vista previa del GIF (`<img>`) del candidato seleccionado (max 200px).
+     - Expandible "Ver instrucciones CSV (EN)" con los `instructions` del CSV.
+     - Footer: botones ← Anterior / Siguiente → y contador "N seleccionados".
+     - Botón "Aplicar (N)" en la barra de progreso.
+
+**Sin cambios en:**
+- Schema Prisma.
+- Endpoint `/apply`.
+- Script `sync_assets.ts`.
+
+**Validación:**
+- `npx tsc --noEmit` en `apps/api` ✓
+- `npx tsc --noEmit` en `apps/web` ✓
+
+---
+
 ### 17. Reemplazar RapidAPI con CSV local para "Buscar media" (2026-05-19)
 
 **Objetivos:**
