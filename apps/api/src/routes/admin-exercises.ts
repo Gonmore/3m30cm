@@ -430,22 +430,47 @@ adminExercisesRouter.put("/exercises/:id/block-items", async (req: Request, res:
 
 // ── Populate exercise GIFs from ExerciseDB (RapidAPI) ─────────────────────────
 
-interface PopulateGifsResult {
-  slug: string;
+interface ExerciseDbCandidate {
   name: string;
-  status: "ok" | "skipped" | "error";
-  matchedName?: string;
-  message?: string;
+  gifUrl: string;
 }
 
-async function searchExerciseDb(name: string): Promise<{ name: string; gifUrl: string } | null> {
+interface ExerciseSearchResult {
+  exerciseId: string;
+  slug: string;
+  name: string;
+  /** First candidate if it's a strong name match; null otherwise */
+  autoMatch: ExerciseDbCandidate | null;
+  /** Remaining candidates (or all when no autoMatch) — up to 4 */
+  candidates: ExerciseDbCandidate[];
+  hasMedia: boolean;
+  existingUrls: string[];
+}
+
+function extractGifUrl(item: Record<string, unknown>): string | null {
+  const raw = item["gifUrl"] ?? item["gif_url"] ?? item["gif"] ?? item["imageUrl"] ?? item["image"];
+  if (typeof raw !== "string" || !raw.startsWith("http")) return null;
+  return raw;
+}
+
+/** Simple English-name similarity: covers direct includes and majority-word overlap */
+function isAutoMatch(searchName: string, candidateName: string): boolean {
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const a = normalize(searchName);
+  const b = normalize(candidateName);
+  if (a === b || b.includes(a) || a.includes(b)) return true;
+  const aWords = a.split(" ").filter((w) => w.length > 3);
+  if (aWords.length === 0) return false;
+  return aWords.filter((w) => b.includes(w)).length >= Math.ceil(aWords.length * 0.7);
+}
+
+async function searchExerciseDb(name: string, limit = 5): Promise<ExerciseDbCandidate[]> {
   const key = process.env.X_RAPIDAPI_KEY ?? "";
   const host = process.env.X_RAPIDAPI_HOST ?? "exercisedb.p.rapidapi.com";
+  if (!key) return [];
 
-  if (!key) return null;
-
-  const url = `https://${host}/exercises/name/${encodeURIComponent(name.toLowerCase())}?limit=1&offset=0`;
-
+  const url = `https://${host}/exercises/name/${encodeURIComponent(name.toLowerCase())}?limit=${limit}&offset=0`;
   const res = await fetch(url, {
     headers: {
       "x-rapidapi-key": key,
@@ -453,85 +478,169 @@ async function searchExerciseDb(name: string): Promise<{ name: string; gifUrl: s
       "Content-Type": "application/json",
     },
   });
+  if (!res.ok) return [];
 
-  if (!res.ok) {
-    throw new Error(`ExerciseDB ${res.status}: ${res.statusText}`);
+  const data = (await res.json()) as Record<string, unknown>[];
+  if (!Array.isArray(data)) return [];
+
+  const candidates: ExerciseDbCandidate[] = [];
+  for (const item of data) {
+    const gifUrl = extractGifUrl(item);
+    const itemName = item["name"];
+    if (gifUrl && typeof itemName === "string") {
+      candidates.push({ name: itemName, gifUrl });
+    }
   }
-
-  const data = (await res.json()) as Array<{ name: string; gifUrl: string }>;
-  return data[0] ?? null;
+  return candidates;
 }
 
-adminExercisesRouter.post("/exercises/populate-gifs", async (_req: Request, res: Response) => {
+// POST /exercises/populate-gifs/search — dry-run: find candidates per exercise, no DB writes
+adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Request, res: Response) => {
   const rapidApiKey = process.env.X_RAPIDAPI_KEY ?? "";
-
   if (!rapidApiKey) {
     res.status(400).json({ message: "X_RAPIDAPI_KEY is not configured on the server." });
     return;
   }
 
   const exercises = await prisma.exercise.findMany({
-    select: { id: true, slug: true, name: true },
+    select: { id: true, slug: true, name: true, mediaAssets: { select: { url: true } } },
     orderBy: { name: "asc" },
   });
 
-  const results: PopulateGifsResult[] = [];
+  const results: ExerciseSearchResult[] = [];
+
+  for (const ex of exercises) {
+    await new Promise<void>((r) => setTimeout(r, 300));
+    try {
+      const candidates = await searchExerciseDb(ex.name, 5);
+      const first = candidates[0] ?? null;
+      const autoMatch = first && isAutoMatch(ex.name, first.name) ? first : null;
+      const rest = autoMatch ? candidates.slice(1, 5) : candidates.slice(0, 4);
+      results.push({
+        exerciseId: ex.id,
+        slug: ex.slug,
+        name: ex.name,
+        autoMatch,
+        candidates: rest,
+        hasMedia: ex.mediaAssets.length > 0,
+        existingUrls: ex.mediaAssets.map((m) => m.url).filter((u): u is string => u !== null),
+      });
+    } catch {
+      results.push({
+        exerciseId: ex.id,
+        slug: ex.slug,
+        name: ex.name,
+        autoMatch: null,
+        candidates: [],
+        hasMedia: ex.mediaAssets.length > 0,
+        existingUrls: ex.mediaAssets.map((m) => m.url).filter((u): u is string => u !== null),
+      });
+    }
+  }
+
+  res.json({ results });
+});
+
+// POST /exercises/populate-gifs/apply — download + upload + save chosen GIFs
+adminExercisesRouter.post("/exercises/populate-gifs/apply", async (req: Request, res: Response) => {
+  const schema = z.array(
+    z.object({
+      exerciseId: z.string(),
+      gifUrl: z.string().url(),
+      candidateName: z.string(),
+    }),
+  );
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: "Invalid payload", issues: parsed.error.issues });
+    return;
+  }
+
+  const items = parsed.data;
+  const results: {
+    exerciseId: string;
+    status: "ok" | "skipped" | "error";
+    message?: string;
+    objectKey?: string;
+  }[] = [];
   let ok = 0;
   let skipped = 0;
   let errors = 0;
 
-  for (const exercise of exercises) {
-    await new Promise<void>((r) => setTimeout(r, 300));
-
+  for (const item of items) {
     try {
-      const match = await searchExerciseDb(exercise.name);
-
-      if (!match) {
-        results.push({ slug: exercise.slug, name: exercise.name, status: "skipped", message: "not found in ExerciseDB" });
+      // Skip if this exact URL is already saved for this exercise
+      const existing = await prisma.exerciseMediaAsset.findFirst({
+        where: { exerciseId: item.exerciseId, url: item.gifUrl },
+      });
+      if (existing) {
+        results.push({ exerciseId: item.exerciseId, status: "skipped", message: "URL already saved" });
         skipped++;
         continue;
       }
 
+      // Does the exercise already have a primary GIF?
+      const hasPrimaryGif = await prisma.exerciseMediaAsset.findFirst({
+        where: { exerciseId: item.exerciseId, kind: "GIF", isPrimary: true },
+      });
+
       // Download GIF
-      const gifRes = await fetch(match.gifUrl);
+      const gifRes = await fetch(item.gifUrl);
       if (!gifRes.ok) throw new Error(`Download failed: ${gifRes.status}`);
       const data = Buffer.from(await gifRes.arrayBuffer());
       const contentType = gifRes.headers.get("content-type") ?? "image/gif";
 
-      // Upload to MinIO (reuse existing helper — filename drives the .gif extension)
+      // Upload to MinIO
       const { objectKey, url } = await uploadExerciseMedia({
-        exerciseId: exercise.id,
+        exerciseId: item.exerciseId,
         fileName: "image.gif",
         contentType,
         data,
       });
 
-      // Upsert primary GIF record
-      await prisma.$transaction([
-        prisma.exerciseMediaAsset.updateMany({
-          where: { exerciseId: exercise.id, kind: "GIF", isPrimary: true },
-          data: { isPrimary: false },
-        }),
-        prisma.exerciseMediaAsset.create({
+      if (!hasPrimaryGif) {
+        // No primary yet — demote any existing and mark this one primary
+        await prisma.$transaction([
+          prisma.exerciseMediaAsset.updateMany({
+            where: { exerciseId: item.exerciseId, kind: "GIF", isPrimary: true },
+            data: { isPrimary: false },
+          }),
+          prisma.exerciseMediaAsset.create({
+            data: {
+              exerciseId: item.exerciseId,
+              kind: "GIF",
+              bucket: env.MINIO_BUCKET,
+              objectKey,
+              url,
+              title: item.candidateName,
+              isPrimary: true,
+            },
+          }),
+        ]);
+      } else {
+        // Already has a primary GIF — add this as extra (non-primary)
+        await prisma.exerciseMediaAsset.create({
           data: {
-            exerciseId: exercise.id,
+            exerciseId: item.exerciseId,
             kind: "GIF",
             bucket: env.MINIO_BUCKET,
             objectKey,
             url,
-            title: match.name,
-            isPrimary: true,
+            title: item.candidateName,
+            isPrimary: false,
           },
-        }),
-      ]);
+        });
+      }
 
-      results.push({ slug: exercise.slug, name: exercise.name, status: "ok", matchedName: match.name });
+      results.push({ exerciseId: item.exerciseId, status: "ok", objectKey });
       ok++;
+      console.log(`populate-gifs apply [${item.exerciseId}]: ok → ${objectKey}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      results.push({ slug: exercise.slug, name: exercise.name, status: "error", message });
+      results.push({ exerciseId: item.exerciseId, status: "error", message });
       errors++;
-      console.error(`populate-gifs [${exercise.slug}]:`, err);
+      console.error(`populate-gifs apply [${item.exerciseId}]:`, err);
     }
   }
 

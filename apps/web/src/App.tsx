@@ -2452,7 +2452,20 @@ export default function App() {
     ok: number; skipped: number; errors: number;
     results: { slug: string; name: string; status: string; matchedName?: string; message?: string }[];
   } | null>(null);
-  const [selectedDayNumber, setSelectedDayNumber] = useState<number>(1);
+  type PopulatePhase = "idle" | "searching" | "review" | "applying" | "done";
+  interface PopulateSearchItem {
+    exerciseId: string;
+    slug: string;
+    name: string;
+    autoMatch: { name: string; gifUrl: string } | null;
+    candidates: { name: string; gifUrl: string }[];
+    hasMedia: boolean;
+    existingUrls: string[];
+  }
+  const [populatePhase, setPopulatePhase] = useState<PopulatePhase>("idle");
+  const [populateSearchItems, setPopulateSearchItems] = useState<PopulateSearchItem[]>([]);
+  const [populateSelections, setPopulateSelections] = useState<Record<string, string>>({});
+  const [populateApplyResult, setPopulateApplyResult] = useState<{ ok: number; skipped: number; errors: number } | null>(null);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedAthleteProfileId, setSelectedAthleteProfileId] = useState<string>("");
   const [selectedMembershipId, setSelectedMembershipId] = useState<string>("");
@@ -2464,6 +2477,7 @@ export default function App() {
   const [programGeneration, setProgramGeneration] = useState<ProgramGenerationState>(emptyProgramGeneration);
   const [prescriptionsDraft, setPrescriptionsDraft] = useState<PrescriptionRecord[]>([]);
   const [selectedPrescriptionIdx, setSelectedPrescriptionIdx] = useState<number>(0);
+  const [selectedDayNumber, setSelectedDayNumber] = useState<number>(1);
   const [loginForm, setLoginForm] = useState({ email: "admin@3m30cm.local", password: "Admin123!" });
   const [message, setMessage] = useState<string>("");
   const [error, setError] = useState<string>("");
@@ -4045,6 +4059,72 @@ export default function App() {
     }
   }
 
+  async function handlePopulateSearch() {
+    if (!accessToken) return;
+    setPopulatingGifs(true);
+    setPopulatePhase("searching");
+    setPopulateSearchItems([]);
+    setPopulateSelections({});
+    setPopulateApplyResult(null);
+    try {
+      const result = await requestJson<{ results: PopulateSearchItem[] }>(
+        "/api/v1/admin/exercises/populate-gifs/search",
+        { method: "POST" },
+        accessToken,
+      );
+      const selections: Record<string, string> = {};
+      for (const item of result.results) {
+        if (item.autoMatch) {
+          selections[item.exerciseId] = item.autoMatch.gifUrl;
+        } else if (item.candidates.length > 0) {
+          selections[item.exerciseId] = item.candidates[0]!.gifUrl;
+        } else {
+          selections[item.exerciseId] = "skip";
+        }
+      }
+      setPopulateSearchItems(result.results);
+      setPopulateSelections(selections);
+      setPopulatePhase("review");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al buscar media");
+      setPopulatePhase("idle");
+    } finally {
+      setPopulatingGifs(false);
+    }
+  }
+
+  async function handlePopulateApply() {
+    if (!accessToken) return;
+    setPopulatePhase("applying");
+    const items = populateSearchItems
+      .filter((item) => {
+        const sel = populateSelections[item.exerciseId];
+        return sel && sel !== "skip";
+      })
+      .map((item) => {
+        const gifUrl = populateSelections[item.exerciseId]!;
+        const allCandidates = item.autoMatch ? [item.autoMatch, ...item.candidates] : item.candidates;
+        const matched = allCandidates.find((c) => c.gifUrl === gifUrl);
+        return { exerciseId: item.exerciseId, gifUrl, candidateName: matched?.name ?? "" };
+      });
+    if (!items.length) {
+      setPopulatePhase("idle");
+      return;
+    }
+    try {
+      const result = await requestJson<{ ok: number; skipped: number; errors: number }>(
+        "/api/v1/admin/exercises/populate-gifs/apply",
+        { method: "POST", body: JSON.stringify(items) },
+        accessToken,
+      );
+      setPopulateApplyResult(result);
+      setPopulatePhase("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al aplicar media");
+      setPopulatePhase("review");
+    }
+  }
+
   async function handlePopulateGifs() {
     if (!accessToken || populatingGifs) return;
     setPopulatingGifs(true);
@@ -5495,31 +5575,26 @@ export default function App() {
               <button
                 className="secondary-button"
                 type="button"
-                disabled={populatingGifs}
-                onClick={() => void handlePopulateGifs()}
-                title="Descarga GIFs desde ExerciseDB y los sube a MinIO para cada ejercicio del catálogo"
+                disabled={populatePhase === "searching"}
+                onClick={() => {
+                  if (populatePhase === "idle" || populatePhase === "done") {
+                    void handlePopulateSearch();
+                  } else {
+                    setPopulatePhase("review");
+                  }
+                }}
+                title="Busca GIFs en ExerciseDB y permite revisar coincidencias antes de subir"
               >
-                {populatingGifs ? "Obteniendo…" : "Obtener media"}
+                {populatePhase === "searching"
+                  ? "Buscando…"
+                  : populatePhase === "review" || populatePhase === "applying"
+                  ? "Ver selección"
+                  : populatePhase === "done"
+                  ? "Ver resultados"
+                  : "Buscar media"}
               </button>
             </div>
           </div>
-          {populateGifsResult ? (
-            <details style={{ marginBottom: 8, fontSize: 12 }}>
-              <summary style={{ cursor: "pointer", userSelect: "none" }}>
-                ✅ {populateGifsResult.ok} ok · ⏭️ {populateGifsResult.skipped} omitidos · ❌ {populateGifsResult.errors} errores
-              </summary>
-              <ul style={{ margin: "6px 0 0 16px", lineHeight: 1.6 }}>
-                {populateGifsResult.results.map((r) => (
-                  <li key={r.slug}>
-                    {r.status === "ok" ? "✅" : r.status === "skipped" ? "⏭️" : "❌"}{" "}
-                    <strong>{r.name}</strong>
-                    {r.matchedName ? <> → {r.matchedName}</> : null}
-                    {r.message ? <span className="helper-text"> ({r.message})</span> : null}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
 
           <input
             className="exercise-search"
@@ -5868,6 +5943,126 @@ export default function App() {
           </article>
         </section>
       </section>
+
+      {(populatePhase === "review" || populatePhase === "applying" || populatePhase === "done") ? (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && populatePhase !== "applying") {
+              setPopulatePhase("idle");
+            }
+          }}
+        >
+          <div className="modal-panel" style={{ maxWidth: 780, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Catálogo</p>
+                <h2>Seleccionar media desde ExerciseDB</h2>
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={populatePhase === "applying"}
+                onClick={() => setPopulatePhase("idle")}
+              >
+                Cerrar
+              </button>
+            </div>
+
+            {populatePhase === "done" && populateApplyResult ? (
+              <div className="modal-body" style={{ textAlign: "center" }}>
+                <p style={{ fontSize: 24, margin: "24px 0 8px" }}>
+                  ✅ {populateApplyResult.ok} subidos &nbsp;·&nbsp;
+                  ⏭️ {populateApplyResult.skipped} omitidos &nbsp;·&nbsp;
+                  ❌ {populateApplyResult.errors} errores
+                </p>
+                <button className="secondary-button" type="button" onClick={() => setPopulatePhase("idle")}>
+                  Cerrar
+                </button>
+              </div>
+            ) : (
+              <>
+                {(() => {
+                  const autoCount = populateSearchItems.filter((i) => i.autoMatch).length;
+                  const candidateCount = populateSearchItems.filter((i) => !i.autoMatch && i.candidates.length > 0).length;
+                  const notFoundCount = populateSearchItems.filter((i) => !i.autoMatch && i.candidates.length === 0).length;
+                  const toApplyCount = populateSearchItems.filter((i) => (populateSelections[i.exerciseId] ?? "skip") !== "skip").length;
+                  return (
+                    <div style={{ padding: "10px 24px", borderBottom: "1px solid var(--border)", display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                        🎯 {autoCount} auto &nbsp;·&nbsp; 🔀 {candidateCount} a elegir &nbsp;·&nbsp; ❓ {notFoundCount} no encontrados
+                      </span>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={populatePhase === "applying" || toApplyCount === 0}
+                        onClick={() => void handlePopulateApply()}
+                        style={{ marginLeft: "auto" }}
+                      >
+                        {populatePhase === "applying" ? "Subiendo…" : `Aplicar ${toApplyCount}`}
+                      </button>
+                    </div>
+                  );
+                })()}
+
+                <div className="modal-body" style={{ flex: 1, overflowY: "auto", padding: 0 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-subtle, #f5f5f5)", position: "sticky", top: 0 }}>
+                        <th style={{ textAlign: "left", padding: "8px 16px", fontWeight: 600 }}>Ejercicio</th>
+                        <th style={{ textAlign: "left", padding: "8px 16px", fontWeight: 600 }}>Coincidencia</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {populateSearchItems.map((item) => {
+                        const selected = populateSelections[item.exerciseId] ?? "skip";
+                        const allCandidates = item.autoMatch ? [item.autoMatch, ...item.candidates] : item.candidates;
+                        const isSkipped = selected === "skip";
+                        return (
+                          <tr
+                            key={item.exerciseId}
+                            style={{ borderBottom: "1px solid var(--border-subtle, #eee)", opacity: isSkipped ? 0.5 : 1 }}
+                          >
+                            <td style={{ padding: "8px 16px", verticalAlign: "top" }}>
+                              <div style={{ fontWeight: 500 }}>{item.name}</div>
+                              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                                {item.hasMedia ? "🖼 ya tiene media" : "sin media aún"}
+                              </div>
+                            </td>
+                            <td style={{ padding: "8px 16px", verticalAlign: "top" }}>
+                              {allCandidates.length > 0 ? (
+                                <select
+                                  value={selected}
+                                  onChange={(e) =>
+                                    setPopulateSelections((prev) => ({ ...prev, [item.exerciseId]: e.target.value }))
+                                  }
+                                  style={{ width: "100%", fontSize: 12, maxWidth: 340 }}
+                                  disabled={populatePhase === "applying"}
+                                >
+                                  <option value="skip">⏭️ Omitir</option>
+                                  {allCandidates.map((c) => (
+                                    <option key={c.gifUrl} value={c.gifUrl}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>❓ Sin coincidencias</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {exerciseModalOpen ? (
         <div
