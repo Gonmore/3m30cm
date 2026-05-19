@@ -1,5 +1,8 @@
 import { Role } from "@prisma/client";
 import { type Request, type Response, Router } from "express";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 import { prisma } from "../config/prisma.js";
@@ -116,6 +119,62 @@ adminAppConfigRouter.put(
       }
       console.error("Failed to upsert app config", error);
       res.status(500).json({ message: "Failed to upsert app config" });
+    }
+  },
+);
+
+// ── Available apps (workspace discovery) ──────────────────────────────────────
+
+/**
+ * GET /api/v1/admin/available-apps
+ * Scans the workspace for mobile app directories (apps/mobile*) and returns
+ * their app.json metadata (slug, name) for use in the admin UI.
+ */
+adminAppConfigRouter.get(
+  "/available-apps",
+  requireAuth,
+  requireRole([Role.SUPERADMIN]),
+  async (_req: AuthenticatedRequest, res: Response) => {
+    try {
+      // Resolve workspace root: this file is at apps/api/src/routes/app-config.ts
+      // so ../../../../ gets us to the monorepo root.
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      const workspaceRoot = resolve(__dirname, "../../../../");
+      const appsDir = join(workspaceRoot, "apps");
+
+      let dirs: string[] = [];
+      try {
+        dirs = readdirSync(appsDir, { withFileTypes: true })
+          .filter((d) => d.isDirectory() && /^mobile/.test(d.name))
+          .map((d) => d.name);
+      } catch {
+        // apps dir not found – return empty list
+      }
+
+      const availableApps = dirs.map((dirName) => {
+        const appJsonPath = join(appsDir, dirName, "app.json");
+        let appSlug = dirName;
+        let displayName = dirName;
+
+        if (existsSync(appJsonPath)) {
+          try {
+            const raw = JSON.parse(readFileSync(appJsonPath, "utf-8")) as Record<string, unknown>;
+            const expo = (raw.expo ?? raw) as Record<string, unknown>;
+            if (typeof expo.slug === "string") appSlug = expo.slug;
+            if (typeof expo.name === "string") displayName = expo.name;
+          } catch {
+            // ignore parse errors
+          }
+        }
+
+        return { directory: dirName, appSlug, displayName };
+      });
+
+      res.json({ availableApps });
+    } catch (error) {
+      console.error("Failed to list available apps", error);
+      res.status(500).json({ message: "Failed to list available apps" });
     }
   },
 );

@@ -7,7 +7,7 @@ import { env } from "../config/env.js";
 import { prisma } from "../config/prisma.js";
 import { parseExerciseTaskBlock } from "../lib/exercise-task-import.js";
 import { analyze as analyzeBiomechanics, CalibrationError } from "../lib/jumpHeightAnalyzer.js";
-import { deleteProgramTechniqueMedia, uploadProgramTechniqueMedia } from "../lib/minio.js";
+import { deleteProgramTechniqueMedia, uploadProgramTechniqueMedia, uploadTemplateWelcomeVideo } from "../lib/minio.js";
 import { ensureTemplateTechniqueStructure } from "../lib/program-template-techniques.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
@@ -2391,6 +2391,53 @@ adminTemplatesRouter.delete(
     } catch (error) {
       console.error("Failed to delete day", error);
       res.status(500).json({ message: "Failed to delete day" });
+    }
+  },
+);
+
+// ── Welcome video upload ────────────────────────────────────────────────────
+adminTemplatesRouter.post(
+  "/program-templates/:code/welcome-video",
+  upload.single("file"),
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      const file = req.file;
+
+      if (!code) {
+        res.status(400).json({ message: "Program template code is required" });
+        return;
+      }
+      if (!file) {
+        res.status(400).json({ message: "File is required" });
+        return;
+      }
+
+      const template = await prisma.programTemplate.findUnique({
+        where: { code },
+        select: { id: true },
+      });
+      if (!template) {
+        res.status(404).json({ message: "Program template not found" });
+        return;
+      }
+
+      const uploadResult = await uploadTemplateWelcomeVideo({
+        programTemplateId: template.id,
+        fileName: file.originalname,
+        contentType: file.mimetype || "video/mp4",
+        data: file.buffer,
+      });
+
+      await prisma.programTemplate.update({
+        where: { id: template.id },
+        data: { welcomeVideoUrl: uploadResult.url },
+      });
+
+      res.json({ welcomeVideoUrl: uploadResult.url });
+    } catch (error) {
+      console.error("Failed to upload welcome video", error);
+      res.status(500).json({ message: "Failed to upload welcome video" });
     }
   },
 );

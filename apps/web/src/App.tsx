@@ -2518,6 +2518,10 @@ export default function App() {
   // ── Apps state ─────────────────────────────────────────────────────────────
   const [appConfigs, setAppConfigs] = useState<AppConfigRecord[]>([]);
   const [appConfigDraft, setAppConfigDraft] = useState<Record<string, string>>({});
+  const [availableApps, setAvailableApps] = useState<{ directory: string; appSlug: string; displayName: string }[]>([]);
+  // Welcome video upload state (for template metadata form)
+  const [welcomeVideoFile, setWelcomeVideoFile] = useState<File | null>(null);
+  const [welcomeVideoUploading, setWelcomeVideoUploading] = useState(false);
   // ─────────────────────────────────────────────────────────────────────────
 
   type AngleWizardState =
@@ -3757,11 +3761,21 @@ export default function App() {
   useEffect(() => {
     if (!accessToken || adminView !== "apps") return;
     void (async () => {
-      const res = await requestJson<{ appConfigs: AppConfigRecord[] }>("/api/v1/admin/app-configs", {}, accessToken);
-      setAppConfigs(res.appConfigs);
-      const draft: Record<string, string> = {};
-      for (const cfg of res.appConfigs) draft[cfg.appSlug] = cfg.templateCode;
-      setAppConfigDraft(draft);
+      try {
+        const configsRes = await requestJson<{ appConfigs: AppConfigRecord[] }>("/api/v1/admin/app-configs", {}, accessToken);
+        setAppConfigs(configsRes.appConfigs);
+        const draft: Record<string, string> = {};
+        for (const cfg of configsRes.appConfigs) draft[cfg.appSlug] = cfg.templateCode;
+        setAppConfigDraft(draft);
+      } catch (e) {
+        console.error("Failed to load app configs", e);
+      }
+      try {
+        const appsRes = await requestJson<{ availableApps: { directory: string; appSlug: string; displayName: string }[] }>("/api/v1/admin/available-apps", {}, accessToken);
+        setAvailableApps(appsRes.availableApps);
+      } catch (e) {
+        console.error("Failed to load available apps", e);
+      }
     })();
   }, [adminView, accessToken]);
 
@@ -4694,6 +4708,7 @@ export default function App() {
       }
       setTemplateModalOpen(false);
       setTemplateForm(emptyTemplateForm());
+      setWelcomeVideoFile(null);
       await refreshDashboard(accessToken);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Error al guardar el programa");
@@ -4717,6 +4732,28 @@ export default function App() {
       setError(err instanceof Error ? err.message : "Error al guardar config");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleWelcomeVideoUpload(templateCode: string) {
+    if (!accessToken || !welcomeVideoFile || !templateCode) return;
+    const formData = new FormData();
+    formData.append("file", welcomeVideoFile);
+    try {
+      setWelcomeVideoUploading(true);
+      setError("");
+      const res = await requestJson<{ welcomeVideoUrl: string }>(
+        `/api/v1/admin/program-templates/${templateCode}/welcome-video`,
+        { method: "POST", body: formData },
+        accessToken,
+      );
+      setTemplateForm((f) => ({ ...f, welcomeVideoUrl: res.welcomeVideoUrl }));
+      setWelcomeVideoFile(null);
+      setMessage("Video de bienvenida subido.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al subir video");
+    } finally {
+      setWelcomeVideoUploading(false);
     }
   }
 
@@ -7215,10 +7252,11 @@ export default function App() {
                     <label>
                       Video de bienvenida (URL)
                       <input
-                        type="url"
+                        type="text"
                         value={templateForm.welcomeVideoUrl}
                         onChange={(e) => setTemplateForm((f) => ({ ...f, welcomeVideoUrl: e.target.value }))}
-                        placeholder="https://..."
+                        placeholder="/api/v1/assets/... o https://..."
+                        readOnly={welcomeVideoUploading}
                       />
                     </label>
                   </div>
@@ -7226,6 +7264,34 @@ export default function App() {
                     {templateForm.id ? "Guardar cambios" : "Crear programa"}
                   </button>
                 </form>
+                {/* ── Welcome video upload (only when editing an existing template) ── */}
+                {templateForm.id ? (
+                  <div style={{ marginTop: 16, padding: 16, background: "var(--surface-raise, #1a2640)", borderRadius: 8 }}>
+                    <p className="eyebrow" style={{ marginBottom: 8 }}>Subir video de bienvenida a MinIO</p>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      <input
+                        type="file"
+                        accept="video/*"
+                        style={{ flex: 1, minWidth: 200 }}
+                        onChange={(e) => setWelcomeVideoFile(e.target.files?.[0] ?? null)}
+                        disabled={welcomeVideoUploading}
+                      />
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={!welcomeVideoFile || welcomeVideoUploading}
+                        onClick={() => void handleWelcomeVideoUpload(templateForm.code)}
+                      >
+                        {welcomeVideoUploading ? "Subiendo…" : "Subir video"}
+                      </button>
+                    </div>
+                    {templateForm.welcomeVideoUrl ? (
+                      <p className="helper-text" style={{ marginTop: 6, wordBreak: "break-all" }}>
+                        ✅ Video actual: <a href={templateForm.welcomeVideoUrl} target="_blank" rel="noreferrer">{templateForm.welcomeVideoUrl}</a>
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -7248,6 +7314,7 @@ export default function App() {
                     onClick={() => {
                       setTemplateTypeModalOpen(false);
                       setTemplateForm(emptyTemplateForm());
+                      setWelcomeVideoFile(null);
                       setTemplateModalOpen(true);
                     }}
                   >
@@ -11262,30 +11329,60 @@ export default function App() {
             )}
           </article>
 
-          {/* Right panel: create new app config */}
+          {/* Right panel: associate app directory with a template */}
           <article className="panel-card">
             <div className="section-header">
-              <h3>Nueva app</h3>
+              <h3>Asociar app</h3>
             </div>
+            <p className="helper-text">
+              {availableApps.length > 0
+                ? "Selecciona un directorio del workspace y asígnale un programa. El slug se lee automáticamente del app.json."
+                : "Ingresa el slug de la app (ej: 3m30cm-game) y asígnale un programa de entrenamiento."}
+            </p>
             <form
               className="stack-form"
               onSubmit={(e) => {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
-                const slug = String(fd.get("newAppSlug") ?? "").trim();
-                const displayName = String(fd.get("newAppDisplayName") ?? "").trim();
                 const templateCode = String(fd.get("newAppTemplateCode") ?? "").trim();
-                if (!slug || !displayName || !templateCode) return;
-                setAppConfigDraft((d) => ({ ...d, [slug]: templateCode }));
+                if (!templateCode) return;
+
+                let appSlug: string;
+                let displayName: string;
+
+                if (availableApps.length > 0) {
+                  const directory = String(fd.get("newAppDirectory") ?? "").trim();
+                  if (!directory) return;
+                  const chosen = availableApps.find((a) => a.directory === directory);
+                  if (!chosen) return;
+                  appSlug = chosen.appSlug;
+                  displayName = chosen.displayName;
+                } else {
+                  appSlug = String(fd.get("newAppSlug") ?? "").trim();
+                  displayName = String(fd.get("newAppDisplayName") ?? "").trim();
+                  if (!appSlug) return;
+                  if (!displayName) displayName = appSlug;
+                }
+
+                setAppConfigDraft((d) => ({ ...d, [appSlug]: templateCode }));
                 void (async () => {
                   if (!accessToken) return;
                   try {
                     setLoading(true);
                     setError("");
-                    await requestJson(`/api/v1/admin/app-configs/${slug}`, { method: "PUT", body: JSON.stringify({ displayName, templateCode }) }, accessToken);
-                    setMessage(`App "${displayName}" guardada.`);
-                    const res = await requestJson<{ appConfigs: AppConfigRecord[] }>("/api/v1/admin/app-configs", {}, accessToken);
-                    setAppConfigs(res.appConfigs);
+                    await requestJson(`/api/v1/admin/app-configs/${appSlug}`, { method: "PUT", body: JSON.stringify({ displayName, templateCode }) }, accessToken);
+                    setMessage(`App "${displayName}" (${appSlug}) asociada al programa ${templateCode}.`);
+                    try {
+                      const configsRes = await requestJson<{ appConfigs: AppConfigRecord[] }>("/api/v1/admin/app-configs", {}, accessToken);
+                      setAppConfigs(configsRes.appConfigs);
+                      const draft: Record<string, string> = {};
+                      for (const cfg of configsRes.appConfigs) draft[cfg.appSlug] = cfg.templateCode;
+                      setAppConfigDraft(draft);
+                    } catch {}
+                    try {
+                      const appsRes = await requestJson<{ availableApps: { directory: string; appSlug: string; displayName: string }[] }>("/api/v1/admin/available-apps", {}, accessToken);
+                      setAvailableApps(appsRes.availableApps);
+                    } catch {}
                     e.currentTarget.reset();
                   } catch (err) {
                     setError(err instanceof Error ? err.message : "Error al crear app");
@@ -11296,17 +11393,34 @@ export default function App() {
               }}
             >
               <div className="form-grid">
-                <label>
-                  Slug de la app
-                  <input name="newAppSlug" placeholder="ej. 3m30cm-game" required />
-                </label>
-                <label>
-                  Nombre para mostrar
-                  <input name="newAppDisplayName" placeholder="ej. 3m30cm GAME" required />
-                </label>
+                {availableApps.length > 0 ? (
+                  <label>
+                    Directorio de la app
+                    <select name="newAppDirectory" required>
+                      <option value="">— seleccionar —</option>
+                      {availableApps.map((a) => (
+                        <option key={a.directory} value={a.directory}>
+                          apps/{a.directory} · {a.displayName} ({a.appSlug})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <>
+                    <label>
+                      Slug de la app
+                      <input type="text" name="newAppSlug" required placeholder="ej: 3m30cm-game" />
+                    </label>
+                    <label>
+                      Nombre de la app
+                      <input type="text" name="newAppDisplayName" placeholder="ej: 3m30cm GAME" />
+                    </label>
+                  </>
+                )}
                 <label>
                   Programa de entrenamiento
                   <select name="newAppTemplateCode" required>
+                    <option value="">— seleccionar —</option>
                     {allTemplates.map((t) => (
                       <option key={t.code} value={t.code}>{t.name} ({t.code})</option>
                     ))}
@@ -11314,7 +11428,7 @@ export default function App() {
                 </label>
               </div>
               <button type="submit" className="primary-button" disabled={loading}>
-                Crear app
+                Guardar asociación
               </button>
             </form>
           </article>

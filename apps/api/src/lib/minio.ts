@@ -119,6 +119,41 @@ export async function deleteProgramTechniqueMedia(objectKey: string) {
   );
 }
 
+export async function uploadTemplateWelcomeVideo(params: {
+  programTemplateId: string;
+  fileName: string;
+  contentType: string;
+  data: Buffer;
+}) {
+  await ensureBucket();
+
+  const extension = extname(params.fileName) || ".mp4";
+  const objectKey = `templates/${params.programTemplateId}/welcome-video/${Date.now()}-${randomUUID()}${extension}`;
+
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: env.MINIO_BUCKET,
+      Key: objectKey,
+      Body: params.data,
+      ContentType: params.contentType,
+    }),
+  );
+
+  return {
+    objectKey,
+    url: buildMediaAssetUrl(objectKey),
+  };
+}
+
+export async function deleteTemplateWelcomeVideo(objectKey: string) {
+  await s3Client.send(
+    new DeleteObjectCommand({
+      Bucket: env.MINIO_BUCKET,
+      Key: objectKey,
+    }),
+  );
+}
+
 export async function uploadAvatarMedia(params: {
   userId: string;
   fileName: string;
