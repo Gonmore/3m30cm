@@ -13,6 +13,59 @@
 
 ## Registro de trabajo
 
+### 17. Reemplazar RapidAPI con CSV local para "Buscar media" (2026-05-19)
+
+**Objetivos:**
+1. Eliminar dependencia de ExerciseDB/RapidAPI para la búsqueda de GIFs de ejercicios.
+2. Usar el CSV local (`media_help/exercises.csv`) con ~1324 ejercicios del repo `omercotkd/exercises-gifs`.
+3. Crear script standalone `sync_assets.ts` para poblar MinIO en bloque.
+4. Hacer que el botón "Buscar media" del web admin use el CSV en lugar de la API externa.
+
+**Cambios aplicados:**
+
+1. **API: `apps/api/src/routes/admin-exercises.ts`**
+   - Reemplazada la función `searchExerciseDb()` (RapidAPI) con búsqueda CSV local.
+   - Añadidos imports: `readFileSync` (node:fs), `dirname`/`resolve` (node:path), `fileURLToPath` (node:url).
+   - Añadido `EXERCISE_MAP`: ~50 entradas español→inglés para mapear nombres de DB a términos de búsqueda.
+   - Añadidas funciones CSV: `parseCsvLine`, `getCsvRows` (carga perezosa, singleton), `normWords`, `f1Score`, `searchCsvCandidates`.
+   - `getCsvRows()` resuelve `../../../../media_help/exercises.csv` relativo al archivo compilado (funciona en dev y en Docker).
+   - `searchCsvCandidates(keyword, limit)`: retorna hit exacto primero + hasta N-1 candidatos fuzzy con F1 ≥ 0.35.
+   - `autoMatch` se fija cuando F1 ≥ 0.7 o hit exacto.
+   - Endpoint `POST /exercises/populate-gifs/search`:
+     - Eliminada validación de `X_RAPIDAPI_KEY` (ya no necesaria).
+     - Eliminado delay de 300ms (no hay rate-limit en CSV local).
+     - Por ejercicio: keyword = `EXERCISE_MAP[name] ?? name`, llama `searchCsvCandidates`.
+     - GIF URLs apuntan a GitHub CDN: `https://raw.githubusercontent.com/omercotkd/exercises-gifs/main/assets/{id}.gif`.
+   - Endpoint `POST /exercises/populate-gifs/apply`: **sin cambios** (ya descarga de cualquier URL y sube a MinIO).
+
+2. **API: nuevo script `apps/api/src/scripts/sync_assets.ts`**
+   - Script standalone (`npm run sync:assets`) para poblar en bloque todos los ejercicios del `EXERCISE_MAP`.
+   - Mismo CSV local + fuzzy matching con F1.
+   - Por ejercicio: descarga GIF de GitHub CDN → sube a MinIO como `exercises/{slug}.gif` → upsert `ExerciseMediaAsset` + `ExerciseInstruction` (locale "en").
+   - URL guardada en DB: `https://3m30cm.supernovatel.com/api/v1/assets/jump-assets/exercises/{slug}.gif`.
+   - 250ms de delay entre descargas; idempotente (skip si `objectKey` ya existe en DB).
+
+3. **API: `apps/api/package.json`**
+   - Nuevo script: `"sync:assets": "tsx src/scripts/sync_assets.ts"`.
+
+**Flujo del botón "Buscar media" (web admin → vista Entrenamiento):**
+1. Click "Buscar media" → `POST /api/v1/admin/exercises/populate-gifs/search`
+2. API carga `media_help/exercises.csv` (singleton), itera todos los ejercicios de la DB.
+3. Por cada ejercicio busca en el CSV (exacto + fuzzy F1); retorna hasta 5 candidatos con URL de GIF del CDN de GitHub.
+4. Web admin muestra modal de revisión: tabla con `<select>` de candidatos por ejercicio; los auto-matches se pre-seleccionan.
+5. Click "Aplicar N" → `POST /api/v1/admin/exercises/populate-gifs/apply` → descarga GIFs elegidos → sube a MinIO → guarda en DB.
+
+**Sin cambios en:**
+- Schema Prisma (no migración necesaria).
+- Web admin `App.tsx` (UI del modal de revisión ya funcional).
+- Endpoint `/apply` (ya funciona con cualquier URL de GIF).
+
+**Validación:**
+- `npx tsc --noEmit` en `apps/api` ✓
+- `npx tsc --noEmit` en `apps/web` ✓
+
+---
+
 ### 16. Welcome video upload UI, populate-gifs endpoint, media downloader, bug fixes (2026-05-19)
 
 **Objetivos:**

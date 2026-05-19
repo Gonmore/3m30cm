@@ -1,6 +1,9 @@
 import { Role, SeriesProtocol, type MediaKind, Prisma } from "@prisma/client";
 import { type Request, type Response, Router } from "express";
 import multer from "multer";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 import { env } from "../config/env.js";
@@ -428,7 +431,57 @@ adminExercisesRouter.put("/exercises/:id/block-items", async (req: Request, res:
   }
 });
 
-// ── Populate exercise GIFs from ExerciseDB (RapidAPI) ─────────────────────────
+// ── Populate exercise GIFs from local CSV (omercotkd/exercises-gifs) ─────────
+
+const GIF_CDN_BASE = "https://raw.githubusercontent.com/omercotkd/exercises-gifs/main/assets";
+
+// Spanish exercise name → English keyword used to search exercises.csv
+const EXERCISE_MAP: Record<string, string> = {
+  "Movilidad Dinámica": "world greatest stretch",
+  "Depth Drops": "box jump down",
+  "Bulgarian Split Squat": "dumbbell bulgarian split squat",
+  "Push Ups Explosivas": "clap push up",
+  "Nordic Curl Asistido": "self assisted nordic hamstring curl",
+  "Plank con Toque de Hombros": "kneeling plank tap shoulder (male)",
+  "Tibialis Raise": "tibialis anterior raise",
+  "Estiramiento Estático": "subscapularis stretch",
+  "Descanso Activo": "walk",
+  "Pogo Jumps Nivel 1": "ankle hops plyo",
+  "Goblet Squat": "dumbbell goblet squat",
+  "Pull Ups": "pullup",
+  "Deadlift Rumano": "barbell romanian deadlift",
+  "Copenhague Plank": "copenhagen plank",
+  "Calf Raises": "standing calf raise",
+  "Face Pulls": "rope face pull",
+  "Estiramiento y Movilidad": "yoga positions",
+  "Saltos de Aproximación": "rocket jump",
+  "Step Ups Explosivos": "box step up",
+  "Dips": "triceps dip",
+  "Glute Bridge Una Pierna": "single leg glute bridge",
+  "Dead Bug": "dead bug",
+  "Aterrizaje Monopodal": "single leg landing",
+  "Trap Bar Jump": "trap bar jump squat",
+  "Sentadilla (Back Squat)": "barbell back squat",
+  "Press Militar": "barbell standing overhead press",
+  "Box Jump": "box jump",
+  "Trap Bar Deadlift": "trap bar deadlift",
+  "Pull Ups (Lastradas)": "weighted pullup",
+  "Zancadas Caminando": "dumbbell walking lunge",
+  "Step Up Cargado": "dumbbell box step up",
+  "Press Banca": "barbell bench press",
+  "Glute Bridge Barbell": "barbell glute bridge",
+  "Aterrizaje Monopodal + Salto": "lateral bounds",
+  "Max Approach Jump": "squat jump",
+  "Depth Jumps (Reactivos)": "depth jump",
+  "Power Clean": "barbell power clean",
+  "Sprints de 10m": "run",
+  "Assisted Jumps": "band assisted jump",
+  "Push Press": "barbell push press",
+  "Speed Deadlift": "barbell deadlift",
+  "Single Leg Pogo Jumps": "single leg ankle hops",
+  "Sprints de 20m": "run",
+  "V-Ups Explosivos": "v-up",
+};
 
 interface ExerciseDbCandidate {
   name: string;
@@ -439,69 +492,121 @@ interface ExerciseSearchResult {
   exerciseId: string;
   slug: string;
   name: string;
-  /** First candidate if it's a strong name match; null otherwise */
+  /** Best candidate if score is strong (≥ 0.7); null otherwise */
   autoMatch: ExerciseDbCandidate | null;
-  /** Remaining candidates (or all when no autoMatch) — up to 4 */
+  /** Remaining candidates sorted by score — up to 4 */
   candidates: ExerciseDbCandidate[];
   hasMedia: boolean;
   existingUrls: string[];
 }
 
-function extractGifUrl(item: Record<string, unknown>): string | null {
-  const raw = item["gifUrl"] ?? item["gif_url"] ?? item["gif"] ?? item["imageUrl"] ?? item["image"];
-  if (typeof raw !== "string" || !raw.startsWith("http")) return null;
-  return raw;
+// ── CSV helpers ────────────────────────────────────────────────────────────────
+
+interface CsvRow {
+  id: string;
+  name: string;
+  instructions: string[];
 }
 
-/** Simple English-name similarity: covers direct includes and majority-word overlap */
-function isAutoMatch(searchName: string, candidateName: string): boolean {
-  const normalize = (s: string) =>
-    s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-  const a = normalize(searchName);
-  const b = normalize(candidateName);
-  if (a === b || b.includes(a) || a.includes(b)) return true;
-  const aWords = a.split(" ").filter((w) => w.length > 3);
-  if (aWords.length === 0) return false;
-  return aWords.filter((w) => b.includes(w)).length >= Math.ceil(aWords.length * 0.7);
-}
-
-async function searchExerciseDb(name: string, limit = 5): Promise<ExerciseDbCandidate[]> {
-  const key = process.env.X_RAPIDAPI_KEY ?? "";
-  const host = process.env.X_RAPIDAPI_HOST ?? "exercisedb.p.rapidapi.com";
-  if (!key) return [];
-
-  const url = `https://${host}/exercises/name/${encodeURIComponent(name.toLowerCase())}?limit=${limit}&offset=0`;
-  const res = await fetch(url, {
-    headers: {
-      "x-rapidapi-key": key,
-      "x-rapidapi-host": host,
-      "Content-Type": "application/json",
-    },
-  });
-  if (!res.ok) return [];
-
-  const data = (await res.json()) as Record<string, unknown>[];
-  if (!Array.isArray(data)) return [];
-
-  const candidates: ExerciseDbCandidate[] = [];
-  for (const item of data) {
-    const gifUrl = extractGifUrl(item);
-    const itemName = item["name"];
-    if (gifUrl && typeof itemName === "string") {
-      candidates.push({ name: itemName, gifUrl });
+function parseCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let cur = "";
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (ch === "," && !inQ) {
+      fields.push(cur); cur = "";
+    } else {
+      cur += ch;
     }
   }
-  return candidates;
+  fields.push(cur);
+  return fields;
 }
 
-// POST /exercises/populate-gifs/search — dry-run: find candidates per exercise, no DB writes
-adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Request, res: Response) => {
-  const rapidApiKey = process.env.X_RAPIDAPI_KEY ?? "";
-  if (!rapidApiKey) {
-    res.status(400).json({ message: "X_RAPIDAPI_KEY is not configured on the server." });
-    return;
-  }
+let _csvRows: CsvRow[] | null = null;
 
+function getCsvRows(): CsvRow[] {
+  if (_csvRows) return _csvRows;
+  const csvPath = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../../../media_help/exercises.csv",
+  );
+  const lines = readFileSync(csvPath, "utf-8").split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const header = parseCsvLine(lines[0]!);
+  const idxId = header.indexOf("id");
+  const idxName = header.indexOf("name");
+  const instrCols = header
+    .map((c, i) => (c.startsWith("instructions/") ? { i, n: parseInt(c.split("/")[1]!, 10) } : null))
+    .filter((x): x is { i: number; n: number } => x !== null)
+    .sort((a, b) => a.n - b.n);
+  _csvRows = lines.slice(1).map((line) => {
+    const f = parseCsvLine(line);
+    return {
+      id: f[idxId]?.trim() ?? "",
+      name: f[idxName]?.trim() ?? "",
+      instructions: instrCols.map(({ i }) => f[i]?.trim()).filter((v): v is string => !!v),
+    };
+  });
+  return _csvRows;
+}
+
+function normWords(s: string): string[] {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((w) => w.length > 2);
+}
+
+function f1Score(keyword: string, rowName: string): number {
+  const kw = normWords(keyword);
+  const rw = normWords(rowName);
+  if (kw.length === 0 || rw.length === 0) return 0;
+  const rwSet = new Set(rw);
+  const m = kw.filter((w) => rwSet.has(w)).length;
+  if (m === 0) return 0;
+  const p = m / kw.length;
+  const r = m / rw.length;
+  return (2 * p * r) / (p + r);
+}
+
+/** Returns up to `limit` CSV candidates for `keyword`, sorted by score desc. */
+function searchCsvCandidates(keyword: string, limit = 5): ExerciseDbCandidate[] {
+  const rows = getCsvRows();
+  // Exact match wins immediately
+  const exact = rows.find((r) => r.name.toLowerCase() === keyword.toLowerCase());
+  if (exact) {
+    const top: ExerciseDbCandidate[] = [
+      { name: exact.name, gifUrl: `${GIF_CDN_BASE}/${exact.id}.gif` },
+    ];
+    // Fill remaining slots with fuzzy matches (skip the exact row)
+    const rest = rows
+      .filter((r) => r !== exact)
+      .map((r) => ({ r, s: f1Score(keyword, r.name) }))
+      .filter(({ s }) => s >= 0.35)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, limit - 1)
+      .map(({ r }) => ({ name: r.name, gifUrl: `${GIF_CDN_BASE}/${r.id}.gif` }));
+    return [...top, ...rest];
+  }
+  return rows
+    .map((r) => ({ r, s: f1Score(keyword, r.name) }))
+    .filter(({ s }) => s >= 0.35)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, limit)
+    .map(({ r }) => ({ name: r.name, gifUrl: `${GIF_CDN_BASE}/${r.id}.gif` }));
+}
+
+// POST /exercises/populate-gifs/search — dry-run: find candidates per exercise (CSV-based, no DB writes)
+adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Request, res: Response) => {
   const exercises = await prisma.exercise.findMany({
     select: { id: true, slug: true, name: true, mediaAssets: { select: { url: true } } },
     orderBy: { name: "asc" },
@@ -510,32 +615,24 @@ adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Reques
   const results: ExerciseSearchResult[] = [];
 
   for (const ex of exercises) {
-    await new Promise<void>((r) => setTimeout(r, 300));
-    try {
-      const candidates = await searchExerciseDb(ex.name, 5);
-      const first = candidates[0] ?? null;
-      const autoMatch = first && isAutoMatch(ex.name, first.name) ? first : null;
-      const rest = autoMatch ? candidates.slice(1, 5) : candidates.slice(0, 4);
-      results.push({
-        exerciseId: ex.id,
-        slug: ex.slug,
-        name: ex.name,
-        autoMatch,
-        candidates: rest,
-        hasMedia: ex.mediaAssets.length > 0,
-        existingUrls: ex.mediaAssets.map((m) => m.url).filter((u): u is string => u !== null),
-      });
-    } catch {
-      results.push({
-        exerciseId: ex.id,
-        slug: ex.slug,
-        name: ex.name,
-        autoMatch: null,
-        candidates: [],
-        hasMedia: ex.mediaAssets.length > 0,
-        existingUrls: ex.mediaAssets.map((m) => m.url).filter((u): u is string => u !== null),
-      });
-    }
+    const keyword = EXERCISE_MAP[ex.name] ?? ex.name;
+    const all = searchCsvCandidates(keyword, 5);
+    const first = all[0] ?? null;
+    // Auto-match when the best candidate has strong overlap (F1 ≥ 0.7) or exact hit
+    const autoMatch =
+      first && (first.name.toLowerCase() === keyword.toLowerCase() || f1Score(keyword, first.name) >= 0.7)
+        ? first
+        : null;
+    const rest = autoMatch ? all.slice(1, 5) : all.slice(0, 4);
+    results.push({
+      exerciseId: ex.id,
+      slug: ex.slug,
+      name: ex.name,
+      autoMatch,
+      candidates: rest,
+      hasMedia: ex.mediaAssets.length > 0,
+      existingUrls: ex.mediaAssets.map((m) => m.url).filter((u): u is string => u !== null),
+    });
   }
 
   res.json({ results });

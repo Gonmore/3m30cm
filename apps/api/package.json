@@ -12,6 +12,7 @@
     "db:seed": "tsx src/scripts/seed.ts",
     "db:seed:prod": "node dist/scripts/seed.js",
     "populate:gifs": "tsx src/scripts/populate-exercise-gifs.ts",
+    "sync:assets": "tsx src/scripts/sync_assets.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:prod": "node scripts/migrate-prod.mjs",
