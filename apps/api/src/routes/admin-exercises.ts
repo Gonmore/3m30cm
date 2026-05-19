@@ -483,13 +483,19 @@ const EXERCISE_MAP: Record<string, string> = {
   "V-Ups Explosivos": "v-up",
 };
 
+type MediaSource = "exercisedb" | "fitnessprogramer" | "fitsw" | "master";
+
 interface ExerciseDbCandidate {
   name: string;
-  gifUrl: string;
+  /** GIF URL — null for video-only sources */
+  gifUrl: string | null;
+  /** External video URL (YouTube) — null for GIF-only sources */
+  videoUrl: string | null;
   bodyPart: string;
   target: string;
   secondaryMuscles: string[];
   instructions: string;
+  source: MediaSource;
 }
 
 interface ExerciseSearchResult {
@@ -600,10 +606,12 @@ function csvRowToCandidate(r: CsvRow): ExerciseDbCandidate {
   return {
     name: r.name,
     gifUrl: `${GIF_CDN_BASE}/${r.id}.gif`,
+    videoUrl: null,
     bodyPart: r.bodyPart,
     target: r.target,
     secondaryMuscles: r.secondaryMuscles,
     instructions: r.instructions.join(" "),
+    source: "exercisedb",
   };
 }
 
@@ -652,6 +660,128 @@ function searchCsvCandidates(keyword: string, limit = 5, auxText = ""): Exercise
     .map(({ r }) => csvRowToCandidate(r));
 }
 
+// ── Additional CSV sources ─────────────────────────────────────────────────────
+
+// Source 2: fitnessprogramer gifs.csv  (targetMuscle, title, src)
+type GifsRow = { title: string; targetMuscle: string; src: string };
+let _gifsRows: GifsRow[] | null = null;
+function getGifsRows(): GifsRow[] {
+  if (_gifsRows) return _gifsRows;
+  const csvPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../data/gifs.csv");
+  const lines = readFileSync(csvPath, "utf-8").split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const header = parseCsvLine(lines[0] ?? "");
+  const iTitle = header.indexOf("title");
+  const iTgt = header.indexOf("targetMuscle");
+  const iSrc = header.indexOf("src");
+  const rows: GifsRow[] = lines.slice(1).map((line) => {
+    const f = parseCsvLine(line);
+    return { title: f[iTitle]?.trim() ?? "", targetMuscle: f[iTgt]?.trim() ?? "", src: f[iSrc]?.trim() ?? "" };
+  }).filter((r) => r.title && r.src);
+  _gifsRows = rows;
+  return rows;
+}
+
+// Source 3: fitsw exercise_list.csv  (id, name, equipment, level, muscle, previewSrc, videoLink)
+type ExListRow = { name: string; muscle: string; previewSrc: string; videoLink: string };
+let _exListRows: ExListRow[] | null = null;
+function getExListRows(): ExListRow[] {
+  if (_exListRows) return _exListRows;
+  const csvPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../data/exercise_list.csv");
+  const lines = readFileSync(csvPath, "utf-8").split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const header = parseCsvLine(lines[0] ?? "");
+  const iName = header.indexOf("name");
+  const iMuscle = header.indexOf("muscle");
+  const iPreview = header.indexOf("previewSrc");
+  const iVideo = header.indexOf("videoLink");
+  const rows: ExListRow[] = lines.slice(1).map((line) => {
+    const f = parseCsvLine(line);
+    return {
+      name: f[iName]?.trim() ?? "",
+      muscle: f[iMuscle]?.trim() ?? "",
+      previewSrc: f[iPreview]?.trim() ?? "",
+      videoLink: f[iVideo]?.trim() ?? "",
+    };
+  }).filter((r) => r.name && (r.previewSrc || r.videoLink));
+  _exListRows = rows;
+  return rows;
+}
+
+// Source 4: exercises-master.csv  (name, Category, videoUrl)
+type MasterRow = { name: string; category: string; videoUrl: string };
+let _masterRows: MasterRow[] | null = null;
+function getMasterRows(): MasterRow[] {
+  if (_masterRows) return _masterRows;
+  const csvPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../data/exercises-master.csv");
+  const lines = readFileSync(csvPath, "utf-8").split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const header = parseCsvLine(lines[0] ?? "");
+  const iName = header.indexOf("name");
+  const iCat = header.findIndex((h) => h.toLowerCase() === "category");
+  const iUrl = header.indexOf("videoUrl");
+  const rows: MasterRow[] = lines.slice(1).map((line) => {
+    const f = parseCsvLine(line);
+    return { name: f[iName]?.trim() ?? "", category: f[iCat]?.trim() ?? "", videoUrl: f[iUrl]?.trim() ?? "" };
+  }).filter((r) => r.name && r.videoUrl);
+  _masterRows = rows;
+  return rows;
+}
+
+/**
+ * Search all 4 sources and return up to `perSource` candidates per source,
+ * sorted by name-F1 score descending within each source.
+ * Sources 2–4 use name-only scoring (no instructions available).
+ */
+function searchAllSources(keyword: string, perSource = 3, auxText = ""): ExerciseDbCandidate[] {
+  // Source 1: ExerciseDB (multi-signal scoring)
+  const src1 = searchCsvCandidates(keyword, perSource, auxText);
+
+  const nameScore = (name: string) => f1Score(keyword, name);
+
+  // Source 2: fitnessprogramer
+  const src2: ExerciseDbCandidate[] = getGifsRows()
+    .map((r) => ({ r, s: nameScore(r.title) }))
+    .filter(({ s }) => s >= 0.25)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, perSource)
+    .map(({ r }) => ({
+      name: r.title, gifUrl: r.src, videoUrl: null,
+      bodyPart: "", target: r.targetMuscle, secondaryMuscles: [], instructions: "",
+      source: "fitnessprogramer" as MediaSource,
+    }));
+
+  // Source 3: fitsw
+  const src3: ExerciseDbCandidate[] = getExListRows()
+    .map((r) => ({ r, s: nameScore(r.name) }))
+    .filter(({ s }) => s >= 0.25)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, perSource)
+    .map(({ r }) => ({
+      name: r.name, gifUrl: r.previewSrc || null, videoUrl: r.videoLink || null,
+      bodyPart: "", target: r.muscle, secondaryMuscles: [], instructions: "",
+      source: "fitsw" as MediaSource,
+    }));
+
+  // Source 4: exercises-master (video only)
+  const src4: ExerciseDbCandidate[] = getMasterRows()
+    .map((r) => ({ r, s: nameScore(r.name) }))
+    .filter(({ s }) => s >= 0.25)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, perSource)
+    .map(({ r }) => ({
+      name: r.name, gifUrl: null, videoUrl: r.videoUrl,
+      bodyPart: "", target: r.category, secondaryMuscles: [], instructions: "",
+      source: "master" as MediaSource,
+    }));
+
+  // Merge in priority order, dedup by (source, name)
+  const seen = new Set<string>();
+  const merged: ExerciseDbCandidate[] = [];
+  for (const c of [...src1, ...src2, ...src3, ...src4]) {
+    const key = `${c.source}:${c.name.toLowerCase()}`;
+    if (!seen.has(key)) { seen.add(key); merged.push(c); }
+  }
+  return merged;
+}
+
 // POST /exercises/populate-gifs/search — dry-run: find candidates per exercise (CSV-based, no DB writes)
 adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Request, res: Response) => {
   const exercises = await prisma.exercise.findMany({
@@ -672,11 +802,13 @@ adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Reques
     const keyword = EXERCISE_MAP[ex.name] ?? ex.name;
     // Combine description + Spanish steps as auxiliary text for cross-language scoring
     const auxText = [ex.description ?? "", ex.instructions[0]?.steps ?? ""].filter(Boolean).join(" ");
-    const all = searchCsvCandidates(keyword, 5, auxText);
+    const all = searchAllSources(keyword, 3, auxText);
     const first = all[0] ?? null;
-    // Auto-match when the best candidate has strong overlap (F1 ≥ 0.7) or exact hit
+    // Auto-match only for ExerciseDB source with strong name overlap (F1 ≥ 0.7) or exact hit
     const autoMatch =
-      first && (first.name.toLowerCase() === keyword.toLowerCase() || f1Score(keyword, first.name) >= 0.7)
+      first &&
+      first.source === "exercisedb" &&
+      (first.name.toLowerCase() === keyword.toLowerCase() || f1Score(keyword, first.name) >= 0.7)
         ? first
         : null;
     const rest = autoMatch ? all.slice(1, 5) : all.slice(0, 4);
@@ -719,14 +851,17 @@ adminExercisesRouter.post("/exercises/populate-gifs/translate", async (req: Requ
   }
 });
 
-// POST /exercises/populate-gifs/apply — download + upload + save chosen GIFs
+// POST /exercises/populate-gifs/apply — download + upload + save chosen media (GIFs and/or videos)
 adminExercisesRouter.post("/exercises/populate-gifs/apply", async (req: Request, res: Response) => {
   const schema = z.array(
     z.object({
       exerciseId: z.string(),
-      gifUrl: z.string().url(),
+      /** GIF URL to download and upload to MinIO. Null for video-only items. */
+      gifUrl: z.string().url().nullable().optional(),
+      /** External video URL to save directly (no download). Null for GIF-only items. */
+      videoUrl: z.string().url().nullable().optional(),
       candidateName: z.string(),
-    }),
+    }).refine((d) => d.gifUrl || d.videoUrl, { message: "gifUrl or videoUrl is required" }),
   );
 
   const parsed = schema.safeParse(req.body);
@@ -748,9 +883,12 @@ adminExercisesRouter.post("/exercises/populate-gifs/apply", async (req: Request,
 
   for (const item of items) {
     try {
+      // Determine the canonical URL for duplicate-check
+      const canonicalUrl = item.gifUrl ?? item.videoUrl ?? "";
+
       // Skip if this exact URL is already saved for this exercise
       const existing = await prisma.exerciseMediaAsset.findFirst({
-        where: { exerciseId: item.exerciseId, url: item.gifUrl },
+        where: { exerciseId: item.exerciseId, url: canonicalUrl },
       });
       if (existing) {
         results.push({ exerciseId: item.exerciseId, status: "skipped", message: "URL already saved" });
@@ -758,13 +896,37 @@ adminExercisesRouter.post("/exercises/populate-gifs/apply", async (req: Request,
         continue;
       }
 
+      // ── Video-only path (external URL, no MinIO upload) ─────────────────
+      if (!item.gifUrl && item.videoUrl) {
+        const hasPrimaryVideo = await prisma.exerciseMediaAsset.findFirst({
+          where: { exerciseId: item.exerciseId, kind: "VIDEO", isPrimary: true },
+        });
+        await prisma.exerciseMediaAsset.create({
+          data: {
+            exerciseId: item.exerciseId,
+            kind: "VIDEO",
+            bucket: "external",
+            objectKey: item.videoUrl,
+            url: item.videoUrl,
+            title: item.candidateName,
+            isPrimary: !hasPrimaryVideo,
+          },
+        });
+        results.push({ exerciseId: item.exerciseId, status: "ok", objectKey: item.videoUrl });
+        ok++;
+        console.log(`populate-gifs apply [${item.exerciseId}]: video saved → ${item.videoUrl}`);
+        continue;
+      }
+
+      // ── GIF path (download + MinIO upload) ──────────────────────────────
+
       // Does the exercise already have a primary GIF?
       const hasPrimaryGif = await prisma.exerciseMediaAsset.findFirst({
         where: { exerciseId: item.exerciseId, kind: "GIF", isPrimary: true },
       });
 
       // Download GIF
-      const gifRes = await fetch(item.gifUrl);
+      const gifRes = await fetch(item.gifUrl!);
       if (!gifRes.ok) throw new Error(`Download failed: ${gifRes.status}`);
       const data = Buffer.from(await gifRes.arrayBuffer());
       const contentType = gifRes.headers.get("content-type") ?? "image/gif";

@@ -2453,20 +2453,32 @@ export default function App() {
     results: { slug: string; name: string; status: string; matchedName?: string; message?: string }[];
   } | null>(null);
   type PopulatePhase = "idle" | "searching" | "review" | "applying" | "done";
+  type MediaSource = "exercisedb" | "fitnessprogramer" | "fitsw" | "master";
+  interface PopulateCandidate {
+    name: string;
+    gifUrl: string | null;
+    videoUrl: string | null;
+    bodyPart: string;
+    target: string;
+    secondaryMuscles: string[];
+    instructions: string;
+    source: MediaSource;
+  }
   interface PopulateSearchItem {
     exerciseId: string;
     slug: string;
     name: string;
     description: string | null;
     stepsEs: string | null;
-    autoMatch: { name: string; gifUrl: string; bodyPart: string; target: string; secondaryMuscles: string[]; instructions: string } | null;
-    candidates: { name: string; gifUrl: string; bodyPart: string; target: string; secondaryMuscles: string[]; instructions: string }[];
+    autoMatch: PopulateCandidate | null;
+    candidates: PopulateCandidate[];
     hasMedia: boolean;
     existingUrls: string[];
   }
   const [populatePhase, setPopulatePhase] = useState<PopulatePhase>("idle");
   const [populateSearchItems, setPopulateSearchItems] = useState<PopulateSearchItem[]>([]);
-  const [populateSelections, setPopulateSelections] = useState<Record<string, string>>({});
+  /** Per-exercise selected media URLs (array). Empty array = skip. */
+  const [populateSelections, setPopulateSelections] = useState<Record<string, string[]>>({});
   const [populateApplyResult, setPopulateApplyResult] = useState<{ ok: number; skipped: number; errors: number } | null>(null);
   const [populateStep, setPopulateStep] = useState(0);
   const [populateTranslations, setPopulateTranslations] = useState<Record<string, string>>({});
@@ -4077,15 +4089,11 @@ export default function App() {
         { method: "POST" },
         accessToken,
       );
-      const selections: Record<string, string> = {};
+      const selections: Record<string, string[]> = {};
       for (const item of result.results) {
-        if (item.autoMatch) {
-          selections[item.exerciseId] = item.autoMatch.gifUrl;
-        } else if (item.candidates.length > 0) {
-          selections[item.exerciseId] = item.candidates[0]!.gifUrl;
-        } else {
-          selections[item.exerciseId] = "skip";
-        }
+        const firstUrl = item.autoMatch?.gifUrl ?? item.autoMatch?.videoUrl
+          ?? item.candidates[0]?.gifUrl ?? item.candidates[0]?.videoUrl ?? null;
+        selections[item.exerciseId] = firstUrl ? [firstUrl] : [];
       }
       setPopulateSearchItems(result.results);
       setPopulateSelections(selections);
@@ -4121,17 +4129,20 @@ export default function App() {
   async function handlePopulateApply() {
     if (!accessToken) return;
     setPopulatePhase("applying");
-    const items = populateSearchItems
-      .filter((item) => {
-        const sel = populateSelections[item.exerciseId];
-        return sel && sel !== "skip";
-      })
-      .map((item) => {
-        const gifUrl = populateSelections[item.exerciseId]!;
-        const allCandidates = item.autoMatch ? [item.autoMatch, ...item.candidates] : item.candidates;
-        const matched = allCandidates.find((c) => c.gifUrl === gifUrl);
-        return { exerciseId: item.exerciseId, gifUrl, candidateName: matched?.name ?? "" };
+    const items = populateSearchItems.flatMap((item) => {
+      const selectedUrls = populateSelections[item.exerciseId] ?? [];
+      const allCandidates = item.autoMatch ? [item.autoMatch, ...item.candidates] : item.candidates;
+      return selectedUrls.flatMap((url) => {
+        const cand = allCandidates.find((c) => c.gifUrl === url || c.videoUrl === url);
+        if (!cand) return [];
+        return [{
+          exerciseId: item.exerciseId,
+          gifUrl: cand.gifUrl ?? undefined,
+          videoUrl: cand.videoUrl ?? undefined,
+          candidateName: cand.name,
+        }];
       });
+    });
     if (!items.length) {
       setPopulatePhase("idle");
       return;
@@ -6014,11 +6025,23 @@ export default function App() {
                   const step = Math.min(populateStep, Math.max(0, total - 1));
                   const item = populateSearchItems[step];
                   if (!item) return null;
-                  const toApplyCount = populateSearchItems.filter((i) => (populateSelections[i.exerciseId] ?? "skip") !== "skip").length;
+                  const toApplyCount = populateSearchItems.filter((i) => (populateSelections[i.exerciseId] ?? []).length > 0).length;
                   const allCandidates = item.autoMatch ? [item.autoMatch, ...item.candidates] : item.candidates;
-                  const selected = populateSelections[item.exerciseId] ?? "skip";
-                  const previewUrl = selected !== "skip" ? selected : null;
-                  const selectedCandidate = allCandidates.find((c) => c.gifUrl === selected) ?? null;
+                  const selectedUrls = populateSelections[item.exerciseId] ?? [];
+                  const sourceMeta: Record<string, { label: string; color: string }> = {
+                    exercisedb: { label: "ExerciseDB", color: "#0984e3" },
+                    fitnessprogramer: { label: "fitnessprogramer", color: "#6c5ce7" },
+                    fitsw: { label: "fitsw", color: "#00b894" },
+                    master: { label: "master", color: "#e17055" },
+                  };
+                  function toEmbedUrl(url: string): string | null {
+                    if (url.includes("youtube.com/embed/")) return url;
+                    const m = url.match(/[?&]v=([^&]+)/);
+                    if (m?.[1]) return `https://www.youtube.com/embed/${m[1]}`;
+                    const s = url.match(/youtu\.be\/([^?]+)/);
+                    if (s?.[1]) return `https://www.youtube.com/embed/${s[1]}`;
+                    return null;
+                  }
                   return (
                     <>
                       {/* Progress bar */}
@@ -6090,79 +6113,126 @@ export default function App() {
                             )}
                           </div>
 
-                          {/* Right: candidates + GIF preview */}
+                          {/* Right: multi-select candidates + media preview */}
                           <div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Opciones del CSV</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
+                              Opciones (selección múltiple)
+                            </div>
                             {allCandidates.length > 0 ? (
                               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                                {allCandidates.map((c) => (
-                                  <label
-                                    key={c.gifUrl}
-                                    style={{
-                                      display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer",
-                                      padding: "8px 10px", borderRadius: 6, fontSize: 12,
-                                      background: selected === c.gifUrl ? "var(--primary-subtle, #ede9fe)" : "var(--bg-subtle, #f5f5f5)",
-                                      border: `1px solid ${selected === c.gifUrl ? "var(--primary, #4f46e5)" : "var(--border)"}`,
-                                    }}
-                                  >
-                                    <input
-                                      type="radio"
-                                      name={`candidate-${item.exerciseId}`}
-                                      value={c.gifUrl}
-                                      checked={selected === c.gifUrl}
-                                      onChange={() => setPopulateSelections((prev) => ({ ...prev, [item.exerciseId]: c.gifUrl }))}
-                                      disabled={populatePhase === "applying"}
-                                      style={{ marginTop: 2, flexShrink: 0 }}
-                                    />
-                                    <div>
-                                      <div style={{ fontWeight: 600 }}>{c.name}</div>
-                                      <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
-                                        {[c.target, c.bodyPart].filter(Boolean).join(" \u00b7 ")}
+                                {allCandidates.map((c) => {
+                                  const mediaUrl = c.gifUrl ?? c.videoUrl ?? "";
+                                  const isSelected = selectedUrls.includes(mediaUrl);
+                                  const srcInfo = sourceMeta[c.source] ?? { label: c.source, color: "#888" };
+                                  return (
+                                    <label
+                                      key={`${c.source}-${mediaUrl}`}
+                                      style={{
+                                        display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer",
+                                        padding: "8px 10px", borderRadius: 6, fontSize: 12,
+                                        background: isSelected ? "var(--primary-subtle, #ede9fe)" : "var(--bg-subtle, #f5f5f5)",
+                                        border: `1px solid ${isSelected ? "var(--primary, #4f46e5)" : "var(--border)"}`,
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        disabled={populatePhase === "applying"}
+                                        style={{ marginTop: 2, flexShrink: 0 }}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setPopulateSelections((prev) => ({ ...prev, [item.exerciseId]: [...(prev[item.exerciseId] ?? []), mediaUrl] }));
+                                          } else {
+                                            setPopulateSelections((prev) => ({ ...prev, [item.exerciseId]: (prev[item.exerciseId] ?? []).filter((u) => u !== mediaUrl) }));
+                                          }
+                                        }}
+                                      />
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                          <span style={{ fontWeight: 600 }}>{c.name}</span>
+                                          <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 10, background: srcInfo.color, color: "#fff", textTransform: "uppercase", letterSpacing: 0.5 }}>{srcInfo.label}</span>
+                                          {c.videoUrl && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 10, background: "#e17055", color: "#fff" }}>VIDEO</span>}
+                                        </div>
+                                        <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                                          {[c.target, c.bodyPart].filter(Boolean).join(" \u00b7 ")}
+                                        </div>
+                                        {c.secondaryMuscles.length > 0 && (
+                                          <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{c.secondaryMuscles.slice(0, 3).join(", ")}</div>
+                                        )}
                                       </div>
-                                      {c.secondaryMuscles.length > 0 && (
-                                        <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{c.secondaryMuscles.slice(0, 3).join(", ")}</div>
-                                      )}
-                                    </div>
-                                  </label>
-                                ))}
+                                    </label>
+                                  );
+                                })}
+                                {/* Omitir option */}
                                 <label
                                   style={{
                                     display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
                                     padding: "6px 10px", borderRadius: 6, fontSize: 12, color: "var(--text-muted)",
-                                    border: `1px solid ${selected === "skip" ? "var(--border)" : "transparent"}`,
-                                    background: selected === "skip" ? "var(--bg-subtle, #f5f5f5)" : "transparent",
+                                    border: `1px solid ${selectedUrls.length === 0 ? "var(--border)" : "transparent"}`,
+                                    background: selectedUrls.length === 0 ? "var(--bg-subtle, #f5f5f5)" : "transparent",
                                   }}
                                 >
                                   <input
-                                    type="radio"
-                                    name={`candidate-${item.exerciseId}`}
-                                    value="skip"
-                                    checked={selected === "skip"}
-                                    onChange={() => setPopulateSelections((prev) => ({ ...prev, [item.exerciseId]: "skip" }))}
+                                    type="checkbox"
+                                    checked={selectedUrls.length === 0}
                                     disabled={populatePhase === "applying"}
+                                    onChange={() => setPopulateSelections((prev) => ({ ...prev, [item.exerciseId]: [] }))}
                                   />
                                   {"\u23ed\ufe0f"} Omitir este ejercicio
                                 </label>
                               </div>
                             ) : (
-                              <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>{"\u2753"} Sin coincidencias en el CSV</div>
+                              <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>{"\u2753"} Sin coincidencias en los CSV</div>
                             )}
-                            {previewUrl && (
-                              <div style={{ marginTop: 14, textAlign: "center" }}>
-                                <img
-                                  src={previewUrl}
-                                  alt="GIF preview"
-                                  style={{ maxHeight: 200, maxWidth: "100%", objectFit: "contain", borderRadius: 6, border: "1px solid var(--border)" }}
-                                  loading="lazy"
-                                />
+
+                            {/* Media previews for all selected candidates */}
+                            {selectedUrls.length > 0 && (
+                              <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                                {selectedUrls.map((url) => {
+                                  const cand = allCandidates.find((c) => c.gifUrl === url || c.videoUrl === url);
+                                  const isVideo = cand?.videoUrl === url && !cand?.gifUrl;
+                                  if (isVideo) {
+                                    const embedUrl = toEmbedUrl(url);
+                                    return embedUrl ? (
+                                      <iframe
+                                        key={url}
+                                        src={embedUrl}
+                                        title={cand?.name ?? "video"}
+                                        width="100%"
+                                        height="180"
+                                        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+                                        allowFullScreen
+                                        style={{ borderRadius: 6, border: "1px solid var(--border)" }}
+                                      />
+                                    ) : (
+                                      <div key={url} style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                                        <a href={url} target="_blank" rel="noreferrer">{url}</a>
+                                      </div>
+                                    );
+                                  }
+                                  return (
+                                    <img
+                                      key={url}
+                                      src={url}
+                                      alt="preview"
+                                      style={{ maxHeight: 200, maxWidth: "100%", objectFit: "contain", borderRadius: 6, border: "1px solid var(--border)" }}
+                                      loading="lazy"
+                                    />
+                                  );
+                                })}
                               </div>
                             )}
-                            {selectedCandidate?.instructions && (
-                              <details style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
-                                <summary style={{ cursor: "pointer" }}>Ver instrucciones CSV (EN)</summary>
-                                <div style={{ marginTop: 6, lineHeight: 1.5, maxHeight: 100, overflowY: "auto" }}>{selectedCandidate.instructions}</div>
-                              </details>
-                            )}
+
+                            {/* Instructions for first selected ExerciseDB candidate */}
+                            {(() => {
+                              const firstSel = allCandidates.find((c) => c.source === "exercisedb" && selectedUrls.includes(c.gifUrl ?? ""));
+                              return firstSel?.instructions ? (
+                                <details style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
+                                  <summary style={{ cursor: "pointer" }}>Ver instrucciones CSV (EN)</summary>
+                                  <div style={{ marginTop: 6, lineHeight: 1.5, maxHeight: 100, overflowY: "auto" }}>{firstSel.instructions}</div>
+                                </details>
+                              ) : null;
+                            })()}
                           </div>
                         </div>
                       </div>
@@ -6175,7 +6245,7 @@ export default function App() {
                           disabled={step === 0 || populatePhase === "applying"}
                           onClick={() => setPopulateStep((s) => Math.max(0, s - 1))}
                         >
-                          ← Anterior
+                          {"\u2190"} Anterior
                         </button>
                         <button
                           className="secondary-button"
@@ -6183,7 +6253,7 @@ export default function App() {
                           disabled={step === total - 1 || populatePhase === "applying"}
                           onClick={() => setPopulateStep((s) => Math.min(total - 1, s + 1))}
                         >
-                          Siguiente →
+                          Siguiente {"\u2192"}
                         </button>
                         <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>
                           {toApplyCount} seleccionados
