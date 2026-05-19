@@ -533,7 +533,7 @@ function getCsvRows(): CsvRow[] {
   if (_csvRows) return _csvRows;
   const csvPath = resolve(
     dirname(fileURLToPath(import.meta.url)),
-    "../../../../media_help/exercises.csv",
+    "../../data/exercises.csv",
   );
   const lines = readFileSync(csvPath, "utf-8").split(/\r?\n/).filter((l) => l.trim().length > 0);
   const header = parseCsvLine(lines[0]!);

@@ -37,8 +37,9 @@ RUN npm ci --omit=dev --prefix apps/api --ignore-scripts
 RUN npm --prefix apps/api run prisma:generate
 RUN npm cache clean --force && rm -rf /root/.npm /root/.cache
 
-# Copy the compiled output only.
+# Copy the compiled output and static data assets.
 COPY --from=builder /workspace/apps/api/dist/ ./apps/api/dist/
+COPY apps/api/data/ ./apps/api/data/
 
 EXPOSE 4100
 

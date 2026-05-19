@@ -316,7 +316,7 @@ async function uploadGif(
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const csvPath = resolve(__dirname, "../../../../media_help/exercises.csv");
+  const csvPath = resolve(__dirname, "../../data/exercises.csv");
   console.log(`\n📂 Loading CSV: ${csvPath}`);
   const csvRows = loadCsv(csvPath);
   console.log(`   ${csvRows.length} exercises loaded from CSV.\n`);
