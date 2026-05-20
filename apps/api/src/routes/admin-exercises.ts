@@ -621,7 +621,7 @@ function csvRowToCandidate(r: CsvRow): ExerciseDbCandidate {
  * secondary signal via cross-language cognate matching (gym terms like "squat",
  * "press", "curl" survive the language boundary).
  */
-function searchCsvCandidates(keyword: string, limit = 5, auxText = ""): ExerciseDbCandidate[] {
+function searchCsvCandidates(keyword: string, limit = 5, auxText = "", threshold = 0.25): ExerciseDbCandidate[] {
   const rows = getCsvRows();
 
   // Multi-signal score: take the MAX of three signals so any strong match wins
@@ -635,8 +635,7 @@ function searchCsvCandidates(keyword: string, limit = 5, auxText = ""): Exercise
     return Math.max(nameScore, keywordVsInstr, auxVsName);
   };
 
-  // Threshold slightly lower than before because the combined score is multi-signal
-  const THRESHOLD = 0.25;
+  const THRESHOLD = threshold;
 
   // Exact match wins immediately
   const exact = rows.find((r) => r.name.toLowerCase() === keyword.toLowerCase());
@@ -730,16 +729,16 @@ function getMasterRows(): MasterRow[] {
  * sorted by name-F1 score descending within each source.
  * Sources 2–4 use name-only scoring (no instructions available).
  */
-function searchAllSources(keyword: string, perSource = 3, auxText = ""): ExerciseDbCandidate[] {
+function searchAllSources(keyword: string, perSource = 3, auxText = "", threshold = 0.25): ExerciseDbCandidate[] {
   // Source 1: ExerciseDB (multi-signal scoring)
-  const src1 = searchCsvCandidates(keyword, perSource, auxText);
+  const src1 = searchCsvCandidates(keyword, perSource, auxText, threshold);
 
   const nameScore = (name: string) => f1Score(keyword, name);
 
   // Source 2: fitnessprogramer
   const src2: ExerciseDbCandidate[] = getGifsRows()
     .map((r) => ({ r, s: nameScore(r.title) }))
-    .filter(({ s }) => s >= 0.25)
+    .filter(({ s }) => s >= threshold)
     .sort((a, b) => b.s - a.s)
     .slice(0, perSource)
     .map(({ r }) => ({
@@ -751,7 +750,7 @@ function searchAllSources(keyword: string, perSource = 3, auxText = ""): Exercis
   // Source 3: fitsw
   const src3: ExerciseDbCandidate[] = getExListRows()
     .map((r) => ({ r, s: nameScore(r.name) }))
-    .filter(({ s }) => s >= 0.25)
+    .filter(({ s }) => s >= threshold)
     .sort((a, b) => b.s - a.s)
     .slice(0, perSource)
     .map(({ r }) => ({
@@ -763,7 +762,7 @@ function searchAllSources(keyword: string, perSource = 3, auxText = ""): Exercis
   // Source 4: exercises-master (video only)
   const src4: ExerciseDbCandidate[] = getMasterRows()
     .map((r) => ({ r, s: nameScore(r.name) }))
-    .filter(({ s }) => s >= 0.25)
+    .filter(({ s }) => s >= threshold)
     .sort((a, b) => b.s - a.s)
     .slice(0, perSource)
     .map(({ r }) => ({
@@ -781,6 +780,31 @@ function searchAllSources(keyword: string, perSource = 3, auxText = ""): Exercis
   }
   return merged;
 }
+
+// GET /exercises/browse-gifs — paginated CSV search for a specific exercise
+// Query params: exerciseId (to auto-use exercise name), q (custom keyword), page, pageSize
+adminExercisesRouter.get("/exercises/browse-gifs", async (req: Request, res: Response) => {
+  const exerciseId = typeof req.query.exerciseId === "string" ? req.query.exerciseId.trim() : "";
+  const qParam = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize) || 24));
+
+  let keyword = qParam;
+  if (!keyword && exerciseId) {
+    const ex = await prisma.exercise.findUnique({ where: { id: exerciseId }, select: { name: true } });
+    keyword = ex?.name ?? "";
+  }
+  if (!keyword) {
+    res.status(400).json({ message: "exerciseId or q is required" });
+    return;
+  }
+
+  // Use low threshold (0.1) and large per-source to surface more results
+  const all = searchAllSources(keyword, 40, "", 0.1);
+  const total = all.length;
+  const results = all.slice((page - 1) * pageSize, page * pageSize);
+  res.json({ keyword, total, page, pageSize, results });
+});
 
 // POST /exercises/populate-gifs/search — dry-run: find candidates per exercise (CSV-based, no DB writes)
 adminExercisesRouter.post("/exercises/populate-gifs/search", async (_req: Request, res: Response) => {

@@ -2483,6 +2483,17 @@ export default function App() {
   const [populateStep, setPopulateStep] = useState(0);
   const [populateTranslations, setPopulateTranslations] = useState<Record<string, string>>({});
   const [translateLoadingIds, setTranslateLoadingIds] = useState<Set<string>>(new Set());
+  /** GIF browser (per-exercise modal) */
+  const [gifBrowserOpen, setGifBrowserOpen] = useState(false);
+  const [gifBrowserExerciseId, setGifBrowserExerciseId] = useState("");
+  const [gifBrowserExerciseName, setGifBrowserExerciseName] = useState("");
+  const [gifBrowserQuery, setGifBrowserQuery] = useState("");
+  const [gifBrowserPage, setGifBrowserPage] = useState(1);
+  const [gifBrowserResults, setGifBrowserResults] = useState<PopulateCandidate[]>([]);
+  const [gifBrowserTotal, setGifBrowserTotal] = useState(0);
+  const [gifBrowserLoading, setGifBrowserLoading] = useState(false);
+  const [gifBrowserSelected, setGifBrowserSelected] = useState<PopulateCandidate | null>(null);
+  const [gifBrowserApplying, setGifBrowserApplying] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedAthleteProfileId, setSelectedAthleteProfileId] = useState<string>("");
   const [selectedMembershipId, setSelectedMembershipId] = useState<string>("");
@@ -4147,17 +4158,85 @@ export default function App() {
       setPopulatePhase("idle");
       return;
     }
+    // Process in batches of 5 to avoid HTTP timeout on large sets
+    const BATCH = 5;
+    let ok = 0; let skipped = 0; let errors = 0;
+    for (let i = 0; i < items.length; i += BATCH) {
+      const chunk = items.slice(i, i + BATCH);
+      try {
+        const result = await requestJson<{ ok: number; skipped: number; errors: number }>(
+          "/api/v1/admin/exercises/populate-gifs/apply",
+          { method: "POST", body: JSON.stringify(chunk) },
+          accessToken,
+        );
+        ok += result.ok;
+        skipped += result.skipped;
+        errors += result.errors;
+      } catch {
+        errors += chunk.length;
+      }
+    }
+    setPopulateApplyResult({ ok, skipped, errors });
+    setPopulatePhase("done");
+  }
+
+  /** Open the GIF browser for a specific exercise */
+  function openGifBrowser(exerciseId: string, exerciseName: string) {
+    setGifBrowserExerciseId(exerciseId);
+    setGifBrowserExerciseName(exerciseName);
+    setGifBrowserQuery(exerciseName);
+    setGifBrowserPage(1);
+    setGifBrowserResults([]);
+    setGifBrowserTotal(0);
+    setGifBrowserSelected(null);
+    setGifBrowserOpen(true);
+    void loadGifBrowserPage(exerciseId, exerciseName, 1);
+  }
+
+  async function loadGifBrowserPage(exerciseId: string, q: string, page: number) {
+    if (!accessToken) return;
+    setGifBrowserLoading(true);
     try {
-      const result = await requestJson<{ ok: number; skipped: number; errors: number }>(
-        "/api/v1/admin/exercises/populate-gifs/apply",
-        { method: "POST", body: JSON.stringify(items) },
+      const params = new URLSearchParams({ exerciseId, q, page: String(page), pageSize: "24" });
+      const result = await requestJson<{ keyword: string; total: number; page: number; pageSize: number; results: PopulateCandidate[] }>(
+        `/api/v1/admin/exercises/browse-gifs?${params.toString()}`,
+        { method: "GET" },
         accessToken,
       );
-      setPopulateApplyResult(result);
-      setPopulatePhase("done");
+      setGifBrowserResults(result.results);
+      setGifBrowserTotal(result.total);
+      setGifBrowserPage(result.page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al cargar GIFs");
+    } finally {
+      setGifBrowserLoading(false);
+    }
+  }
+
+  async function handleGifBrowserApply() {
+    if (!accessToken || !gifBrowserSelected || !gifBrowserExerciseId) return;
+    setGifBrowserApplying(true);
+    try {
+      const payload = [{
+        exerciseId: gifBrowserExerciseId,
+        gifUrl: gifBrowserSelected.gifUrl ?? undefined,
+        videoUrl: gifBrowserSelected.videoUrl ?? undefined,
+        candidateName: gifBrowserSelected.name,
+      }];
+      await requestJson<{ ok: number; skipped: number; errors: number }>(
+        "/api/v1/admin/exercises/populate-gifs/apply",
+        { method: "POST", body: JSON.stringify(payload) },
+        accessToken,
+      );
+      setMessage(`Media asignada: ${gifBrowserSelected.name}`);
+      setGifBrowserSelected(null);
+      setGifBrowserOpen(false);
+      // Refresh exercise list so the new asset appears
+      void refreshDashboard(accessToken ?? undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al aplicar media");
-      setPopulatePhase("review");
+    } finally {
+      setGifBrowserApplying(false);
     }
   }
 
@@ -5991,7 +6070,7 @@ export default function App() {
             }
           }}
         >
-          <div className="modal-panel" style={{ maxWidth: 960, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+          <div className="modal-panel" style={{ maxWidth: 1280, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
             <div className="modal-header">
               <div>
                 <p className="eyebrow">Catálogo</p>
@@ -6268,6 +6347,187 @@ export default function App() {
         </div>
       ) : null}
 
+      {/* ── GIF Browser Modal (per-exercise) ── */}
+      {gifBrowserOpen ? (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !gifBrowserApplying) setGifBrowserOpen(false);
+          }}
+        >
+          <div className="modal-panel" style={{ maxWidth: 1100, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Buscar media en CSV</p>
+                <h2 style={{ fontSize: 16 }}>{gifBrowserExerciseName}</h2>
+              </div>
+              <button className="secondary-button" type="button" disabled={gifBrowserApplying} onClick={() => setGifBrowserOpen(false)}>Cerrar</button>
+            </div>
+
+            {/* Search bar */}
+            <div style={{ padding: "10px 20px", borderBottom: "1px solid var(--border)", display: "flex", gap: 8 }}>
+              <input
+                style={{ flex: 1, padding: "6px 10px", fontSize: 13, borderRadius: 6, border: "1px solid var(--border)" }}
+                value={gifBrowserQuery}
+                placeholder="Buscar por nombre…"
+                onChange={(e) => setGifBrowserQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setGifBrowserPage(1);
+                    void loadGifBrowserPage(gifBrowserExerciseId, gifBrowserQuery, 1);
+                  }
+                }}
+              />
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={gifBrowserLoading}
+                onClick={() => {
+                  setGifBrowserPage(1);
+                  void loadGifBrowserPage(gifBrowserExerciseId, gifBrowserQuery, 1);
+                }}
+              >
+                {gifBrowserLoading ? "Buscando…" : "Buscar"}
+              </button>
+            </div>
+
+            {/* Results grid */}
+            <div className="modal-body" style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+              {gifBrowserLoading ? (
+                <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>Cargando…</div>
+              ) : gifBrowserResults.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)", fontStyle: "italic" }}>Sin resultados. Intenta otra búsqueda.</div>
+              ) : (
+                <>
+                  {(() => {
+                    const sourceMeta: Record<string, { label: string; color: string }> = {
+                      exercisedb: { label: "ExerciseDB", color: "#0984e3" },
+                      fitnessprogramer: { label: "fitnessprogramer", color: "#6c5ce7" },
+                      fitsw: { label: "fitsw", color: "#00b894" },
+                      master: { label: "master", color: "#e17055" },
+                    };
+                    function toEmbedUrl(url: string): string | null {
+                      if (url.includes("youtube.com/embed/")) return url;
+                      const m = url.match(/[?&]v=([^&]+)/);
+                      if (m?.[1]) return `https://www.youtube.com/embed/${m[1]}`;
+                      const s = url.match(/youtu\.be\/([^?]+)/);
+                      if (s?.[1]) return `https://www.youtube.com/embed/${s[1]}`;
+                      return null;
+                    }
+                    return (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
+                        {gifBrowserResults.map((c, idx) => {
+                          const mediaUrl = c.gifUrl ?? c.videoUrl ?? "";
+                          const isSelected = gifBrowserSelected?.gifUrl === c.gifUrl && gifBrowserSelected?.videoUrl === c.videoUrl && gifBrowserSelected?.name === c.name;
+                          const isVideo = !c.gifUrl && !!c.videoUrl;
+                          const srcInfo = sourceMeta[c.source] ?? { label: c.source, color: "#888" };
+                          const embedUrl = isVideo ? toEmbedUrl(c.videoUrl!) : null;
+                          return (
+                            <div
+                              key={`${c.source}-${idx}`}
+                              onClick={() => setGifBrowserSelected(isSelected ? null : c)}
+                              style={{
+                                cursor: "pointer", borderRadius: 8, overflow: "hidden",
+                                border: `2px solid ${isSelected ? "var(--primary, #4f46e5)" : "var(--border)"}`,
+                                background: isSelected ? "var(--primary-subtle, #ede9fe)" : "var(--bg-subtle, #f5f5f5)",
+                                display: "flex", flexDirection: "column",
+                              }}
+                            >
+                              <div style={{ height: 110, background: "#e8e8e8", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                {isVideo ? (
+                                  embedUrl ? (
+                                    <iframe
+                                      src={embedUrl}
+                                      title={c.name}
+                                      width="100%"
+                                      height="110"
+                                      allow="accelerometer; autoplay; encrypted-media"
+                                      style={{ border: "none", pointerEvents: "none" }}
+                                    />
+                                  ) : (
+                                    <span style={{ fontSize: 28 }}>▶️</span>
+                                  )
+                                ) : mediaUrl ? (
+                                  <img
+                                    src={mediaUrl}
+                                    alt={c.name}
+                                    loading="lazy"
+                                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                                  />
+                                ) : (
+                                  <span style={{ fontSize: 28, color: "#aaa" }}>?</span>
+                                )}
+                              </div>
+                              <div style={{ padding: "6px 8px" }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, lineHeight: 1.3, marginBottom: 3 }}>{c.name}</div>
+                                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 8, padding: "1px 4px", borderRadius: 8, background: srcInfo.color, color: "#fff", fontWeight: 700 }}>{srcInfo.label}</span>
+                                  {c.target && <span style={{ fontSize: 8, padding: "1px 4px", borderRadius: 8, background: "#ddd", color: "#555" }}>{c.target}</span>}
+                                  {isVideo && <span style={{ fontSize: 8, padding: "1px 4px", borderRadius: 8, background: "#e17055", color: "#fff" }}>VIDEO</span>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+
+            {/* Pagination + apply footer */}
+            <div style={{ padding: "10px 20px", borderTop: "1px solid var(--border)", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={gifBrowserPage <= 1 || gifBrowserLoading}
+                onClick={() => {
+                  const prev = gifBrowserPage - 1;
+                  setGifBrowserPage(prev);
+                  void loadGifBrowserPage(gifBrowserExerciseId, gifBrowserQuery, prev);
+                }}
+              >
+                ← Anterior
+              </button>
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                Página {gifBrowserPage} · {gifBrowserTotal} resultados
+              </span>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={gifBrowserPage * 24 >= gifBrowserTotal || gifBrowserLoading}
+                onClick={() => {
+                  const next = gifBrowserPage + 1;
+                  setGifBrowserPage(next);
+                  void loadGifBrowserPage(gifBrowserExerciseId, gifBrowserQuery, next);
+                }}
+              >
+                Siguiente →
+              </button>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                {gifBrowserSelected && (
+                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    Seleccionado: <strong>{gifBrowserSelected.name}</strong>
+                  </span>
+                )}
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={!gifBrowserSelected || gifBrowserApplying}
+                  onClick={() => void handleGifBrowserApply()}
+                >
+                  {gifBrowserApplying ? "Subiendo…" : "Agregar a ejercicio"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {exerciseModalOpen ? (
         <div
           className="modal-overlay"
@@ -6445,6 +6705,14 @@ export default function App() {
                       <p className="eyebrow">Media</p>
                       <h2>Assets del ejercicio</h2>
                     </div>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      style={{ fontSize: 12 }}
+                      onClick={() => openGifBrowser(exerciseForm.id!, exerciseForm.name)}
+                    >
+                      🔍 Buscar GIF/Video en CSV
+                    </button>
                   </div>
 
                   <form className="stack-form" onSubmit={handleMediaUpload}>
