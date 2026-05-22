@@ -1525,6 +1525,189 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
   }
 });
 
+// ── Exercise load: save actual loads used per exercise in a session ─────────
+athleteRouter.post("/exercise-loads", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) { res.status(401).json({ message: "Authentication required" }); return; }
+
+    const athleteProfile = await getCurrentAthleteProfileId(userId);
+    if (!athleteProfile) { res.status(403).json({ message: "Not an athlete" }); return; }
+
+    const bodySchema = z.object({
+      sessionId: z.string().cuid(),
+      loads: z.array(z.object({
+        exerciseId: z.string().cuid(),
+        loadKg: z.number().positive(),
+        repsPerformed: z.number().int().positive().optional(),
+      })).min(1),
+    });
+
+    const parsed = bodySchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ message: "Invalid body", errors: parsed.error.flatten() }); return; }
+
+    const { sessionId, loads } = parsed.data;
+
+    // Verify session belongs to this athlete
+    const session = await prisma.scheduledSession.findFirst({
+      where: { id: sessionId, personalProgram: { athleteProfileId: athleteProfile.id } },
+      select: { id: true, scheduledDate: true },
+    });
+    if (!session) { res.status(404).json({ message: "Session not found" }); return; }
+
+    const performedAt = session.scheduledDate;
+
+    // Delete existing load records for this session, then re-insert
+    await prisma.exerciseLoadRecord.deleteMany({
+      where: { scheduledSessionId: sessionId, athleteProfileId: athleteProfile.id },
+    });
+    await prisma.exerciseLoadRecord.createMany({
+      data: loads.map((l) => ({
+        athleteProfileId: athleteProfile.id,
+        exerciseId: l.exerciseId,
+        scheduledSessionId: sessionId,
+        loadKg: l.loadKg,
+        performedAt,
+        ...(l.repsPerformed !== undefined ? { repsPerformed: l.repsPerformed } : {}),
+      })),
+    });
+
+    res.json({ saved: loads.length });
+  } catch (error) {
+    console.error("Failed to save exercise loads", error);
+    res.status(500).json({ message: "Failed to save exercise loads" });
+  }
+});
+
+// ── Exercise load hints: last load + suggested for exercises in a session ───
+athleteRouter.get("/sessions/:sessionId/exercise-load-hints", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) { res.status(401).json({ message: "Authentication required" }); return; }
+
+    const athleteProfile = await getCurrentAthleteProfileId(userId);
+    if (!athleteProfile) { res.status(403).json({ message: "Not an athlete" }); return; }
+
+    const rawSessionId = req.params["sessionId"];
+    if (typeof rawSessionId !== "string") { res.status(400).json({ message: "Invalid sessionId" }); return; }
+    const sessionId = rawSessionId;
+
+    // Get exercises in this session that require load
+    const session = await prisma.scheduledSession.findFirst({
+      where: { id: sessionId, personalProgram: { athleteProfileId: athleteProfile.id } },
+      include: {
+        sessionExercises: {
+          include: {
+            exercise: { select: { id: true, name: true, requiresLoad: true } },
+          },
+        },
+      },
+    });
+    if (!session) { res.status(404).json({ message: "Session not found" }); return; }
+
+    const loadExerciseIds = session.sessionExercises
+      .filter((se) => se.exercise.requiresLoad)
+      .map((se) => se.exerciseId);
+
+    if (loadExerciseIds.length === 0) { res.json([]); return; }
+
+    // Get the most recent load record for each exercise (excluding current session)
+    const lastRecords = await prisma.exerciseLoadRecord.findMany({
+      where: {
+        athleteProfileId: athleteProfile.id,
+        exerciseId: { in: loadExerciseIds },
+        scheduledSessionId: { not: sessionId },
+      },
+      orderBy: { performedAt: "desc" },
+    });
+
+    // De-duplicate: keep only the most recent per exercise
+    const latestByExercise = new Map<string, { loadKg: number; performedAt: Date }>();
+    for (const r of lastRecords) {
+      if (!latestByExercise.has(r.exerciseId)) {
+        latestByExercise.set(r.exerciseId, { loadKg: r.loadKg, performedAt: r.performedAt });
+      }
+    }
+
+    function suggestNextLoad(lastKg: number): number {
+      const step = lastKg < 20 ? 1.25 : lastKg < 50 ? 2.5 : 5;
+      return Math.round((lastKg + step) * 4) / 4;
+    }
+
+    const hints = loadExerciseIds.map((exerciseId) => {
+      const last = latestByExercise.get(exerciseId);
+      if (!last) return { exerciseId, lastLoadKg: null, suggestedLoadKg: null, lastPerformedAt: null };
+      return {
+        exerciseId,
+        lastLoadKg: last.loadKg,
+        suggestedLoadKg: suggestNextLoad(last.loadKg),
+        lastPerformedAt: last.performedAt.toISOString(),
+      };
+    });
+
+    res.json(hints);
+  } catch (error) {
+    console.error("Failed to fetch exercise load hints", error);
+    res.status(500).json({ message: "Failed to fetch exercise load hints" });
+  }
+});
+
+// ── Load trend: per-exercise load progression across all sessions ────────────
+athleteRouter.get("/progress/load-trend", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) { res.status(401).json({ message: "Authentication required" }); return; }
+
+    const athleteProfile = await getCurrentAthleteProfileId(userId);
+    if (!athleteProfile) { res.status(403).json({ message: "Not an athlete" }); return; }
+
+    const records = await prisma.exerciseLoadRecord.findMany({
+      where: { athleteProfileId: athleteProfile.id },
+      orderBy: { performedAt: "asc" },
+      select: {
+        exerciseId: true,
+        loadKg: true,
+        repsPerformed: true,
+        performedAt: true,
+        exercise: { select: { name: true } },
+        scheduledSession: { select: { scheduledDate: true } },
+      },
+    });
+
+    // Group by exercise
+    const byExercise = new Map<string, {
+      exerciseId: string;
+      exerciseName: string;
+      records: { date: string; loadKg: number; repsPerformed: number | null }[];
+    }>();
+
+    for (const r of records) {
+      if (!byExercise.has(r.exerciseId)) {
+        byExercise.set(r.exerciseId, { exerciseId: r.exerciseId, exerciseName: r.exercise.name, records: [] });
+      }
+      byExercise.get(r.exerciseId)!.records.push({
+        date: r.performedAt.toISOString().slice(0, 10),
+        loadKg: r.loadKg,
+        repsPerformed: r.repsPerformed,
+      });
+    }
+
+    const result = Array.from(byExercise.values()).map((e) => ({
+      ...e,
+      firstLoadKg: e.records[0]?.loadKg ?? null,
+      lastLoadKg: e.records.at(-1)?.loadKg ?? null,
+      deltaPct: e.records.length >= 2
+        ? Math.round(((e.records.at(-1)!.loadKg - e.records[0]!.loadKg) / e.records[0]!.loadKg) * 100)
+        : 0,
+    }));
+
+    res.json(result);
+  } catch (error) {
+    console.error("Failed to fetch load trend", error);
+    res.status(500).json({ message: "Failed to fetch load trend" });
+  }
+});
+
 // ── Path to the Dunk: weekly power trajectory ─────────────────────────────
 athleteRouter.get("/progress/power-path", async (req: AuthenticatedRequest, res: Response) => {
   try {

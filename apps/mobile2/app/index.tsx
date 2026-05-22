@@ -1563,6 +1563,10 @@ export default function HomeScreen() {
   const [cachedSessionIds, setCachedSessionIds] = useState<string[]>([]);
   const [preloadState, setPreloadState] = useState<PreloadProgressState>(createIdlePreloadState());
   const [logDraft, setLogDraft] = useState<LogDraftState>(emptyLogDraft);
+  // Per-exercise load inputs (exerciseId → kg string entered by athlete)
+  const [exerciseLoadDraft, setExerciseLoadDraft] = useState<Record<string, string>>({});
+  // Hints fetched from API: exerciseId → { lastLoadKg, suggestedLoadKg }
+  const [exerciseLoadHints, setExerciseLoadHints] = useState<Record<string, { lastLoadKg: number | null; suggestedLoadKg: number | null }>>({});
   const [preSessionCheckIns, setPreSessionCheckIns] = useState<Record<string, PreSessionCheckInState>>({});
   const [progress, setProgress] = useState<AthleteProgressResponse | null>(null);
   const [trendWindow, setTrendWindow] = useState<TrendWindow>("28D");
@@ -2424,6 +2428,21 @@ export default function HomeScreen() {
 
     setLogDraft(mergeCheckInIntoLogDraft(nextDraft, preSessionCheckIns[session.id] ?? null));
     setSelectedJumpTechniqueId(null);
+    setExerciseLoadDraft({});
+
+    // Fetch load hints for exercises that require load
+    if (accessToken) {
+      fetch(`${apiBaseUrl}/api/v1/athlete/sessions/${session.id}/exercise-load-hints`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+        .then((r) => (r.ok ? r.json() as Promise<Array<{ exerciseId: string; lastLoadKg: number | null; suggestedLoadKg: number | null }>> : []))
+        .then((hints) => {
+          const map: Record<string, { lastLoadKg: number | null; suggestedLoadKg: number | null }> = {};
+          for (const h of hints) map[h.exerciseId] = { lastLoadKg: h.lastLoadKg, suggestedLoadKg: h.suggestedLoadKg };
+          setExerciseLoadHints(map);
+        })
+        .catch(() => { /* hints are optional */ });
+    }
   }
 
   async function handlePreloadSession(sessionId: string, sessionTitle: string) {
@@ -3379,6 +3398,19 @@ export default function HomeScreen() {
       }
 
       setMessage("Registro de sesion guardado.");
+
+      // Save per-exercise load records (best-effort, don't block if fails)
+      const loadsToSave = Object.entries(exerciseLoadDraft)
+        .map(([exerciseId, val]) => ({ exerciseId, loadKg: parseFloat(val) }))
+        .filter((l) => !isNaN(l.loadKg) && l.loadKg > 0);
+      if (loadsToSave.length > 0) {
+        void fetch(`${apiBaseUrl}/api/v1/athlete/exercise-loads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ sessionId: selectedSession.id, loads: loadsToSave }),
+        }).catch(() => { /* best-effort */ });
+      }
+
       await refreshAthleteArea(accessToken);
       await clearExerciseProgress(selectedSession.id);
       setExerciseStep(0);
@@ -4923,6 +4955,32 @@ export default function HomeScreen() {
                     </Pressable>
                   ) : null}
                   {coachingChip}
+                  {sessionExercise.exercise.requiresLoad ? (() => {
+                    const hint = exerciseLoadHints[sessionExercise.exercise.id];
+                    const currentVal = exerciseLoadDraft[sessionExercise.exercise.id] ?? "";
+                    return (
+                      <View style={{ marginTop: 8, gap: 4 }}>
+                        {hint?.lastLoadKg != null ? (
+                          <Text style={[styles.helperText, { color: C.teal }]}>
+                            💪 Última vez: {hint.lastLoadKg} kg{hint.suggestedLoadKg != null ? ` · Sugerido: ${hint.suggestedLoadKg} kg` : ""}
+                          </Text>
+                        ) : (
+                          <Text style={[styles.helperText, { color: C.textMuted }]}>Sin historial de carga</Text>
+                        )}
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <TextInput
+                            keyboardType="decimal-pad"
+                            placeholder={hint?.suggestedLoadKg != null ? `${hint.suggestedLoadKg} kg` : "Carga (kg)"}
+                            placeholderTextColor="#7a879d"
+                            value={currentVal}
+                            onChangeText={(v) => setExerciseLoadDraft((prev) => ({ ...prev, [sessionExercise.exercise.id]: v }))}
+                            style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                          />
+                          <Text style={[styles.helperText, { marginBottom: 0 }]}>kg</Text>
+                        </View>
+                      </View>
+                    );
+                  })() : null}
                 </Pressable>
               );
             })}

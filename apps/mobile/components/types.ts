@@ -136,6 +136,7 @@ export interface SessionDetail {
       category: string;
       perLeg: boolean;
       isBlock: boolean;
+      requiresLoad: boolean;
       evolution?: string | null;
       zone?: string | null;
       instructions: Array<{ id: string; locale: string; summary: string | null; steps: string; safetyNotes: string | null }>;

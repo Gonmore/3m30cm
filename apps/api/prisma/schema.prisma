@@ -159,6 +159,7 @@ model AthleteProfile {
   personalPrograms  PersonalProgram[]
   sessionLogs       SessionLog[]
   techniqueMetrics  AthleteTechniqueMetric[]
+  exerciseLoadRecords ExerciseLoadRecord[]
 }
 
 model CoachAssignment {
@@ -195,6 +196,7 @@ model Exercise {
   sessionExercises SessionExercise[]
   asBlock        ExerciseBlock?
   inBlocks       ExerciseBlockItem[]           @relation("BlockItemExercise")
+  loadRecords    ExerciseLoadRecord[]
 }
 
 model ExerciseBlock {
@@ -495,6 +497,7 @@ model ScheduledSession {
   personalProgram PersonalProgram  @relation(fields: [personalProgramId], references: [id], onDelete: Cascade)
   sessionExercises SessionExercise[]
   logs            SessionLog[]
+  exerciseLoadRecords ExerciseLoadRecord[]
 }
 
 model SessionExercise {
@@ -529,6 +532,23 @@ model SessionLog {
   updatedAt        DateTime         @updatedAt
   scheduledSession ScheduledSession @relation(fields: [scheduledSessionId], references: [id], onDelete: Cascade)
   athleteProfile   AthleteProfile   @relation(fields: [athleteProfileId], references: [id], onDelete: Cascade)
+}
+
+model ExerciseLoadRecord {
+  id                 String           @id @default(cuid())
+  athleteProfileId   String
+  exerciseId         String
+  scheduledSessionId String
+  loadKg             Float
+  repsPerformed      Int?
+  performedAt        DateTime
+  createdAt          DateTime         @default(now())
+  athleteProfile     AthleteProfile   @relation(fields: [athleteProfileId], references: [id], onDelete: Cascade)
+  exercise           Exercise         @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  scheduledSession   ScheduledSession @relation(fields: [scheduledSessionId], references: [id], onDelete: Cascade)
+
+  @@index([athleteProfileId, exerciseId])
+  @@index([scheduledSessionId])
 }
 
 model DeviceToken {

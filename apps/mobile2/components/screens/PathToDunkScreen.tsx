@@ -30,6 +30,15 @@ interface PowerPathPoint {
   phaseLabel: string;
 }
 
+interface LoadTrendEntry {
+  exerciseId: string;
+  exerciseName: string;
+  firstLoadKg: number | null;
+  lastLoadKg: number | null;
+  deltaPct: number;
+  records: { date: string; loadKg: number; repsPerformed: number | null }[];
+}
+
 interface Props {
   accessToken: string | null;
   apiBaseUrl: string;
@@ -82,21 +91,27 @@ export default function PathToDunkScreen({ accessToken, apiBaseUrl, onBack }: Pr
   const [data, setData] = useState<PowerPathPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadTrend, setLoadTrend] = useState<LoadTrendEntry[]>([]);
 
   useEffect(() => {
     if (!accessToken) return;
     setLoading(true);
     setError(null);
 
-    fetch(`${apiBaseUrl}/api/v1/athlete/progress/power-path`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then(async (res) => {
+    Promise.all([
+      fetch(`${apiBaseUrl}/api/v1/athlete/progress/power-path`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json() as Promise<PowerPathPoint[]>;
-      })
-      .then((d) => {
-        setData(d);
+      }),
+      fetch(`${apiBaseUrl}/api/v1/athlete/progress/load-trend`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).then(async (res) => (res.ok ? res.json() as Promise<LoadTrendEntry[]> : [])),
+    ])
+      .then(([powerData, trendData]) => {
+        setData(powerData);
+        setLoadTrend(trendData);
       })
       .catch((e: unknown) => {
         setError(e instanceof Error ? e.message : "Error desconocido");
@@ -269,6 +284,50 @@ export default function PathToDunkScreen({ accessToken, apiBaseUrl, onBack }: Pr
           ))}
         </View>
       ) : null}
+
+      {/* ── Load progression section ── */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>🏋️ Progresión de cargas</Text>
+        <Text style={styles.subtitle}>Evolución del peso usado en ejercicios con carga</Text>
+      </View>
+
+      {!loading && loadTrend.length === 0 ? (
+        <View style={[styles.chartWrap, { minHeight: 80 }]}>
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Sin datos de carga aún</Text>
+            <Text style={styles.emptySub}>
+              Registrá el peso usado en los ejercicios con carga durante tus sesiones para ver tu progresión aquí.
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.table}>
+          <View style={styles.tableHeader}>
+            <Text style={[styles.tableCell, styles.tableCellHead, { flex: 3 }]}>Ejercicio</Text>
+            <Text style={[styles.tableCell, styles.tableCellHead, { flex: 1.5 }]}>Inicio</Text>
+            <Text style={[styles.tableCell, styles.tableCellHead, { flex: 1.5 }]}>Actual</Text>
+            <Text style={[styles.tableCell, styles.tableCellHead, { flex: 1.5 }]}>Δ%</Text>
+          </View>
+          {loadTrend.map((entry) => (
+            <View key={entry.exerciseId} style={styles.tableRow}>
+              <Text style={[styles.tableCell, { flex: 3 }]} numberOfLines={2}>{entry.exerciseName}</Text>
+              <Text style={[styles.tableCell, styles.tableCellPower, { flex: 1.5 }]}>
+                {entry.firstLoadKg != null ? `${entry.firstLoadKg}kg` : "—"}
+              </Text>
+              <Text style={[styles.tableCell, styles.tableCellPower, { flex: 1.5 }]}>
+                {entry.lastLoadKg != null ? `${entry.lastLoadKg}kg` : "—"}
+              </Text>
+              <Text style={[
+                styles.tableCell,
+                { flex: 1.5, fontWeight: "700" },
+                entry.deltaPct > 0 ? { color: C.teal } : entry.deltaPct < 0 ? { color: "#e07070" } : { color: C.textMuted },
+              ]}>
+                {entry.deltaPct > 0 ? `+${entry.deltaPct}%` : entry.deltaPct < 0 ? `${entry.deltaPct}%` : "—"}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -308,5 +367,7 @@ function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
     tableCellHead: { color: C.textMuted, fontWeight: "700", textTransform: "uppercase", fontSize: 10, letterSpacing: 0.5 },
     tableCellPower: { color: C.amber, fontWeight: "700" },
     tableCellBouncy: { color: C.teal, fontWeight: "700" },
+    sectionHeader: { gap: 2, marginTop: S.sm },
+    sectionTitle: { color: C.text, fontSize: 17, fontWeight: "800" },
   });
 }
