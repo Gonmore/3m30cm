@@ -1629,26 +1629,40 @@ export default function HomeScreen() {
 
     // Fetch app-specific config: assigned template + welcome video
     fetch(`${apiBaseUrl}/api/v1/app-config/${MOBILE_APP_SLUG}`)
-      .then((r) => (r.ok ? r.json() as Promise<{ templateCode: string; welcomeVideoUrl: string | null }> : null))
+      .then((r) => {
+        console.log("[AppConfig] fetch status:", r.status, r.ok);
+        return r.ok ? r.json() as Promise<{ templateCode: string; welcomeVideoUrl: string | null }> : null;
+      })
       .then(async (cfg) => {
+        console.log("[AppConfig] cfg:", JSON.stringify(cfg));
         if (!cfg) return;
         setAthleteSetup((s) => ({ ...s, templateCode: cfg.templateCode }));
         if (cfg.welcomeVideoUrl) {
-          setWelcomeVideoUrl(rewriteLocalAssetUrl(cfg.welcomeVideoUrl));
+          const rewritten = rewriteLocalAssetUrl(cfg.welcomeVideoUrl);
+          console.log("[AppConfig] welcomeVideoUrl rewritten:", rewritten);
+          setWelcomeVideoUrl(rewritten);
+        } else {
+          console.log("[AppConfig] welcomeVideoUrl is null/empty in API response");
         }
       })
-      .catch(() => {/* use default template */});
+      .catch((err) => { console.log("[AppConfig] fetch error:", err); });
   }, []);
 
-  // Auto-play welcome video only for new users who have no sessions yet.
-  // Fires once sessionsLoaded becomes true (after first successful refreshAthleteArea).
+  // For users with no sessions: show the welcome video on first open, then
+  // reveal the program-setup block ("Tu aventura empieza aquí") after dismissal.
+  // If the video was already seen, jump straight to setup.
   useEffect(() => {
+    console.log("[WelcomeVideo] effect fired — welcomeVideoUrl:", welcomeVideoUrl, "sessionsLoaded:", sessionsLoaded, "sessions.length:", sessions.length);
     if (!welcomeVideoUrl || !sessionsLoaded) return;
-    if (sessions.length > 0) return; // existing user — don't auto-play
+    if (sessions.length > 0) return; // existing user — skip
     void (async () => {
       const seen = await readStoredValue(welcomeVideoSeenStorageKey);
+      console.log("[WelcomeVideo] seen flag:", seen, "→ will show video:", !seen);
       if (!seen) {
         setShowWelcomeVideo(true);
+      } else {
+        // Video already seen but no program yet — show setup directly
+        setShowSetupForRegenerate(true);
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3157,7 +3171,7 @@ export default function HomeScreen() {
 
       setProfile(response.athleteProfile);
       setPlanningRecommendation(response.planningRecommendation);
-      setMessage("Contexto del atleta guardado. Ya puedes generar el plan inicial.");
+      setMessage("Perfil físico guardado.");
     } catch (requestError) {
       if (requestError instanceof UnauthorizedRequestError) {
         await handleUnauthorizedSession("Tu sesion expiro. Entra otra vez.");
@@ -3235,6 +3249,8 @@ export default function HomeScreen() {
     if (useNativeAndroidGoogleSignIn) {
       await NativeGoogleSignin.signOut().catch(() => null);
     }
+    await deleteStoredValue(welcomeVideoSeenStorageKey);
+    setShowWelcomeVideo(false);
     await handleUnauthorizedSession("Sesion cerrada.");
   }
 
@@ -3488,8 +3504,8 @@ export default function HomeScreen() {
                     Falta configurar el client ID web de Google para Android.
                   </Text>
                 ) : useNativeAndroidGoogleSignIn ? (
-                  <Text style={authSt.helperText}>
-                    Android release usa Google nativo y requiere el client Android con su SHA-1 correcto en Google Cloud.
+                  <Text style={authSt.helperText} >
+                    
                   </Text>
                 ) : isExpoGo && googleExpoGoRedirectUri ? (
                   <Text style={authSt.helperText}>
@@ -3974,7 +3990,10 @@ export default function HomeScreen() {
         <Modal
           visible={showWelcomeVideo}
           animationType="slide"
-          onRequestClose={() => setShowWelcomeVideo(false)}
+          onRequestClose={() => {
+            setShowWelcomeVideo(false);
+            if (sessions.length === 0) setShowSetupForRegenerate(true);
+          }}
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: "#000" }}>
             <View style={{ flex: 1 }}>
@@ -3988,7 +4007,10 @@ export default function HomeScreen() {
             <View style={{ flexDirection: "row", gap: 12, padding: 16, backgroundColor: C.bg }}>
               <Pressable
                 style={[styles.secondaryButton, { flex: 1 }]}
-                onPress={() => setShowWelcomeVideo(false)}
+                onPress={() => {
+                  setShowWelcomeVideo(false);
+                  if (sessions.length === 0) setShowSetupForRegenerate(true);
+                }}
               >
                 <Text style={styles.secondaryButtonText}>Saltar</Text>
               </Pressable>
@@ -3997,6 +4019,7 @@ export default function HomeScreen() {
                 onPress={async () => {
                   await writeStoredValue(welcomeVideoSeenStorageKey, "true");
                   setShowWelcomeVideo(false);
+                  if (sessions.length === 0) setShowSetupForRegenerate(true);
                 }}
               >
                 <Text style={styles.primaryButtonText}>Continuar</Text>

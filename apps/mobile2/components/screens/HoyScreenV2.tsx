@@ -646,7 +646,7 @@ function NoProgram({
       <Modal visible={confirmVisible} transparent animationType="slide" onRequestClose={() => setConfirmVisible(false)}>
         <View style={styles.modalOverlay}>
           <ScrollView
-            style={{ width: "100%" }}
+            style={{ width: "100%", maxHeight: "88%" }}
             contentContainerStyle={{ padding: S.lg, paddingTop: S.sm }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -1708,7 +1708,8 @@ return StyleSheet.create({
   // ── Modal (motivational confirm) ─────────────────────────────
   modalOverlay: {
     flex: 1, backgroundColor: C.overlay,
-    justifyContent: "flex-end", alignItems: "center",
+    justifyContent: "center", alignItems: "center",
+    paddingHorizontal: S.md,
   },
   modalCard: {
     backgroundColor: C.surface, borderRadius: R.xl,
