@@ -1460,3 +1460,60 @@ La validacion paso despues del refactor del cliente.
 - `apps/mobile2/app.json`: `version = 2.1.4`, `android.versionCode = 214`
 - `apps/mobile2/package.json`: `version = 2.1.4`
 
+---
+
+### 32. Carga por ejercicio + YouTube thumbnail + carga inicial motivacional (2026-05-26)
+
+**Objetivo:** registrar el peso utilizado en ejercicios de fuerza, mostrar miniaturas de video de YouTube dentro de la app y mejorar la experiencia de carga inicial con pantalla de consejos nutricionales.
+
+**Cambios aplicados:**
+
+#### Modelo de datos
+- Nuevo modelo Prisma `ExerciseLoadRecord` (`exerciseId`, `athleteId`, `sessionDetailId`, `setsPerformed`, `repsPerformed?`, `loadKg`, `notes?`, `recordedAt`).
+- Campo `requiresLoad: Boolean` en `Exercise` para habilitar la entrada de carga solo en ejercicios de fuerza.
+- Migración versionada aplicada con `prisma migrate deploy`.
+
+#### API – apps/api/src/routes/athlete.ts
+- `POST /api/v1/athlete/exercise-loads` — guarda una entrada de carga.
+- `GET /api/v1/athlete/exercise-loads/hints/:exerciseId` — devuelve las últimas 3 cargas para pre-rellenar el campo.
+- `GET /api/v1/athlete/exercise-loads/trend/:exerciseId` — calcula la tendencia de carga por ejercicio.
+
+#### Mobile – apps/mobile/components/screens/EjerciciosScreen.tsx
+- Entrada numérica de carga (kg) condicional: solo se muestra cuando `exercise.requiresLoad === true`.
+- Primera vez: tooltip "peso extra total (mancuernas + barra)" con botón X para cerrar.
+- Hints de últimas cargas (3 chips tappables) para pre-rellenar la entrada.
+- Miniatura de YouTube (`i.ytimg.com/vi/{videoId}/hqdefault.jpg`) con fallback a `mqdefault`; toca para abrir el video en Chrome Custom Tabs via `expo-web-browser`.
+- Pasos del ejercicio prominentes; resumen y foco técnico removidos de la vista principal.
+- Warmup de TTS en `ExerciseTimer` mount: `Speech.speak(" ")` para eliminar el lag del primer habla.
+
+#### Mobile – apps/mobile2/app/index.tsx
+- `LOADING_NUTRITION_TIPS` — 8 consejos rotatorios (proteína, hidratación, sueño, etc.).
+- `InitialLoadingScreen` — componente standalone con dots indicator, rueda y rotación cada 3500 ms; se muestra mientras `accessToken && !profile && refreshing`.
+- Overlay "Guardando…" como pill toast flotante cuando `loading = true`.
+
+**Validación:** 0 errores TypeScript en todos los archivos modificados.
+
+---
+
+### 33. UX fina: feedback táctil, mute de metrónomo, ripple en botones (2026-05-26)
+
+**Objetivo:** arreglar el cierre de sonido del metrónomo al silenciar y añadir retroalimentación visual al tocar todos los botones de acción principales.
+
+**Cambios aplicados:**
+
+#### Fix stale-closure en mute del metrónomo — EjerciciosScreen.tsx
+- **Problema:** `startTicTac` leía `isMuted` del cierre léxico capturado al crear el `setInterval`. Al cambiar el prop `isMuted` el intervalo seguía usando el valor antiguo.
+- **Fix:** `const isMutedRef = useRef(isMuted)` + `useEffect` que sincroniza el ref y detiene el tick pendiente (`clearTimeout(tackTimerRef.current)`) si el usuario silencia a mitad de un ciclo. `startTicTac` ahora lee `isMutedRef.current`.
+
+#### Ripple táctil en botones de acción — EjerciciosScreen.tsx
+- Todos los `<Pressable>` de acción principal (Completar, Saltar, Atrás, retroceder, continuar skipped) cambiaron de `style={styles.btn*}` estático a `style={({ pressed }) => [styles.btn*, pressed && { opacity: 0.78 }]}`.
+- Se agregó `android_ripple={{ color: 'rgba(255,255,255,0.3)', borderless: false }}` en botón Completar (fondo sólido ámbar).
+- Se agregó `android_ripple={{ color: 'rgba(44,196,176,0.25)', borderless: false }}` en botones Saltar y Atrás (fondo bordeado).
+- Botón Back (←) con `android_ripple borderless: true`.
+
+#### DrawerMenu.tsx
+- Color de ripple en ítems del menú lateral subido de `rgba(255,255,255,0.08)` a `rgba(255,255,255,0.18)` para mayor visibilidad.
+
+**Validación:** 0 errores TypeScript.
+**Branch:** `bio`.
+

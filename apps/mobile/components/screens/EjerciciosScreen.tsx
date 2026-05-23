@@ -1,6 +1,7 @@
-import { Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useEffect, useRef, useState } from "react";
 import * as Speech from "expo-speech";
+import * as WebBrowser from "expo-web-browser";
 import { Audio, ResizeMode, Video } from "expo-av";
 import { Image as ExpoImage } from "expo-image";
 import type { ViewStyle } from "react-native";
@@ -34,6 +35,11 @@ function rewriteAssetUrl(url: string | null | undefined): string | null {
 
 function isLocalFileUri(url: string | null | undefined) {
   return typeof url === "string" && /^file:/i.test(url);
+}
+
+function extractYouTubeId(url: string): string | null {
+  const match = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return match?.[1] ?? null;
 }
 
 type ExerciseMediaAsset = SessionDetail["sessionExercises"][number]["exercise"]["mediaAssets"][number];
@@ -96,16 +102,38 @@ function ExerciseMediaView({
   };
 
   if (asset.kind === "VIDEO") {
+    const ytId = uri ? extractYouTubeId(uri) : null;
+    if (ytId) {
+      const thumbnailUrl = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+      const youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
+      return (
+        <Pressable
+          style={[styles.mediaFrame, frameStyle]}
+          onPress={() => void WebBrowser.openBrowserAsync(youtubeUrl, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN })}
+        >
+          <ExpoImage
+            source={{ uri: thumbnailUrl }}
+            style={[styles.exerciseImage, { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }]}
+            contentFit="cover"
+          />
+          <View style={styles.ytPlayButton}>
+            <Text style={styles.ytPlayIcon}>▶</Text>
+          </View>
+          <View style={styles.mediaKindChip}>
+            <Text style={styles.mediaKindChipText}>▶ YouTube</Text>
+          </View>
+        </Pressable>
+      );
+    }
     return (
       <View style={[styles.mediaFrame, frameStyle]}>
         <Video
           source={{ uri }}
           style={styles.exerciseVideo}
-          useNativeControls={false}
+          useNativeControls
           resizeMode={ResizeMode.CONTAIN}
-          shouldPlay={isActive}
-          isLooping
-          isMuted
+          shouldPlay={false}
+          isLooping={false}
           onError={handleMediaError}
         />
         <View style={styles.mediaKindChip}>
@@ -136,8 +164,9 @@ function ExerciseMediaView({
 // ── Countdown timer component ───────────────────────────
 type TimerPhase = "idle" | "countdown" | "work" | "leg2-countdown" | "leg2-work" | "rest" | "done";
 
-function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
+function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg, isMuted = false, onMuteChange }: {
   workSeconds: number; restSeconds: number; totalSets: number; perLeg?: boolean;
+  isMuted?: boolean; onMuteChange?: (muted: boolean) => void;
 }) {
   const { C } = useTheme();
   const timerStyles = makeTimerStyles(C);
@@ -151,6 +180,16 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
   const tackSoundRef = useRef<import("expo-av").Audio.Sound | null>(null);
   const tackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechReadyRef = useRef(false);
+  // Ref keeps mute state fresh inside setInterval closures (avoids stale closure)
+  const isMutedRef = useRef(isMuted);
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+    // Stop tick/tack immediately when the user mutes mid-run
+    if (isMuted && tackTimerRef.current) {
+      clearTimeout(tackTimerRef.current);
+      tackTimerRef.current = null;
+    }
+  }, [isMuted]);
 
   useEffect(() => {
     Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
@@ -159,7 +198,9 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
     Audio.Sound.createAsync(require("../../assets/sounds/tack.wav"), { shouldPlay: false, volume: 1.0 })
       .then(({ sound }) => { tackSoundRef.current = sound; }).catch(() => {});
 
-    const warmupTimeout = setTimeout(() => { speechReadyRef.current = true; }, 700);
+    // Warm up TTS engine immediately so "3, 2, 1" fires without cold-start delay
+    Speech.speak(" ", { language: "es-ES" });
+    const warmupTimeout = setTimeout(() => { speechReadyRef.current = true; }, 900);
 
     return () => {
       clearTimeout(warmupTimeout);
@@ -182,6 +223,7 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
   }
 
   function startTicTac() {
+    if (isMutedRef.current) return;   // read from ref — always current value
     playTick();
     tackTimerRef.current = setTimeout(() => playTack(), 500);
   }
@@ -393,16 +435,28 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg }: {
       {/* Controls */}
       <View style={timerStyles.controls}>
         {phase === "idle" || phase === "done" ? (
-          <Pressable style={timerStyles.btnStart} onPress={start}>
+          <Pressable style={timerStyles.btnStart} onPress={start}
+            android_ripple={{ color: "rgba(0,0,0,0.15)", borderless: false }}>
             <Text style={timerStyles.btnStartText}>
               {phase === "done" ? "⟳ Repetir" : "▶ Iniciar ejercicio"}
             </Text>
           </Pressable>
         ) : (
-          <Pressable style={timerStyles.btnStop} onPress={stop}>
+          <Pressable style={timerStyles.btnStop} onPress={stop}
+            android_ripple={{ color: "rgba(255,80,80,0.15)", borderless: false }}>
             <Text style={timerStyles.btnStopText}>■ Detener</Text>
           </Pressable>
         )}
+        {/* Mute toggle — only visible once running */}
+        {phase !== "idle" && phase !== "done" ? (
+          <Pressable
+            style={timerStyles.btnMute}
+            onPress={() => onMuteChange?.(!isMuted)}
+            android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: true }}
+          >
+            <Text style={timerStyles.btnMuteText}>{isMuted ? "🔇" : "🔊"}</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -421,11 +475,13 @@ return StyleSheet.create({
   dialPhase: { fontSize: 12, fontWeight: "700", textAlign: "center", paddingHorizontal: 8 },
   dialIdle: { color: C.textMuted, fontSize: 44, fontWeight: "800" },
   dialSubIdle: { color: C.textMuted, fontSize: 12, marginTop: 4 },
-  controls: { alignItems: "center" },
+  controls: { alignItems: "center", gap: 10 },
   btnStart: { backgroundColor: C.teal, borderRadius: R.full, paddingVertical: 13, paddingHorizontal: S.xl, alignItems: "center" },
   btnStartText: { color: C.bg, fontWeight: "800", fontSize: 15 },
   btnStop: { borderWidth: 1, borderColor: C.danger, borderRadius: R.full, paddingVertical: 13, paddingHorizontal: S.xl, alignItems: "center" },
   btnStopText: { color: C.danger, fontWeight: "700", fontSize: 15 },
+  btnMute: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: R.full, borderWidth: 1, borderColor: C.border },
+  btnMuteText: { fontSize: 18 },
 });
 }
 
@@ -450,6 +506,9 @@ interface EjerciciosScreenProps {
   onSubmitLog: () => void;
   onShowJumpGuide: () => void;
   onBack: () => void;
+  exerciseLoadHints?: Record<string, { lastLoadKg: number | null; suggestedLoadKg: number | null }>;
+  exerciseLoadDraft?: Record<string, string>;
+  onChangeLoad?: (exerciseId: string, value: string) => void;
   overreachAdjustment?: {
     isOverreach: boolean;
     reason?: "fatigue" | "pain" | "teamDay" | null;
@@ -476,6 +535,9 @@ export default function EjerciciosScreen({
   onSubmitLog,
   onShowJumpGuide,
   onBack,
+  exerciseLoadHints = {},
+  exerciseLoadDraft = {},
+  onChangeLoad,
   overreachAdjustment,
   energyScore = null,
   evolutionSuggestions = [],
@@ -509,14 +571,26 @@ export default function EjerciciosScreen({
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [galleryWidth, setGalleryWidth] = useState(0);
   const [blockExpandedItem, setBlockExpandedItem] = useState<string | null>(null);
+  const [timerMuted, setTimerMuted] = useState(false); // persists across exercises in the session
+  const lastCompletePress = useRef(0);
   // Reset to open when exercise changes
   useEffect(() => { setStepsExpanded(true); setGalleryIndex(0); }, [exerciseStep]);
 
   // ── helpers inside render ────────────────────────────
   function handleComplete() {
     if (!currentExercise) return;
-    if ((logDraft?.completedExerciseIds ?? []).includes(currentExercise.id)) {
-      return;
+    // Debounce: ignore rapid multi-taps within 600ms
+    const now = Date.now();
+    if (now - lastCompletePress.current < 600) return;
+    lastCompletePress.current = now;
+    if ((logDraft?.completedExerciseIds ?? []).includes(currentExercise.id)) return;
+    if (currentExercise.exercise.requiresLoad) {
+      const loadVal = exerciseLoadDraft[currentExercise.exercise.id];
+      const parsed = parseFloat(loadVal ?? "");
+      if (!loadVal || isNaN(parsed) || parsed <= 0) {
+        Alert.alert("Carga requerida", "Ingresa el peso usado antes de completar el ejercicio.");
+        return;
+      }
     }
     onToggleExercise(currentExercise.id);
     onSetExerciseStep(exerciseStep + 1);
@@ -542,7 +616,10 @@ export default function EjerciciosScreen({
     >
       {/* ── Progress bar ─────────────────────────────────── */}
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.backBtn}>
+        <Pressable
+          onPress={onBack}
+          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
+          android_ripple={{ color: 'rgba(255,255,255,0.2)', borderless: true }}>
           <Text style={styles.backBtnText}>←</Text>
         </Pressable>
         <View style={styles.headerCenter}>
@@ -602,7 +679,10 @@ export default function EjerciciosScreen({
               <Text style={styles.skippedExerciseName}>{ex.name}</Text>
               <Text style={styles.skippedExerciseSub}>Este ejercicio de velocidad fue eliminado para proteger tu recuperación.</Text>
               <View style={styles.exerciseActions}>
-                <Pressable style={styles.btnComplete} onPress={() => { onSetExerciseStep(exerciseStep + 1); }}>
+                <Pressable
+                  style={({ pressed }) => [styles.btnComplete, pressed && { opacity: 0.78 }]}
+                  onPress={() => { onSetExerciseStep(exerciseStep + 1); }}
+                  android_ripple={{ color: 'rgba(255,255,255,0.3)', borderless: false }}>
                   <Text style={styles.btnCompleteText}>Continuar →</Text>
                 </Pressable>
               </View>
@@ -725,11 +805,18 @@ export default function EjerciciosScreen({
               ) : null}
 
               <View style={styles.exerciseActions}>
-                <Pressable style={styles.btnComplete} onPress={handleComplete} disabled={loading}>
+                <Pressable
+                  style={({ pressed }) => [styles.btnComplete, pressed && { opacity: 0.78 }]}
+                  onPress={handleComplete}
+                  disabled={loading}
+                  android_ripple={{ color: 'rgba(255,255,255,0.3)', borderless: false }}>
                   <Text style={styles.btnCompleteText}>Completar ✓</Text>
                 </Pressable>
                 <View style={styles.exerciseActionsSub}>
-                  <Pressable style={styles.btnSkip} onPress={handleSkip}>
+                  <Pressable
+                    style={({ pressed }) => [styles.btnSkip, pressed && { opacity: 0.7 }]}
+                    onPress={handleSkip}
+                    android_ripple={{ color: 'rgba(44,196,176,0.25)', borderless: false }}>
                     <Text style={styles.btnSkipText}>Saltar esta vez</Text>
                   </Pressable>
                 </View>
@@ -787,9 +874,6 @@ export default function EjerciciosScreen({
             {/* Name */}
             <Text style={styles.exerciseName}>{ex.name}</Text>
 
-            {/* Summary */}
-            {summary ? <Text style={styles.exerciseSummary}>{summary}</Text> : null}
-
             {/* Prescription pill */}
             {parts.length > 0 ? (
               <View style={styles.prescriptionRow}>
@@ -826,13 +910,37 @@ export default function EjerciciosScreen({
               </View>
             ) : null}
 
-            {/* Focus cue */}
-            {currentExercise.guidance?.focus ? (
-              <View style={styles.focusCard}>
-                <Text style={styles.focusTitle}>◎ Foco técnico</Text>
-                <Text style={styles.focusText}>{currentExercise.guidance.focus}</Text>
-              </View>
-            ) : null}
+            {/* Load input for weighted exercises */}
+            {ex.requiresLoad ? (() => {
+              const hint = exerciseLoadHints[ex.id];
+              const currentVal = exerciseLoadDraft[ex.id] ?? "";
+              return (
+                <View style={styles.loadInputWrap}>
+                  <Text style={styles.loadInputTitle}>🏋️ Carga usada (requerida)</Text>
+                  {hint?.lastLoadKg != null ? (
+                    <Text style={styles.loadHintText}>
+                      💪 Última vez: {hint.lastLoadKg} kg{hint.suggestedLoadKg != null ? `  ·  Sugerido: ${hint.suggestedLoadKg} kg` : ""}
+                    </Text>
+                  ) : (
+                    <View style={{ gap: 2 }}>
+                      <Text style={styles.loadHintMuted}>Primera vez con este ejercicio</Text>
+                      <Text style={[styles.loadHintMuted, { fontSize: 12 }]}>Ingresa el peso extra total (barra + discos + implemento)</Text>
+                    </View>
+                  )}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+                    <TextInput
+                      keyboardType="decimal-pad"
+                      placeholder={hint?.suggestedLoadKg != null ? `${hint.suggestedLoadKg}` : "Ej: 40"}
+                      placeholderTextColor={C.textMuted}
+                      value={currentVal}
+                      onChangeText={(v) => onChangeLoad?.(ex.id, v)}
+                      style={[styles.input, { flex: 1 }]}
+                    />
+                    <Text style={{ color: C.text, fontSize: 15, fontWeight: "600" }}>kg</Text>
+                  </View>
+                </View>
+              );
+            })() : null}
 
             {/* Timer block (only for timed exercises) */}
             {hasTimer ? (
@@ -842,6 +950,8 @@ export default function EjerciciosScreen({
                 restSeconds={restSec}
                 totalSets={sets}
                 perLeg={currentExercise.exercise.perLeg}
+                isMuted={timerMuted}
+                onMuteChange={setTimerMuted}
               />
             ) : null}
 
@@ -857,16 +967,26 @@ export default function EjerciciosScreen({
             ) : null}
 
             <View style={styles.exerciseActions}>
-              <Pressable style={[styles.btnComplete, isCurrentCompleted ? styles.btnCompleteDisabled : null]} onPress={handleComplete} disabled={loading || isCurrentCompleted}>
+              <Pressable
+                style={({ pressed }) => [styles.btnComplete, isCurrentCompleted ? styles.btnCompleteDisabled : null, pressed && !isCurrentCompleted && { opacity: 0.78 }]}
+                onPress={handleComplete}
+                disabled={loading || isCurrentCompleted}
+                android_ripple={{ color: 'rgba(255,255,255,0.3)', borderless: false }}>
                 <Text style={[styles.btnCompleteText, isCurrentCompleted ? styles.btnCompleteTextDisabled : null]}>{isCurrentCompleted ? "✓ Listo" : "✓ Completar"}</Text>
               </Pressable>
               <View style={styles.exerciseActionsSub}>
                 {exerciseStep > 0 ? (
-                  <Pressable style={styles.btnPrev} onPress={handlePrevious}>
+                  <Pressable
+                    style={({ pressed }) => [styles.btnPrev, pressed && { opacity: 0.7 }]}
+                    onPress={handlePrevious}
+                    android_ripple={{ color: 'rgba(44,196,176,0.25)', borderless: false }}>
                     <Text style={styles.btnPrevText}>← Atrás</Text>
                   </Pressable>
                 ) : null}
-                <Pressable style={styles.btnSkip} onPress={handleSkip}>
+                <Pressable
+                  style={({ pressed }) => [styles.btnSkip, pressed && { opacity: 0.7 }]}
+                  onPress={handleSkip}
+                  android_ripple={{ color: 'rgba(44,196,176,0.25)', borderless: false }}>
                   <Text style={styles.btnSkipText}>Saltar esta vez</Text>
                 </Pressable>
               </View>
@@ -1089,6 +1209,12 @@ return StyleSheet.create({
   focusCard: { backgroundColor: C.amberDim, borderRadius: R.md, padding: S.sm, gap: 4, borderWidth: 1, borderColor: C.amberBorder },
   focusTitle: { color: C.amber, fontWeight: "700", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.6 },
   focusText: { color: C.amber, fontSize: 13, lineHeight: 18 },
+  ytPlayButton: { width: 56, height: 56, borderRadius: 28, backgroundColor: "rgba(220,0,0,0.88)", alignItems: "center", justifyContent: "center" },
+  ytPlayIcon: { color: "#fff", fontSize: 24, paddingLeft: 4 },
+  loadInputWrap: { backgroundColor: C.tealDim, borderRadius: R.md, padding: S.sm, gap: 4, borderWidth: 1, borderColor: C.tealBorder },
+  loadInputTitle: { color: C.teal, fontWeight: "700", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.6 },
+  loadHintText: { color: C.tealLight, fontSize: 13, lineHeight: 18 },
+  loadHintMuted: { color: C.textMuted, fontSize: 13 },
   reviewChip: { backgroundColor: C.tealDim, borderRadius: R.md, padding: S.sm, borderWidth: 1, borderColor: C.tealBorder },
   reviewChipText: { color: C.tealLight, fontSize: 12, lineHeight: 18, fontWeight: "600" },
   exerciseActions: { flexDirection: "column", gap: S.xs, marginTop: S.md },

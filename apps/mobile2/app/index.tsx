@@ -26,6 +26,7 @@ import { useOverreachAdjustment } from "../components/screens/useOverreachAdjust
 import { useEvolutionSuggestion } from "../components/screens/useEvolutionSuggestion";
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   Image,
   Linking,
@@ -1476,6 +1477,79 @@ async function requestJson<T>(path: string, options: RequestInit = {}, accessTok
   }
 
   return data;
+}
+
+const LOADING_NUTRITION_TIPS = [
+  { icon: "⚡", title: "Pre-entrenamiento", text: "Consume carbohidratos 1-2h antes de entrenar para tener energía sostenida durante toda la sesión." },
+  { icon: "💪", title: "Proteína post-entreno", text: "Dentro de los 30-45 min post-sesión consume 20-30g de proteína para iniciar la recuperación muscular." },
+  { icon: "💧", title: "Hidratación clave", text: "Beber agua antes, durante y después del entrenamiento mantiene tu rendimiento y reduce el riesgo de calambres." },
+  { icon: "🌙", title: "Sueño y recuperación", text: "El 70% del crecimiento muscular ocurre mientras duermes. Apunta a 7-9 horas de sueño de calidad cada noche." },
+  { icon: "🍌", title: "Antes de saltar", text: "Un plátano 30 min antes del entreno da potasio y energía rápida sin pesadez estomacal. Ideal pre-sesión." },
+  { icon: "🔋", title: "Energía sostenida", text: "Combina proteínas, grasas saludables y carbohidratos complejos para mantenerte activo y enfocado todo el día." },
+  { icon: "🏆", title: "Consistencia nutricional", text: "La nutrición óptima no ocurre en un día. La consistencia semanal es lo que crea adaptaciones duraderas." },
+  { icon: "🥗", title: "Carbohidratos", text: "No elimines los carbohidratos: son el combustible principal de tus músculos durante el entrenamiento explosivo." },
+];
+
+function InitialLoadingScreen() {
+  const { C } = useTheme();
+  const [tipIndex, setTipIndex] = useState(0);
+  const tip = LOADING_NUTRITION_TIPS[tipIndex % LOADING_NUTRITION_TIPS.length]!;
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTipIndex((prev) => (prev + 1) % LOADING_NUTRITION_TIPS.length);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, []);
+
+  const dotActive = tipIndex % LOADING_NUTRITION_TIPS.length;
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 24, gap: 32 }}>
+        <Image
+          source={require("../assets/img/Logo_Blanco.png")}
+          style={{ width: 160, height: 56 }}
+          resizeMode="contain"
+        />
+        <View style={{
+          backgroundColor: C.surfaceRaise,
+          borderRadius: 20,
+          padding: 24,
+          borderWidth: 1,
+          borderColor: C.border,
+          width: "100%",
+          gap: 14,
+        }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <Text style={{ fontSize: 34 }}>{tip.icon}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 11, fontWeight: "700", color: "#43A047", letterSpacing: 1, marginBottom: 3 }}>CONSEJO DE NUTRICIÓN</Text>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: C.text }}>{tip.title}</Text>
+            </View>
+          </View>
+          <Text style={{ fontSize: 14, color: C.text, lineHeight: 22 }}>{tip.text}</Text>
+          <View style={{ flexDirection: "row", gap: 6, justifyContent: "center", marginTop: 2 }}>
+            {LOADING_NUTRITION_TIPS.map((_, i) => (
+              <View
+                key={i}
+                style={{
+                  width: i === dotActive ? 16 : 6,
+                  height: 6,
+                  borderRadius: 3,
+                  backgroundColor: i === dotActive ? "#43A047" : C.border,
+                }}
+              />
+            ))}
+          </View>
+        </View>
+        <View style={{ alignItems: "center", gap: 10 }}>
+          <ActivityIndicator size="large" color="#E8A838" />
+          <Text style={{ color: C.textMuted, fontSize: 13 }}>Cargando tu entrenamiento...</Text>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
 }
 
 export default function HomeScreen() {
@@ -3448,6 +3522,11 @@ export default function HomeScreen() {
     );
   }
 
+  // While the access token is being restored and initial data is loading, show nutrition tips
+  if (accessToken && !profile && refreshing) {
+    return <InitialLoadingScreen />;
+  }
+
   if (!accessToken) {
     return (
       <SafeAreaView style={authSt.safeArea}>
@@ -3874,6 +3953,9 @@ export default function HomeScreen() {
           onSetExerciseStep={setExerciseStep}
           onSetLogDraft={(updater) => setLogDraft((prev) => { const r = updater(prev); return r ?? prev; })}
           onToggleExercise={toggleExercise}
+          exerciseLoadHints={exerciseLoadHints}
+          exerciseLoadDraft={exerciseLoadDraft}
+          onChangeLoad={(exerciseId, value) => setExerciseLoadDraft((prev) => ({ ...prev, [exerciseId]: value }))}
           onApplyJumpTest={(cm) => setLogDraft((p) => ({ ...p, jumpHeightCm: String(cm) }))}
           jumpTechniques={techniques.map((entry) => ({ id: entry.id, title: entry.title }))}
           selectedJumpTechniqueId={selectedJumpTechniqueId}
@@ -4120,6 +4202,16 @@ export default function HomeScreen() {
         >
           <Text style={{ color: '#fff', fontWeight: '700', textAlign: 'center' }}>{error || message}</Text>
         </Pressable>
+      ) : null}
+
+      {/* ── LOADING OVERLAY (action feedback) ─────────── */}
+      {loading ? (
+        <View pointerEvents="none" style={{ position: "absolute", bottom: 110, left: 0, right: 0, alignItems: "center", zIndex: 300 }}>
+          <View style={{ backgroundColor: "rgba(15,22,36,0.92)", borderRadius: 28, paddingVertical: 10, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "rgba(44,196,176,0.25)" }}>
+            <ActivityIndicator size="small" color="#E8A838" />
+            <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>Guardando...</Text>
+          </View>
+        </View>
       ) : null}
 
       {/* ── LEGACY VIEW (hidden – pending cleanup) ────── */}
@@ -4928,7 +5020,17 @@ export default function HomeScreen() {
                     </View>
                     <Pressable
                       style={[styles.toggleChip, isCompleted ? styles.toggleChipActive : null]}
-                      onPress={() => toggleExercise(sessionExercise.id)}
+                      onPress={() => {
+                        if (!isCompleted && sessionExercise.exercise.requiresLoad) {
+                          const loadVal = exerciseLoadDraft[sessionExercise.exercise.id];
+                          const parsed = parseFloat(loadVal ?? "");
+                          if (!loadVal || isNaN(parsed) || parsed <= 0) {
+                            Alert.alert("Carga requerida", "Ingresa el peso usado antes de marcar el ejercicio como completado.");
+                            return;
+                          }
+                        }
+                        toggleExercise(sessionExercise.id);
+                      }}
                     >
                       <Text style={[styles.toggleChipText, isCompleted ? styles.toggleChipTextActive : null]}>
                         {isCompleted ? "Hecho" : "Pendiente"}
@@ -4942,13 +5044,15 @@ export default function HomeScreen() {
                     {sessionExercise.restSeconds ? ` · descanso ${sessionExercise.restSeconds}s` : ""}
                     {sessionExercise.loadText ? ` · carga ${sessionExercise.loadText}` : ""}
                   </Text>
-                  {instruction?.summary ? <Text style={styles.cardDetail}>{instruction.summary}</Text> : null}
-                  {sessionExercise.guidance ? <Text style={styles.helperText}>{sessionExercise.guidance.focus}</Text> : null}
-                  {sessionExercise.guidance?.cues.map((cue) => (
-                    <Text key={`${sessionExercise.id}-${cue}`} style={styles.helperText}>• {cue}</Text>
-                  ))}
-                  {instruction?.steps ? <Text style={styles.helperText}>{instruction.steps}</Text> : null}
-                  {instruction?.safetyNotes ? <Text style={styles.warningText}>{instruction.safetyNotes}</Text> : null}
+                  {instruction?.steps ? (
+                    <View style={{ marginTop: 8, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: "#0b2621", borderRadius: 8, borderLeftWidth: 3, borderLeftColor: C.teal }}>
+                      <Text style={[styles.helperText, { color: C.teal, fontWeight: "600", marginBottom: 4 }]}>📋 Pasos / Ejecución</Text>
+                      <Text style={[styles.cardDetail, { lineHeight: 20 }]}>{instruction.steps}</Text>
+                    </View>
+                  ) : instruction?.summary ? (
+                    <Text style={[styles.cardDetail, { marginTop: 6 }]}>{instruction.summary}</Text>
+                  ) : null}
+                  {instruction?.safetyNotes ? <Text style={[styles.warningText, { marginTop: 4 }]}>{instruction.safetyNotes}</Text> : null}
                   {primaryMedia?.url ? (
                     <Pressable style={styles.linkButton} onPress={() => void Linking.openURL(primaryMedia.url as string)}>
                       <Text style={styles.linkButtonText}>Abrir media</Text>

@@ -102,6 +102,7 @@ export default function DrawerMenu({
               key={screen}
               style={[styles.menuItem, isActive && styles.menuItemActive]}
               onPress={() => { onNavigate(screen); onClose(); }}
+              android_ripple={{ color: "rgba(255,255,255,0.18)", borderless: false }}
             >
               <Text style={[styles.menuIcon, isActive && styles.menuIconActive]}>{icon}</Text>
               <Text style={[styles.menuLabel, isActive && styles.menuLabelActive]}>{label}</Text>
