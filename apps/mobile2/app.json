@@ -6,7 +6,7 @@
     "version": "2.1.4",
     "newArchEnabled": false,
     "orientation": "portrait",
-    "icon": "./assets/img/Estrella_SNT.png",
+    "icon": "./assets/img/icon_padded.png",
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/img/Estrella_SNT.png",
@@ -44,7 +44,7 @@
         "WRITE_CALENDAR"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/img/Estrella_SNT.png",
+        "foregroundImage": "./assets/img/adaptive_fg_padded.png",
         "backgroundColor": "#0A1628"
       }
     },

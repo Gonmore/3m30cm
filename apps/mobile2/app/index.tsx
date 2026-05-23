@@ -1490,17 +1490,25 @@ const LOADING_NUTRITION_TIPS = [
   { icon: "🥗", title: "Carbohidratos", text: "No elimines los carbohidratos: son el combustible principal de tus músculos durante el entrenamiento explosivo." },
 ];
 
-function InitialLoadingScreen() {
+function InitialLoadingScreen({
+  fixedTip,
+  message,
+}: {
+  fixedTip?: (typeof LOADING_NUTRITION_TIPS)[number];
+  message?: string;
+}) {
   const { C } = useTheme();
   const [tipIndex, setTipIndex] = useState(0);
-  const tip = LOADING_NUTRITION_TIPS[tipIndex % LOADING_NUTRITION_TIPS.length]!;
+  // When a fixed tip is provided, display it statically (no rotation)
+  const tip = fixedTip ?? LOADING_NUTRITION_TIPS[tipIndex % LOADING_NUTRITION_TIPS.length]!;
 
   useEffect(() => {
+    if (fixedTip) return; // don't rotate when tip is fixed
     const interval = setInterval(() => {
       setTipIndex((prev) => (prev + 1) % LOADING_NUTRITION_TIPS.length);
     }, 3500);
     return () => clearInterval(interval);
-  }, []);
+  }, [fixedTip]);
 
   const dotActive = tipIndex % LOADING_NUTRITION_TIPS.length;
 
@@ -1529,23 +1537,26 @@ function InitialLoadingScreen() {
             </View>
           </View>
           <Text style={{ fontSize: 14, color: C.text, lineHeight: 22 }}>{tip.text}</Text>
-          <View style={{ flexDirection: "row", gap: 6, justifyContent: "center", marginTop: 2 }}>
-            {LOADING_NUTRITION_TIPS.map((_, i) => (
-              <View
-                key={i}
-                style={{
-                  width: i === dotActive ? 16 : 6,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: i === dotActive ? "#43A047" : C.border,
-                }}
-              />
-            ))}
-          </View>
+          {/* Show dots only when cycling, not for a fixed one-shot tip */}
+          {!fixedTip ? (
+            <View style={{ flexDirection: "row", gap: 6, justifyContent: "center", marginTop: 2 }}>
+              {LOADING_NUTRITION_TIPS.map((_, i) => (
+                <View
+                  key={i}
+                  style={{
+                    width: i === dotActive ? 16 : 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: i === dotActive ? "#43A047" : C.border,
+                  }}
+                />
+              ))}
+            </View>
+          ) : null}
         </View>
         <View style={{ alignItems: "center", gap: 10 }}>
           <ActivityIndicator size="large" color="#E8A838" />
-          <Text style={{ color: C.textMuted, fontSize: 13 }}>Cargando tu entrenamiento...</Text>
+          <Text style={{ color: C.textMuted, fontSize: 13 }}>{message ?? "Cargando tu entrenamiento..."}</Text>
         </View>
       </View>
     </SafeAreaView>
@@ -1629,6 +1640,8 @@ export default function HomeScreen() {
   const [programs, setPrograms] = useState<ProgramListResponse["programs"]>([]);
   const [sessions, setSessions] = useState<SessionListResponse["sessions"]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  // Random tip shown while session data is being fetched after "Iniciar ahora"
+  const [sessionStartTip, setSessionStartTip] = useState<(typeof LOADING_NUTRITION_TIPS)[number] | null>(null);
   const [favoriteSessionId, setFavoriteSessionId] = useState<string | null>(null);
   const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
@@ -2517,6 +2530,23 @@ export default function HomeScreen() {
         })
         .catch(() => { /* hints are optional */ });
     }
+
+    // Background-prefetch exercise media so images render instantly when the session opens
+    for (const se of session.sessionExercises) {
+      for (const asset of se.exercise.mediaAssets ?? []) {
+        const url = asset.offlineUrl ?? asset.url;
+        if (!url) continue;
+        if (asset.kind === "IMAGE" || asset.kind === "GIF") {
+          void Image.prefetch(url);
+        } else if (asset.kind === "VIDEO") {
+          // Prefetch YouTube thumbnails
+          const ytId = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([^&?/\s]{11})/)?.[1];
+          if (ytId) void Image.prefetch(`https://img.youtube.com/vi/${ytId}/hqdefault.jpg`);
+        }
+      }
+    }
+    // Clear the loading tip now that we have session data
+    setSessionStartTip(null);
   }
 
   async function handlePreloadSession(sessionId: string, sessionTitle: string) {
@@ -3902,6 +3932,10 @@ export default function HomeScreen() {
           showBouncyInput={showBouncyInput}
           onStartSession={async () => {
             if (todayPrimarySession) {
+              // Pick a random tip to display while the session detail loads
+              setSessionStartTip(
+                LOADING_NUTRITION_TIPS[Math.floor(Math.random() * LOADING_NUTRITION_TIPS.length)]!
+              );
               setSelectedSessionId(todayPrimarySession.id);
               const savedStep = await loadExerciseProgress(todayPrimarySession.id);
               setExerciseStep(savedStep);
@@ -3943,7 +3977,12 @@ export default function HomeScreen() {
         />
       ) : null}
 
-      {activeScreen === "ejercicios" ? (
+      {/* While session detail is loading after "Iniciar ahora", show a tip-based loading screen */}
+      {activeScreen === "ejercicios" && !selectedSession && sessionStartTip ? (
+        <InitialLoadingScreen fixedTip={sessionStartTip} message="Preparando tu sesión..." />
+      ) : null}
+
+      {activeScreen === "ejercicios" && (selectedSession !== null || !sessionStartTip) ? (
         <EjerciciosScreen
           selectedSession={selectedSession as SharedSessionDetail | null}
           selectedSessionGuidance={(selectedSessionGuidance ?? null) as SharedSessionGuidance | null}
