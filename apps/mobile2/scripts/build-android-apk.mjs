@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -307,6 +307,9 @@ function computePrebuildFingerprint() {
     path.join(workspaceRoot, "package-lock.json"),
   ];
   const hash = createHash("sha256");
+  // Include the build variant so switching between 'dev' and 'vjump' always
+  // triggers a clean prebuild (different applicationId in each case).
+  hash.update(`EXPO_VARIANT=${process.env.EXPO_VARIANT ?? "dev"}\n`);
   for (const filePath of paths) {
     try {
       hash.update(readFileSync(filePath));
@@ -445,6 +448,18 @@ cleanAndroidLibraryBuildDirs();
 cleanupProjectLockFiles();
 
 const result = runGradle(["assembleRelease", "--no-daemon", "--max-workers=1", "--no-parallel", "--build-cache"]);
+
+// ── Copy output APK to a named file at the project root ────────────────────
+if (result.status === 0) {
+  const outputApk = path.join(androidDir, "app", "build", "outputs", "apk", "release", "app-release.apk");
+  const variant = process.env.EXPO_VARIANT ?? "dev";
+  const destName = variant === "vjump" ? "vjump-release.apk" : "release.apk";
+  const destApk = path.join(projectRoot, destName);
+  if (existsSync(outputApk)) {
+    copyFileSync(outputApk, destApk);
+    console.log(`\n✓ APK disponible en: ${destApk}`);
+  }
+}
 
 if (typeof result.status === "number") {
   process.exit(result.status);

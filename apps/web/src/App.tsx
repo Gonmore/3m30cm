@@ -4974,6 +4974,26 @@ export default function App() {
     }
   }
 
+  async function handleWelcomeVideoDelete(templateCode: string) {
+    if (!accessToken || !templateCode) return;
+    if (!confirm("¿Eliminar el video de bienvenida? Esta acción no se puede deshacer.")) return;
+    try {
+      setWelcomeVideoUploading(true);
+      setError("");
+      await requestJson<undefined>(
+        `/api/v1/admin/program-templates/${templateCode}/welcome-video`,
+        { method: "DELETE" },
+        accessToken,
+      );
+      setTemplateForm((f) => ({ ...f, welcomeVideoUrl: "" }));
+      setMessage("Video de bienvenida eliminado.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al eliminar video");
+    } finally {
+      setWelcomeVideoUploading(false);
+    }
+  }
+
   async function handleWizardTemplateSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!accessToken) {
@@ -7966,25 +7986,44 @@ export default function App() {
                         rows={2}
                       />
                     </label>
-                    <label>
-                      Video de bienvenida (URL)
-                      <input
-                        type="text"
-                        value={templateForm.welcomeVideoUrl}
-                        onChange={(e) => setTemplateForm((f) => ({ ...f, welcomeVideoUrl: e.target.value }))}
-                        placeholder="/api/v1/assets/... o https://..."
-                        readOnly={welcomeVideoUploading}
-                      />
-                    </label>
                   </div>
                   <button className="primary-button" type="submit" disabled={loading}>
                     {templateForm.id ? "Guardar cambios" : "Crear programa"}
                   </button>
                 </form>
-                {/* ── Welcome video upload (only when editing an existing template) ── */}
+                {/* ── Welcome video CRUD (only when editing an existing template) ── */}
                 {templateForm.id ? (
                   <div style={{ marginTop: 16, padding: 16, background: "var(--surface-raise, #1a2640)", borderRadius: 8 }}>
-                    <p className="eyebrow" style={{ marginBottom: 8 }}>Subir video de bienvenida a MinIO</p>
+                    <p className="eyebrow" style={{ marginBottom: 10 }}>Video de bienvenida</p>
+
+                    {/* Current video preview */}
+                    {templateForm.welcomeVideoUrl ? (
+                      <div style={{ marginBottom: 14 }}>
+                        <video
+                          key={templateForm.welcomeVideoUrl}
+                          src={templateForm.welcomeVideoUrl}
+                          controls
+                          style={{ width: "100%", maxHeight: 220, borderRadius: 6, background: "#000", display: "block" }}
+                        />
+                        <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <span className="helper-text" style={{ flex: 1, wordBreak: "break-all", fontSize: 11 }}>
+                            {templateForm.welcomeVideoUrl}
+                          </span>
+                          <button
+                            type="button"
+                            className="danger-button"
+                            disabled={welcomeVideoUploading}
+                            onClick={() => void handleWelcomeVideoDelete(templateForm.code)}
+                          >
+                            Eliminar video
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="helper-text" style={{ marginBottom: 12 }}>Sin video asignado.</p>
+                    )}
+
+                    {/* Upload new video */}
                     <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                       <input
                         type="file"
@@ -7999,14 +8038,32 @@ export default function App() {
                         disabled={!welcomeVideoFile || welcomeVideoUploading}
                         onClick={() => void handleWelcomeVideoUpload(templateForm.code)}
                       >
-                        {welcomeVideoUploading ? "Subiendo…" : "Subir video"}
+                        {welcomeVideoUploading ? "Procesando…" : "Subir video"}
                       </button>
                     </div>
-                    {templateForm.welcomeVideoUrl ? (
-                      <p className="helper-text" style={{ marginTop: 6, wordBreak: "break-all" }}>
-                        ✅ Video actual: <a href={templateForm.welcomeVideoUrl} target="_blank" rel="noreferrer">{templateForm.welcomeVideoUrl}</a>
-                      </p>
-                    ) : null}
+
+                    {/* Manual external URL fallback */}
+                    <details style={{ marginTop: 10 }}>
+                      <summary className="helper-text" style={{ cursor: "pointer", userSelect: "none" }}>Pegar URL externa</summary>
+                      <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+                        <input
+                          type="text"
+                          value={templateForm.welcomeVideoUrl}
+                          onChange={(e) => setTemplateForm((f) => ({ ...f, welcomeVideoUrl: e.target.value }))}
+                          placeholder="https://..."
+                          style={{ flex: 1 }}
+                          disabled={welcomeVideoUploading}
+                        />
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          disabled={welcomeVideoUploading || !templateForm.welcomeVideoUrl}
+                          onClick={() => void handleTemplateSubmit({ preventDefault: () => {} } as React.FormEvent<HTMLFormElement>)}
+                        >
+                          Guardar URL
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 ) : null}
               </div>

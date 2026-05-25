@@ -16,6 +16,7 @@
     "prod:mobile2": "npm --prefix apps/mobile2 run prod",
     "prod:mobile2:localhost": "npm --prefix apps/mobile2 run prod:localhost",
     "devbuild:mobile2": "npm --prefix apps/mobile2 run devbuild:android",
+    "apk:vjump": "npm --prefix apps/mobile2 run apk:vjump",
     "dev:mobile2:web": "npm --prefix apps/mobile2 run web",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",

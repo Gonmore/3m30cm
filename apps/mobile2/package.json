@@ -10,6 +10,7 @@
     "android": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --dev-client --android --offline --port 8082 --clear",
     "android:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node ../../node_modules/expo/bin/cli start --dev-client --android --offline --port 8082 --clear",
     "apk:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node scripts/build-android-apk.mjs",
+    "apk:vjump": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com EXPO_VARIANT=vjump node scripts/build-android-apk.mjs",
     "devbuild:android": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node scripts/build-android-devbuild.mjs",
     "ios": "cross-env EXPO_PUBLIC_API_BASE_URL= node ../../node_modules/expo/bin/cli start --ios --offline --port 8082 --clear",
     "ios:prod": "cross-env EXPO_PUBLIC_API_BASE_URL=https://3m30cm.supernovatel.com EXPO_PUBLIC_MINIO_PUBLIC_BASE_URL=http://s3.supernovatel.com node ../../node_modules/expo/bin/cli start --ios --offline --port 8082 --clear",

@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.supernovatel.jump30cm.game'
+    namespace 'com.supernovatel.vjump2026'
     defaultConfig {
-        applicationId 'com.supernovatel.jump30cm.game'
+        applicationId 'com.supernovatel.vjump2026'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 214

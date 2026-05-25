@@ -49,6 +49,14 @@ loadEnvFile(path.join(__dirname, ".env.local"), dotenv, dotenvExpand);
 
 module.exports = {
   ...expoConfig,
+  // ── vJump 2026 release variant ──────────────────────────────────────────────
+  // When EXPO_VARIANT=vjump the APK gets a different applicationId so it can
+  // coexist on the same device alongside the debug/dev build.
+  ...(process.env.EXPO_VARIANT === "vjump" && {
+    name: "vJump 2026",
+    android: { ...expoConfig.android, package: "com.supernovatel.vjump2026" },
+    ios:     { ...expoConfig.ios, bundleIdentifier: "com.supernovatel.vjump2026" },
+  }),
   extra: {
     ...expoExtra,
     apiBaseUrl: getConfiguredValue("EXPO_PUBLIC_API_BASE_URL", "API_BASE_URL", expoExtra.apiBaseUrl),

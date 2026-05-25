@@ -7,7 +7,7 @@ import { env } from "../config/env.js";
 import { prisma } from "../config/prisma.js";
 import { parseExerciseTaskBlock } from "../lib/exercise-task-import.js";
 import { analyze as analyzeBiomechanics, CalibrationError } from "../lib/jumpHeightAnalyzer.js";
-import { deleteProgramTechniqueMedia, uploadProgramTechniqueMedia, uploadTemplateWelcomeVideo } from "../lib/minio.js";
+import { deleteProgramTechniqueMedia, deleteTemplateWelcomeVideo, uploadProgramTechniqueMedia, uploadTemplateWelcomeVideo } from "../lib/minio.js";
 import { ensureTemplateTechniqueStructure } from "../lib/program-template-techniques.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
@@ -2438,6 +2438,61 @@ adminTemplatesRouter.post(
     } catch (error) {
       console.error("Failed to upload welcome video", error);
       res.status(500).json({ message: "Failed to upload welcome video" });
+    }
+  },
+);
+
+// ── Welcome video delete ─────────────────────────────────────────────────────
+adminTemplatesRouter.delete(
+  "/program-templates/:code/welcome-video",
+  async (req: Request, res: Response) => {
+    try {
+      const code = getStringParam(req.params.code);
+      if (!code) {
+        res.status(400).json({ message: "Program template code is required" });
+        return;
+      }
+
+      const template = await prisma.programTemplate.findUnique({
+        where: { code },
+        select: { id: true, welcomeVideoUrl: true },
+      });
+      if (!template) {
+        res.status(404).json({ message: "Program template not found" });
+        return;
+      }
+      if (!template.welcomeVideoUrl) {
+        res.status(404).json({ message: "No welcome video assigned" });
+        return;
+      }
+
+      // Extract the MinIO object key from the stored asset URL.
+      // URL format: /api/v1/assets/{encodedBucket}/{encodedKey...}
+      const assetPrefix = "/api/v1/assets/";
+      if (template.welcomeVideoUrl.startsWith(assetPrefix)) {
+        const withoutPrefix = template.welcomeVideoUrl.slice(assetPrefix.length);
+        const slashIdx = withoutPrefix.indexOf("/");
+        if (slashIdx !== -1) {
+          const encodedKey = withoutPrefix.slice(slashIdx + 1);
+          const objectKey = encodedKey.split("/").map(decodeURIComponent).join("/");
+          try {
+            await deleteTemplateWelcomeVideo(objectKey);
+          } catch (minioErr) {
+            // Best-effort: log but don't fail if the file is already gone.
+            console.warn("Failed to delete welcome video from MinIO:", minioErr);
+          }
+        }
+      }
+
+      await prisma.programTemplate.update({
+        where: { id: template.id },
+        data: { welcomeVideoUrl: null },
+      });
+
+      res.status(204).end();
+    } catch (error) {
+      console.error("Failed to delete welcome video", error);
+      res.status(500).json({ message: "Failed to delete welcome video" });
     }
   },
 );
