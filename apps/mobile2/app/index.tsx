@@ -2200,6 +2200,7 @@ export default function HomeScreen() {
   // Monday auto-trigger: show fatigue check-in modal once per week on Mondays
   useEffect(() => {
     if (!accessToken || activeRole !== "athlete") return;
+    if (sessions.length === 0) return; // no check-in sin programa activo con sesiones
     const today = new Date();
     if (today.getDay() !== 1) return; // 1 = Monday
     const monday = new Date(today);
@@ -4553,9 +4554,9 @@ export default function HomeScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Arma tu bloque desde la app</Text>
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Configura tu contexto deportivo</Text>
+              <Text style={styles.cardTitle}>Tu contexto deportivo</Text>
               <Text style={styles.cardDetail}>
-                La app puede generar tu plan inicial si primero sabe en que fase estas, que dias puedes hacer jump y que dias ya cargas pista, cancha o tu deporte principal.
+                Vamos a armar tu plan de salto vertical adaptado a tu carga semanal. La app ajustará automáticamente las sesiones según tus partidos y cómo llegas cada semana.
               </Text>
               {planningRecommendation ? <Text style={styles.helperText}>{planningRecommendation.summary}</Text> : null}
               <TextInput
@@ -4566,77 +4567,102 @@ export default function HomeScreen() {
                 onChangeText={(value) => setAthleteSetup((current) => ({ ...current, displayName: value }))}
               />
               <TextInput
-                placeholder="Deporte principal"
+                placeholder="Deporte principal (ej: Básquetbol)"
                 placeholderTextColor="#7a879d"
                 style={styles.input}
                 value={athleteSetup.sport}
                 onChangeText={(value) => setAthleteSetup((current) => ({ ...current, sport: value }))}
               />
+
+              {/* ── Paso 1: ¿Entrenas deporte? ─────────── */}
+              <Text style={styles.helperText}>¿Entrenas o compites en algún deporte actualmente?</Text>
               <View style={styles.inlineRow}>
                 <Pressable
                   style={[styles.secondaryButton, athleteSetup.trainsSport ? styles.selectedAuthButton : null]}
-                  onPress={() => setAthleteSetup((current) => ({ ...current, trainsSport: !current.trainsSport }))}
+                  onPress={() => setAthleteSetup((current) => ({ ...current, trainsSport: true }))}
                 >
-                  <Text style={styles.secondaryButtonText}>{athleteSetup.trainsSport ? "Tambien entreno deporte/pista" : "Solo jump por ahora"}</Text>
+                  <Text style={styles.secondaryButtonText}>Sí, entreno</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.secondaryButton, !athleteSetup.trainsSport ? styles.selectedAuthButton : null]}
+                  onPress={() => setAthleteSetup((current) => ({
+                    ...current,
+                    trainsSport: false,
+                    sportTrainingDays: "",
+                    teamTrainingIntensity: "NONE",
+                    weeklyGameCount: "ZERO_TO_ONE",
+                    skipPhase1: false, // fase de adecuacion obligatoria
+                  }))}
+                >
+                  <Text style={styles.secondaryButtonText}>No, solo jump</Text>
                 </Pressable>
               </View>
+
               {athleteSetup.trainsSport ? (
-                <TextInput
-                  placeholder="Dias de deporte/pista: 2,4"
-                  placeholderTextColor="#7a879d"
-                  style={styles.input}
-                  value={athleteSetup.sportTrainingDays}
-                  onChangeText={(value) => setAthleteSetup((current) => ({ ...current, sportTrainingDays: value }))}
-                />
-              ) : null}
+                <>
+                  {/* ── Paso 2: Días de entrenamiento ────── */}
+                  <Text style={styles.helperText}>¿Qué días entrenas con tu equipo o en cancha? (ej: 2,4 = mar y jue)</Text>
+                  <TextInput
+                    placeholder="Días: 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie"
+                    placeholderTextColor="#7a879d"
+                    style={styles.input}
+                    value={athleteSetup.sportTrainingDays}
+                    onChangeText={(value) => setAthleteSetup((current) => ({ ...current, sportTrainingDays: value, teamTrainingDays: value }))}
+                  />
+
+                  {/* ── Paso 3: Intensidad ───────────────── */}
+                  <Text style={styles.helperText}>¿Con qué intensidad son esos entrenamientos?</Text>
+                  <View style={styles.inlineRow}>
+                    {(["INTENSE", "LIGHT"] as const).map((option) => {
+                      const labels: Record<string, string> = { INTENSE: "Intensos (alta carga)", LIGHT: "Suaves (técnica/táctica)" };
+                      return (
+                        <Pressable
+                          key={option}
+                          style={[styles.secondaryButton, athleteSetup.teamTrainingIntensity === option ? styles.selectedAuthButton : null]}
+                          onPress={() => setAthleteSetup((current) => ({ ...current, teamTrainingIntensity: option }))}
+                        >
+                          <Text style={styles.secondaryButtonText}>{labels[option]}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {/* ── Paso 4: Partidos ─────────────────── */}
+                  <Text style={styles.helperText}>¿Cuántos partidos o competencias juegas por fin de semana en promedio?</Text>
+                  <View style={styles.inlineRow}>
+                    {(["ZERO_TO_ONE", "TWO_TO_THREE", "FOUR_PLUS"] as const).map((option) => {
+                      const labels: Record<string, string> = { ZERO_TO_ONE: "0–1", TWO_TO_THREE: "2–3", FOUR_PLUS: "4+" };
+                      return (
+                        <Pressable
+                          key={option}
+                          style={[styles.secondaryButton, athleteSetup.weeklyGameCount === option ? styles.selectedAuthButton : null]}
+                          onPress={() => setAthleteSetup((current) => ({ ...current, weeklyGameCount: option }))}
+                        >
+                          <Text style={styles.secondaryButtonText}>{labels[option]}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : (
+                <Text style={styles.helperText}>
+                  Tu programa incluirá una fase de adecuación para preparar las articulaciones antes del bloque de carga.
+                </Text>
+              )}
+
+              {/* ── Días de jump (siempre visible) ───── */}
+              <Text style={styles.helperText}>¿Qué días puedes hacer jump? (ej: 1,3,5 = lun, mié, vie)</Text>
               <TextInput
-                placeholder="Dias de entrenamiento de equipo: 2,4"
-                placeholderTextColor="#7a879d"
-                style={styles.input}
-                value={athleteSetup.teamTrainingDays}
-                onChangeText={(value) => setAthleteSetup((current) => ({ ...current, teamTrainingDays: value }))}
-              />
-              <TextInput
-                placeholder="Dias para jump: 1,3,5"
+                placeholder="Días para jump: 1,3,5"
                 placeholderTextColor="#7a879d"
                 style={styles.input}
                 value={athleteSetup.availableWeekdays}
                 onChangeText={(value) => setAthleteSetup((current) => ({ ...current, availableWeekdays: value }))}
               />
-              <Text style={styles.helperText}>Motor predictivo — Contexto de competición</Text>
-              <Text style={styles.helperText}>¿Cuántos partidos juegas por fin de semana en promedio?</Text>
-              <View style={styles.inlineRow}>
-                {(["ZERO_TO_ONE", "TWO_TO_THREE", "FOUR_PLUS"] as const).map((option) => {
-                  const labels: Record<string, string> = { ZERO_TO_ONE: "0–1", TWO_TO_THREE: "2–3", FOUR_PLUS: "4+" };
-                  return (
-                    <Pressable
-                      key={option}
-                      style={[styles.secondaryButton, athleteSetup.weeklyGameCount === option ? styles.selectedAuthButton : null]}
-                      onPress={() => setAthleteSetup((current) => ({ ...current, weeklyGameCount: option }))}
-                    >
-                      <Text style={styles.secondaryButtonText}>{labels[option]}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              <Text style={styles.helperText}>¿Cómo son tus entrenamientos de equipo?</Text>
-              <View style={styles.inlineRow}>
-                {(["INTENSE", "LIGHT", "NONE"] as const).map((option) => {
-                  const labels: Record<string, string> = { INTENSE: "Intensos", LIGHT: "Suaves", NONE: "No entreno" };
-                  return (
-                    <Pressable
-                      key={option}
-                      style={[styles.secondaryButton, athleteSetup.teamTrainingIntensity === option ? styles.selectedAuthButton : null]}
-                      onPress={() => setAthleteSetup((current) => ({ ...current, teamTrainingIntensity: option }))}
-                    >
-                      <Text style={styles.secondaryButtonText}>{labels[option]}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {athleteSetup.weeklyGameCount || athleteSetup.teamTrainingIntensity ? (
+
+              {(athleteSetup.weeklyGameCount || athleteSetup.teamTrainingIntensity) && athleteSetup.trainsSport ? (
                 <Text style={styles.helperText}>
-                  La fase de temporada se deduce automáticamente de tu contexto de competición.
+                  La fase de temporada y los ajustes de carga se deducen automáticamente de tu contexto.
                 </Text>
               ) : null}
               <Text style={styles.helperText}>Fecha de inicio del programa</Text>
