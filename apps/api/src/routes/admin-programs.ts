@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { prisma } from "../config/prisma.js";
 import { atLocalMidday, generatePersonalProgram } from "../lib/athlete-programs.js";
+import { applyCompetitionAdjustments } from "../lib/schedule-adjustments.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const generationSchema = z.object({
@@ -219,6 +220,19 @@ adminProgramsRouter.post("/programs/generate", async (req: Request, res: Respons
         includePreparationPhase: payload.includePreparationPhase,
       });
     });
+
+    // Apply competition-aware post-processing outside the generation transaction
+    if (generatedProgram) {
+      await prisma.$transaction(async (tx) => {
+        await applyCompetitionAdjustments(
+          tx,
+          generatedProgram.id,
+        athleteProfile.weeklyGameCount,
+          athleteProfile.teamTrainingIntensity,
+          phase,
+        );
+      });
+    }
 
     res.status(201).json({ program: generatedProgram });
   } catch (error) {

@@ -13,6 +13,65 @@
 
 ## Registro de trabajo
 
+### 19. Onboarding Inteligente y Sistema de Planificación Híbrido (2026-05-25)
+
+**Objetivo:** Implementar 3 fases de inteligencia de planificación:
+1. Preguntas de contexto de competición en el onboarding → deducción automática de `seasonPhase`.
+2. Check-in de fatiga los lunes + toggle de partidos de fin de semana con reprogramación reactiva de sesiones.
+3. Campo `sequenceOrder` en sesiones + infraestructura de base para seed de medios de ejercicios.
+
+**Cambios aplicados:**
+
+#### Base de datos — `apps/api/prisma/schema.prisma`
+- Nuevos enums: `WeeklyGameCount { ZERO_TO_ONE TWO_TO_THREE FOUR_PLUS }`, `TeamTrainingIntensity { INTENSE LIGHT NONE }`, `CheckInFatigue { LOW MEDIUM HIGH }`.
+- `AthleteProfile`: nuevos campos `weeklyGameCount WeeklyGameCount?` y `teamTrainingIntensity TeamTrainingIntensity?`.
+- `ScheduledSession`: nuevo campo `sequenceOrder Int?`.
+- Nuevo modelo `WeeklyCheckIn` con `athleteProfileId`, `weekStartDate`, `fatigue?`, `hasWeekendGames?` y restricción `@@unique([athleteProfileId, weekStartDate])`.
+- Migración `20260525_add_competition_context_and_weekly_checkin` creada y aplicada con `prisma db push` + `prisma migrate resolve --applied`.
+
+#### API — Nuevas librerías
+- **`apps/api/src/lib/season-deduction.ts`** (nueva): función pura `deduceSeasonPhase(gameCount, intensity) → SeasonPhase`. Reglas: FOUR_PLUS→COMPETITION, TWO_TO_THREE→IN_SEASON, ZERO_TO_ONE+INTENSE→IN_SEASON, ZERO_TO_ONE+LIGHT→PRESEASON, ZERO_TO_ONE+NONE→OFF_SEASON.
+- **`apps/api/src/lib/schedule-adjustments.ts`** (nueva): `applyCompetitionAdjustments(tx, programId, gameCount, intensity, seasonPhase)` — convierte sesiones EXPLOSIVE de lun/vie a RECOVERY en contexto IN_SEASON/COMPETITION con ≥2 partidos; agrega notas de intensidad LIGHT a sesiones STRENGTH.
+- **`apps/api/src/lib/weekly-adjuster.ts`** (nueva):
+  - `applyFatigueAdjustment(tx, programId, weekStart, fatigue)` — HIGH: inserta RECOVERY el lunes y desplaza todas las sesiones PLANNED de la semana +1 día; LOW: adelanta la siguiente sesión EXPLOSIVE/STRENGTH al lunes; MEDIUM: sin cambio.
+  - `applyWeekendGamePrediction(tx, programId, weekStart, hasWeekendGames, weeklyGameCount, seasonPhase)` — true: convierte sesiones EXPLOSIVE/STRENGTH del viernes a RECOVERY marcadas con `[auto:weekend-game]`; false: restaura las sesiones auto-convertidas.
+
+#### API — Rutas modificadas
+- **`apps/api/src/routes/athlete.ts`**:
+  - `athletePlanningSchema`: reemplazado `seasonPhase` con `weeklyGameCount` y `teamTrainingIntensity` (opcionales).
+  - `PUT /athlete/onboarding`: usa `deduceSeasonPhase` para computar la fase y persiste los nuevos campos.
+  - `POST /athlete/programs/generate`: llama `deduceSeasonPhase` + `applyCompetitionAdjustments` post-transacción.
+  - Nuevos endpoints: `GET /athlete/weekly-checkin`, `POST /athlete/weekly-checkin`, `PATCH /athlete/weekly-checkin/weekend-games`.
+- **`apps/api/src/routes/auth.ts`**: `athleteRegistrationSchema` actualizado; `athleteProfile.create` guarda `weeklyGameCount`, `teamTrainingIntensity` y `seasonPhase` deducida.
+- **`apps/api/src/routes/admin-programs.ts`**: llama `applyCompetitionAdjustments` después de cada generación de programa por admin.
+
+#### Mobile2 — `apps/mobile2/app/index.tsx`
+- `AthleteProfileResponse.athleteProfile`: añadidos `weeklyGameCount` y `teamTrainingIntensity`.
+- `AthleteSetupState`: reemplazado `seasonPhase` con `weeklyGameCount` y `teamTrainingIntensity`.
+- `emptyAthleteSetup()`: valores iniciales vacíos para los nuevos campos.
+- Profile loading useEffect: mapea `weeklyGameCount` y `teamTrainingIntensity` desde la API.
+- `handleRegister`, `handleSaveOnboarding`, `handleGenerateProgramFromApp`: payloads actualizados.
+- Formulario de setup (registro y re-configuración): reemplazado TextInput de `seasonPhase` con dos grupos de radio-buttons:
+  - "¿Cuántos partidos juegas por fin de semana?" → ZERO_TO_ONE / TWO_TO_THREE / FOUR_PLUS.
+  - "¿Cómo son tus entrenamientos de equipo?" → INTENSE / LIGHT / NONE.
+- Estado `weeklyCheckIn` + `mondayCheckInVisible`.
+- useEffect Monday trigger: cada lunes consulta `GET /athlete/weekly-checkin`; si no hay check-in de la semana, abre el modal.
+- `MondayCheckInModal`: 3 botones (Fresco / Normal / Cargado) → `POST /athlete/weekly-checkin` → refresca sesiones si hubo ajustes.
+- Card "Planificación semanal" en el dashboard: toggle "Sí, tengo partido / No, sin partido" → `PATCH /athlete/weekly-checkin/weekend-games` → refresca sesiones si hubo ajustes.
+- Tarjeta "Cuenta activa": muestra `weeklyGameCount` junto a `seasonPhase`.
+
+#### Tipo compartido — `apps/mobile/components/types.ts`
+- `AthleteSetupState`: reemplazado `seasonPhase: string` con `weeklyGameCount: string` + `teamTrainingIntensity: string` para mantener compatibilidad con `HoyScreenV2.tsx` de mobile2 que importa este tipo.
+
+**Pendiente (Fase 3 — opcional):**
+- Script `apps/api/scripts/seed-plyometric-recovery.mjs` para poblar ejercicios de Warmup/Drills desde CSV y asignarles media apropiada.
+
+**Validación:**
+- `npx tsc --noEmit` en `apps/api` ✓ (0 errores)
+- `npx tsc --noEmit` en `apps/mobile2` ✓ (0 errores)
+
+---
+
 ### 18. Modal paso a paso + candidatos enriquecidos para "Buscar media" (2026-05-19)
 
 **Objetivos:**

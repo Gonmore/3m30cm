@@ -55,6 +55,10 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - El portal web ya tiene una sección "Apps" (SUPERADMIN) que asocia slugs de apps móviles (`appSlug`) a un `ProgramTemplate` vía el modelo `MobileAppConfig`. Desde ahí se puede dar de alta o editar la asociación de la app `3m30cm-game` (y futuras apps) con su template asignado.
 - `ProgramTemplate` tiene un campo `welcomeVideoUrl` opcional: cuando se configura, `apps/mobile2` muestra el video al atleta la primera vez que entra a la app (modal WebView con opción de saltar) y un botón "🎬 Ver video del programa" en la pantalla Hoy.
 - `apps/mobile2` ya no muestra el selector de templates en el onboarding: al arrancar consulta `/api/v1/app-config/3m30cm-game` y aplica automáticamente el template y el video de bienvenida configurados desde el panel admin.
+- El onboarding de `apps/mobile2` ya no pide la fase de temporada directamente: en su lugar se hacen dos preguntas de contexto de competición (partidos por fin de semana + intensidad de entrenamientos de equipo) y la API deduce automáticamente `seasonPhase` mediante la función `deduceSeasonPhase`.
+- `apps/mobile2` muestra cada lunes un modal de check-in de fatiga (Fresco / Normal / Cargado) que llama `POST /api/v1/athlete/weekly-checkin`; según el nivel de fatiga, la API ajusta automáticamente las sesiones de la semana (inserta recuperación, adelanta sesiones o no cambia nada).
+- El dashboard de `apps/mobile2` incluye un toggle de partidos de fin de semana que llama `PATCH /api/v1/athlete/weekly-checkin/weekend-games`; si el atleta tiene partido, la sesión del viernes se convierte a recuperación automáticamente y se restaura si el atleta indica que no hay partido.
+- `ScheduledSession` tiene el campo `sequenceOrder Int?` para futuras ordenaciones dentro del día.
 
 ## Requisitos previos
 

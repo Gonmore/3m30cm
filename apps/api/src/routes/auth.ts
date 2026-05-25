@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { Prisma, SeasonPhase } from "@prisma/client";
+import { Prisma, SeasonPhase, TeamTrainingIntensity, WeeklyGameCount } from "@prisma/client";
 import { type Request, type Response, Router } from "express";
 import { randomBytes, randomInt } from "crypto";
 import nodemailer from "nodemailer";
@@ -10,6 +10,7 @@ import { env } from "../config/env.js";
 import { buildAthleteProgramPreferencesJson, buildTrainingDaysJson, buildWeekdaysJson } from "../lib/athlete-programs.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { createAccessToken, getConfiguredGoogleClientIds, verifyGoogleIdToken } from "../lib/auth.js";
+import { deduceSeasonPhase } from "../lib/season-deduction.js";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -25,7 +26,8 @@ const athleteRegistrationSchema = z.object({
   sport: z.string().trim().optional(),
   trainsSport: z.boolean().default(false),
   sportTrainingDays: z.array(z.number().int().min(0).max(6)).optional(),
-  seasonPhase: z.nativeEnum(SeasonPhase).default(SeasonPhase.OFF_SEASON),
+  weeklyGameCount: z.nativeEnum(WeeklyGameCount).optional(),
+  teamTrainingIntensity: z.nativeEnum(TeamTrainingIntensity).optional(),
   availableWeekdays: z.array(z.number().int().min(0).max(6)).optional(),
   programPreferences: z.object({
     skipPhase1: z.boolean().default(false),
@@ -94,7 +96,9 @@ authRouter.post("/register/athlete", async (req: Request, res: Response) => {
         displayName: payload.displayName ?? payload.firstName ?? email,
         sport: payload.sport ?? null,
         trainsSport: payload.trainsSport,
-        seasonPhase: payload.seasonPhase,
+        weeklyGameCount: payload.weeklyGameCount ?? null,
+        teamTrainingIntensity: payload.teamTrainingIntensity ?? null,
+        seasonPhase: deduceSeasonPhase(payload.weeklyGameCount, payload.teamTrainingIntensity),
         weeklyAvailability: buildWeekdaysJson(payload.availableWeekdays),
         sportTrainingDays: buildTrainingDaysJson(payload.trainsSport ? payload.sportTrainingDays : undefined),
         programPreferences: buildAthleteProgramPreferencesJson(payload.programPreferences),

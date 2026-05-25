@@ -226,6 +226,8 @@ interface AthleteProfileResponse {
     sport: string | null;
     trainsSport: boolean;
     seasonPhase: string;
+    weeklyGameCount: string | null;
+    teamTrainingIntensity: string | null;
     weeklyAvailability: { availableWeekdays?: number[] } | null;
     sportTrainingDays: { trainingDays?: number[] } | null;
     programPreferences: {
@@ -839,7 +841,8 @@ interface AthleteSetupState {
   trainsSport: boolean;
   sportTrainingDays: string;
   teamTrainingDays: string;
-  seasonPhase: string;
+  weeklyGameCount: string;
+  teamTrainingIntensity: string;
   availableWeekdays: string;
   startDate: string;
   skipPhase1: boolean;
@@ -966,7 +969,8 @@ const emptyAthleteSetup = (): AthleteSetupState => ({
   trainsSport: false,
   sportTrainingDays: "2,4",
   teamTrainingDays: "2,4",
-  seasonPhase: "OFF_SEASON",
+  weeklyGameCount: "",
+  teamTrainingIntensity: "",
   availableWeekdays: "1,3,5",
   startDate: new Date().toISOString().slice(0, 10),
   skipPhase1: false,
@@ -1901,6 +1905,13 @@ export default function HomeScreen() {
   const [exerciseStep, setExerciseStep] = useState(0);
   const [jumpGuideVisible, setJumpGuideVisible] = useState(false);
   const [todayProgressStep, setTodayProgressStep] = useState(0);
+  const [weeklyCheckIn, setWeeklyCheckIn] = useState<{
+    id: string;
+    weekStartDate: string;
+    fatigue: string | null;
+    hasWeekendGames: boolean | null;
+  } | null>(null);
+  const [mondayCheckInVisible, setMondayCheckInVisible] = useState(false);
   async function handleUnauthorizedSession(messageText = "La sesion ya no es valida. Inicia sesion otra vez.") {
     await deleteStoredValue(accessTokenStorageKey);
     setAccessToken(null);
@@ -2186,6 +2197,35 @@ export default function HomeScreen() {
     })();
   }, [accessToken]);
 
+  // Monday auto-trigger: show fatigue check-in modal once per week on Mondays
+  useEffect(() => {
+    if (!accessToken || activeRole !== "athlete") return;
+    const today = new Date();
+    if (today.getDay() !== 1) return; // 1 = Monday
+    const monday = new Date(today);
+    monday.setHours(0, 0, 0, 0);
+    const weekStartDate = monday.toISOString().slice(0, 10);
+    if (weeklyCheckIn?.weekStartDate === weekStartDate) return; // already submitted for this week
+    // Fetch existing check-in first to avoid re-triggering if already done
+    void (async () => {
+      try {
+        const result = await requestJson<{ checkIn: typeof weeklyCheckIn }>(
+          `/api/v1/athlete/weekly-checkin?weekStartDate=${weekStartDate}`,
+          { method: "GET" },
+          accessToken,
+        );
+        if (result.checkIn) {
+          setWeeklyCheckIn(result.checkIn);
+        } else {
+          setMondayCheckInVisible(true);
+        }
+      } catch {
+        // Non-critical; show modal anyway
+        setMondayCheckInVisible(true);
+      }
+    })();
+  }, [accessToken, activeRole, weeklyCheckIn?.weekStartDate]);
+
   useEffect(() => {
     if (!profile) {
       return;
@@ -2204,7 +2244,8 @@ export default function HomeScreen() {
         teamTrainingDays: Array.isArray(profile.programPreferences?.teamTrainingDays)
           ? profile.programPreferences.teamTrainingDays.join(",")
           : current.teamTrainingDays,
-      seasonPhase: profile.seasonPhase ?? current.seasonPhase,
+      weeklyGameCount: profile.weeklyGameCount ?? current.weeklyGameCount,
+      teamTrainingIntensity: profile.teamTrainingIntensity ?? current.teamTrainingIntensity,
       availableWeekdays: Array.isArray(profile.weeklyAvailability?.availableWeekdays)
         ? profile.weeklyAvailability.availableWeekdays.join(",")
         : current.availableWeekdays,
@@ -3145,7 +3186,8 @@ export default function HomeScreen() {
           sport: athleteSetup.sport || undefined,
           trainsSport: athleteSetup.trainsSport,
           sportTrainingDays: athleteSetup.trainsSport ? parseWeekdaysInput(athleteSetup.sportTrainingDays) : [],
-          seasonPhase: athleteSetup.seasonPhase,
+          weeklyGameCount: athleteSetup.weeklyGameCount || undefined,
+          teamTrainingIntensity: athleteSetup.teamTrainingIntensity || undefined,
           availableWeekdays: parseWeekdaysInput(athleteSetup.availableWeekdays),
           programPreferences: buildProgramPreferencesPayload(athleteSetup),
           notes: athleteSetup.notes || undefined,
@@ -3283,7 +3325,8 @@ export default function HomeScreen() {
             sport: athleteSetup.sport || undefined,
             trainsSport: athleteSetup.trainsSport,
             sportTrainingDays: athleteSetup.trainsSport ? parseWeekdaysInput(athleteSetup.sportTrainingDays) : [],
-            seasonPhase: athleteSetup.seasonPhase,
+            weeklyGameCount: athleteSetup.weeklyGameCount || undefined,
+            teamTrainingIntensity: athleteSetup.teamTrainingIntensity || undefined,
             availableWeekdays: parseWeekdaysInput(athleteSetup.availableWeekdays),
             programPreferences: buildProgramPreferencesPayload(athleteSetup),
             notes: athleteSetup.notes || undefined,
@@ -3341,7 +3384,8 @@ export default function HomeScreen() {
             sport: athleteSetup.sport || undefined,
             trainsSport: athleteSetup.trainsSport,
             sportTrainingDays: athleteSetup.trainsSport ? parseWeekdaysInput(athleteSetup.sportTrainingDays) : [],
-            seasonPhase: athleteSetup.seasonPhase,
+            weeklyGameCount: athleteSetup.weeklyGameCount || undefined,
+            teamTrainingIntensity: athleteSetup.teamTrainingIntensity || undefined,
             availableWeekdays: parseWeekdaysInput(athleteSetup.availableWeekdays),
             startDate: athleteSetup.startDate,
             templateCode: overrideTemplateCode ?? athleteSetup.templateCode,
@@ -4138,6 +4182,58 @@ export default function HomeScreen() {
       {/* ── JUMP GUIDE ────────────────────────────────── */}
       <JumpGuideModal visible={jumpGuideVisible} onClose={() => setJumpGuideVisible(false)} />
 
+      {/* ── MONDAY FATIGUE CHECK-IN MODAL ─────────────── */}
+      <Modal visible={mondayCheckInVisible} transparent animationType="fade" onRequestClose={() => setMondayCheckInVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: 24 }}>
+          <View style={{ backgroundColor: "#1A2236", borderRadius: 16, padding: 24, width: "100%", maxWidth: 360, gap: 16 }}>
+            <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700" }}>¿Cómo llegas al lunes?</Text>
+            <Text style={{ color: "#A3B0C8", fontSize: 14 }}>Evalúa tu nivel de carga para ajustar la semana automáticamente.</Text>
+            <View style={{ gap: 10 }}>
+              {([
+                ["LOW", "Fresco 💪", "Puede adelantar una sesión intensa"],
+                ["MEDIUM", "Normal 😐", "Semana sin cambios"],
+                ["HIGH", "Cargado 😮‍💨", "Insertar recuperación el lunes"],
+              ] as const).map(([value, label, desc]) => (
+                <Pressable
+                  key={value}
+                  style={{ backgroundColor: "#252E44", borderRadius: 10, padding: 14, borderWidth: 1, borderColor: "#2CC4B033" }}
+                  onPress={() => {
+                    const today = new Date();
+                    const monday = new Date(today);
+                    monday.setHours(0, 0, 0, 0);
+                    const weekStartDate = monday.toISOString().slice(0, 10);
+                    void (async () => {
+                      try {
+                        const result = await requestJson<{ checkIn: typeof weeklyCheckIn; affectedSessions: unknown[] }>(
+                          "/api/v1/athlete/weekly-checkin",
+                          { method: "POST", body: JSON.stringify({ fatigue: value, weekStartDate }) },
+                          accessToken,
+                        );
+                        setWeeklyCheckIn(result.checkIn);
+                        if (result.affectedSessions.length > 0) {
+                          setMessage(`Check-in guardado. ${result.affectedSessions.length} sesión(es) ajustadas automáticamente.`);
+                          await refreshAthleteArea(accessToken);
+                        }
+                      } catch {
+                        setError("No se pudo guardar el check-in semanal. Inténtalo de nuevo.");
+                      } finally {
+                        setMondayCheckInVisible(false);
+                      }
+                    })();
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>{label}</Text>
+                  <Text style={{ color: "#A3B0C8", fontSize: 12 }}>{desc}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable onPress={() => setMondayCheckInVisible(false)}>
+              <Text style={{ color: "#A3B0C8", textAlign: "center", marginTop: 4 }}>Saltar por ahora</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── WELCOME VIDEO ─────────────────────────────── */}
       {welcomeVideoUrl ? (
         <Modal
@@ -4386,11 +4482,53 @@ export default function HomeScreen() {
           ) : null}
         </View>
 
+        {/* ── WEEKLY PLANNING CARD ─────────────────────── */}
+        {profile && weeklyCheckIn ? (
+          <View style={styles.heroCard}>
+            <Text style={styles.eyebrow}>Planificación semanal</Text>
+            <Text style={styles.helperText}>
+              Semana del {weeklyCheckIn.weekStartDate} · Fatiga:{" "}
+              {weeklyCheckIn.fatigue === "LOW" ? "Fresco 💪" : weeklyCheckIn.fatigue === "HIGH" ? "Cargado 😮‍💨" : "Normal 😐"}
+            </Text>
+            <Text style={styles.helperText}>¿Tienes partido(s) este fin de semana?</Text>
+            <View style={styles.inlineRow}>
+              {([true, false] as const).map((value) => (
+                <Pressable
+                  key={String(value)}
+                  style={[styles.secondaryButton, weeklyCheckIn.hasWeekendGames === value ? styles.selectedAuthButton : null]}
+                  onPress={() => {
+                    const weekStartDate = weeklyCheckIn.weekStartDate;
+                    void (async () => {
+                      try {
+                        const result = await requestJson<{ checkIn: typeof weeklyCheckIn; affectedSessions: unknown[] }>(
+                          "/api/v1/athlete/weekly-checkin/weekend-games",
+                          { method: "PATCH", body: JSON.stringify({ hasWeekendGames: value, weekStartDate }) },
+                          accessToken,
+                        );
+                        setWeeklyCheckIn(result.checkIn);
+                        if (result.affectedSessions.length > 0) {
+                          setMessage(`${result.affectedSessions.length} sesión(es) ajustadas para el fin de semana.`);
+                          await refreshAthleteArea(accessToken);
+                        }
+                      } catch {
+                        setError("No se pudo actualizar el pronóstico de partidos.");
+                      }
+                    })();
+                  }}
+                >
+                  <Text style={styles.secondaryButtonText}>{value ? "Sí, tengo partido" : "No, sin partido"}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.heroCard}>
           <Text style={styles.eyebrow}>Cuenta activa</Text>
           <Text style={styles.title}>{profile?.displayName ?? profile?.user.email ?? "Atleta"}</Text>
           <Text style={styles.description}>
             {(profile?.sport ?? "Sin deporte definido")} · {profile?.seasonPhase ?? "OFF_SEASON"}
+            {profile?.weeklyGameCount ? ` · ${profile.weeklyGameCount.replace("_TO_", "–").replace("_", "+")} partidos/fds` : ""}
           </Text>
           <Text style={styles.helperText}>
             Equipo: {profile?.team?.name ?? "Sin equipo"} · Jump: {formatWeekdays(profile?.weeklyAvailability?.availableWeekdays)} · Deporte/pista: {profile?.trainsSport ? formatWeekdays(profile?.sportTrainingDays?.trainingDays) : "No declarado"} · Equipo: {formatWeekdays(profile?.programPreferences?.teamTrainingDays)}
@@ -4465,13 +4603,42 @@ export default function HomeScreen() {
                 value={athleteSetup.availableWeekdays}
                 onChangeText={(value) => setAthleteSetup((current) => ({ ...current, availableWeekdays: value }))}
               />
-              <TextInput
-                placeholder="Fase: OFF_SEASON, PRESEASON, IN_SEASON, COMPETITION"
-                placeholderTextColor="#7a879d"
-                style={styles.input}
-                value={athleteSetup.seasonPhase}
-                onChangeText={(value) => setAthleteSetup((current) => ({ ...current, seasonPhase: value.toUpperCase() }))}
-              />
+              <Text style={styles.helperText}>Motor predictivo — Contexto de competición</Text>
+              <Text style={styles.helperText}>¿Cuántos partidos juegas por fin de semana en promedio?</Text>
+              <View style={styles.inlineRow}>
+                {(["ZERO_TO_ONE", "TWO_TO_THREE", "FOUR_PLUS"] as const).map((option) => {
+                  const labels: Record<string, string> = { ZERO_TO_ONE: "0–1", TWO_TO_THREE: "2–3", FOUR_PLUS: "4+" };
+                  return (
+                    <Pressable
+                      key={option}
+                      style={[styles.secondaryButton, athleteSetup.weeklyGameCount === option ? styles.selectedAuthButton : null]}
+                      onPress={() => setAthleteSetup((current) => ({ ...current, weeklyGameCount: option }))}
+                    >
+                      <Text style={styles.secondaryButtonText}>{labels[option]}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={styles.helperText}>¿Cómo son tus entrenamientos de equipo?</Text>
+              <View style={styles.inlineRow}>
+                {(["INTENSE", "LIGHT", "NONE"] as const).map((option) => {
+                  const labels: Record<string, string> = { INTENSE: "Intensos", LIGHT: "Suaves", NONE: "No entreno" };
+                  return (
+                    <Pressable
+                      key={option}
+                      style={[styles.secondaryButton, athleteSetup.teamTrainingIntensity === option ? styles.selectedAuthButton : null]}
+                      onPress={() => setAthleteSetup((current) => ({ ...current, teamTrainingIntensity: option }))}
+                    >
+                      <Text style={styles.secondaryButtonText}>{labels[option]}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {athleteSetup.weeklyGameCount || athleteSetup.teamTrainingIntensity ? (
+                <Text style={styles.helperText}>
+                  La fase de temporada se deduce automáticamente de tu contexto de competición.
+                </Text>
+              ) : null}
               <Text style={styles.helperText}>Fecha de inicio del programa</Text>
               <View style={styles.inlineRow}>
                 <Pressable

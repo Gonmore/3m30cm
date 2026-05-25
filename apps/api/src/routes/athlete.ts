@@ -1,4 +1,4 @@
-import { DayType, Prisma, ProgramStatus, SeasonPhase, SeriesProtocol, SessionStatus } from "@prisma/client";
+import { CheckInFatigue, DayType, Prisma, ProgramStatus, SeasonPhase, SeriesProtocol, SessionStatus, TeamTrainingIntensity, WeeklyGameCount } from "@prisma/client";
 import { type Response, Router } from "express";
 import multer from "multer";
 import { z } from "zod";
@@ -17,6 +17,9 @@ import { buildSeriesProtocolGuidance } from "../lib/exercise-series.js";
 import { analyze as analyzeBiomechanics, CalibrationError } from "../lib/jumpHeightAnalyzer.js";
 import { uploadAvatarMedia } from "../lib/minio.js";
 import { ensureTemplateTechniqueStructure } from "../lib/program-template-techniques.js";
+import { deduceSeasonPhase } from "../lib/season-deduction.js";
+import { applyCompetitionAdjustments } from "../lib/schedule-adjustments.js";
+import { applyFatigueAdjustment, applyWeekendGamePrediction } from "../lib/weekly-adjuster.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const athleteProfileInclude = {
@@ -158,7 +161,8 @@ const athletePlanningSchema = z.object({
   sport: z.string().trim().optional(),
   trainsSport: z.boolean().default(false),
   sportTrainingDays: z.array(z.number().int().min(0).max(6)).optional(),
-  seasonPhase: z.nativeEnum(SeasonPhase).default(SeasonPhase.OFF_SEASON),
+  weeklyGameCount: z.nativeEnum(WeeklyGameCount).optional(),
+  teamTrainingIntensity: z.nativeEnum(TeamTrainingIntensity).optional(),
   availableWeekdays: z.array(z.number().int().min(0).max(6)).optional(),
   programPreferences: z.object({
     skipPhase1: z.boolean().default(false),
@@ -856,6 +860,7 @@ athleteRouter.put("/onboarding", async (req: AuthenticatedRequest, res: Response
     }
 
     const payload = athletePlanningSchema.parse(req.body);
+    const seasonPhase = deduceSeasonPhase(payload.weeklyGameCount, payload.teamTrainingIntensity);
     const athleteProfile = await prisma.athleteProfile.update({
       where: { userId },
       data: {
@@ -864,7 +869,9 @@ athleteRouter.put("/onboarding", async (req: AuthenticatedRequest, res: Response
         weightKg: payload.weightKg,
         sport: payload.sport ?? null,
         trainsSport: payload.trainsSport,
-        seasonPhase: payload.seasonPhase,
+        weeklyGameCount: payload.weeklyGameCount ?? null,
+        teamTrainingIntensity: payload.teamTrainingIntensity ?? null,
+        seasonPhase,
         weeklyAvailability: buildWeekdaysJson(payload.availableWeekdays),
         sportTrainingDays: buildTrainingDaysJson(payload.trainsSport ? payload.sportTrainingDays : undefined),
         programPreferences: buildAthleteProgramPreferencesJson(payload.programPreferences),
@@ -1066,7 +1073,8 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
     const isPhaseTemplate = template.days.length === 0 && template.phases.length > 0;
 
     const programPreferences = payload.programPreferences ?? parseAthleteProgramPreferences(currentAthleteProfile.programPreferences);
-    const phase = payload.phase ?? payload.seasonPhase ?? currentAthleteProfile.seasonPhase;
+    const deducedSeasonPhase = deduceSeasonPhase(payload.weeklyGameCount, payload.teamTrainingIntensity);
+    const phase = payload.phase ?? deducedSeasonPhase;
     const includePreparationPhase = payload.includePreparationPhase ?? !programPreferences.skipPhase1;
 
     const program = await prisma.$transaction(async (transaction) => {
@@ -1078,7 +1086,9 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
           weightKg: payload.weightKg,
           sport: payload.sport ?? null,
           trainsSport: payload.trainsSport,
-          seasonPhase: payload.seasonPhase,
+          weeklyGameCount: payload.weeklyGameCount ?? currentAthleteProfile.weeklyGameCount,
+          teamTrainingIntensity: payload.teamTrainingIntensity ?? currentAthleteProfile.teamTrainingIntensity,
+          seasonPhase: deducedSeasonPhase,
           weeklyAvailability: buildWeekdaysJson(payload.availableWeekdays),
           sportTrainingDays: buildTrainingDaysJson(payload.trainsSport ? payload.sportTrainingDays : undefined),
           programPreferences: buildAthleteProgramPreferencesJson(programPreferences),
@@ -1107,6 +1117,19 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
         ...(isPhaseTemplate ? { totalSessions: templateDays.length } : {}),
       });
     });
+
+    // Apply competition-aware post-processing outside the generation transaction
+    if (program) {
+      await prisma.$transaction(async (tx) => {
+        await applyCompetitionAdjustments(
+          tx,
+          program.id,
+          payload.weeklyGameCount ?? currentAthleteProfile.weeklyGameCount,
+          payload.teamTrainingIntensity ?? currentAthleteProfile.teamTrainingIntensity,
+          phase,
+        );
+      });
+    }
 
     res.status(201).json({
       program,
@@ -2667,3 +2690,225 @@ athleteRouter.post(
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// Weekly Check-In endpoints
+// ---------------------------------------------------------------------------
+
+const weeklyCheckInSchema = z.object({
+  fatigue: z.nativeEnum(CheckInFatigue),
+  weekStartDate: z.string().date(),
+});
+
+const weekendGamesSchema = z.object({
+  hasWeekendGames: z.boolean(),
+  weekStartDate: z.string().date(),
+});
+
+function parseWeekStartDate(dateString: string): Date {
+  const d = new Date(`${dateString}T00:00:00`);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error("Invalid weekStartDate");
+  }
+  // Ensure it is a Monday
+  if (d.getDay() !== 1) {
+    throw new Error("weekStartDate must be a Monday (day 1)");
+  }
+  return d;
+}
+
+/** GET /athlete/weekly-checkin?weekStartDate=YYYY-MM-DD */
+athleteRouter.get("/weekly-checkin", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const weekStartDate = req.query["weekStartDate"];
+    if (typeof weekStartDate !== "string") {
+      res.status(400).json({ message: "weekStartDate query param is required (YYYY-MM-DD)" });
+      return;
+    }
+
+    const weekStart = parseWeekStartDate(weekStartDate);
+
+    const athleteProfile = await prisma.athleteProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Athlete profile not found" });
+      return;
+    }
+
+    const checkIn = await prisma.weeklyCheckIn.findUnique({
+      where: {
+        athleteProfileId_weekStartDate: {
+          athleteProfileId: athleteProfile.id,
+          weekStartDate: weekStart,
+        },
+      },
+    });
+
+    res.json({ checkIn });
+  } catch (error) {
+    console.error("Failed to fetch weekly check-in", error);
+    res.status(500).json({ message: "Failed to fetch weekly check-in" });
+  }
+});
+
+/** POST /athlete/weekly-checkin — fatigue check-in */
+athleteRouter.post("/weekly-checkin", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const payload = weeklyCheckInSchema.parse(req.body);
+    const weekStart = parseWeekStartDate(payload.weekStartDate);
+
+    const athleteProfile = await prisma.athleteProfile.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        personalPrograms: {
+          where: { status: { in: [ProgramStatus.ACTIVE, ProgramStatus.PAUSED] } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    });
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Athlete profile not found" });
+      return;
+    }
+
+    const activeProgramId = athleteProfile.personalPrograms[0]?.id ?? null;
+
+    const { checkIn, affectedSessions } = await prisma.$transaction(async (tx) => {
+      const updatedCheckIn = await tx.weeklyCheckIn.upsert({
+        where: {
+          athleteProfileId_weekStartDate: {
+            athleteProfileId: athleteProfile.id,
+            weekStartDate: weekStart,
+          },
+        },
+        create: {
+          athleteProfileId: athleteProfile.id,
+          weekStartDate: weekStart,
+          fatigue: payload.fatigue,
+        },
+        update: { fatigue: payload.fatigue },
+      });
+
+      const sessions = activeProgramId
+        ? await applyFatigueAdjustment(tx, activeProgramId, weekStart, payload.fatigue)
+        : [];
+
+      return { checkIn: updatedCheckIn, affectedSessions: sessions };
+    });
+
+    res.json({ checkIn, affectedSessions });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: "Invalid check-in payload", issues: error.issues });
+      return;
+    }
+
+    if (error instanceof Error && (error.message === "Invalid weekStartDate" || error.message.startsWith("weekStartDate"))) {
+      res.status(400).json({ message: error.message });
+      return;
+    }
+
+    console.error("Failed to save weekly check-in", error);
+    res.status(500).json({ message: "Failed to save weekly check-in" });
+  }
+});
+
+/** PATCH /athlete/weekly-checkin/weekend-games — weekend game toggle */
+athleteRouter.patch("/weekly-checkin/weekend-games", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const payload = weekendGamesSchema.parse(req.body);
+    const weekStart = parseWeekStartDate(payload.weekStartDate);
+
+    const athleteProfile = await prisma.athleteProfile.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        weeklyGameCount: true,
+        seasonPhase: true,
+        personalPrograms: {
+          where: { status: { in: [ProgramStatus.ACTIVE, ProgramStatus.PAUSED] } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    });
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Athlete profile not found" });
+      return;
+    }
+
+    const activeProgramId = athleteProfile.personalPrograms[0]?.id ?? null;
+
+    const { checkIn, affectedSessions } = await prisma.$transaction(async (tx) => {
+      const updatedCheckIn = await tx.weeklyCheckIn.upsert({
+        where: {
+          athleteProfileId_weekStartDate: {
+            athleteProfileId: athleteProfile.id,
+            weekStartDate: weekStart,
+          },
+        },
+        create: {
+          athleteProfileId: athleteProfile.id,
+          weekStartDate: weekStart,
+          hasWeekendGames: payload.hasWeekendGames,
+        },
+        update: { hasWeekendGames: payload.hasWeekendGames },
+      });
+
+      const sessions = activeProgramId
+        ? await applyWeekendGamePrediction(
+            tx,
+            activeProgramId,
+            weekStart,
+            payload.hasWeekendGames,
+            athleteProfile.weeklyGameCount,
+            athleteProfile.seasonPhase,
+          )
+        : [];
+
+      return { checkIn: updatedCheckIn, affectedSessions: sessions };
+    });
+
+    res.json({ checkIn, affectedSessions });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: "Invalid payload", issues: error.issues });
+      return;
+    }
+
+    if (error instanceof Error && (error.message === "Invalid weekStartDate" || error.message.startsWith("weekStartDate"))) {
+      res.status(400).json({ message: error.message });
+      return;
+    }
+
+    console.error("Failed to update weekend games prediction", error);
+    res.status(500).json({ message: "Failed to update weekend games prediction" });
+  }
+});

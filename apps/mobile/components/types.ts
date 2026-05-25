@@ -266,7 +266,8 @@ export interface AthleteSetupState {
   trainsSport: boolean;
   sportTrainingDays: string;
   teamTrainingDays: string;
-  seasonPhase: string;
+  weeklyGameCount: string;
+  teamTrainingIntensity: string;
   availableWeekdays: string;
   startDate: string;
   skipPhase1: boolean;

@@ -78,6 +78,24 @@ enum BillingStatus {
   CANCELED
 }
 
+enum WeeklyGameCount {
+  ZERO_TO_ONE
+  TWO_TO_THREE
+  FOUR_PLUS
+}
+
+enum TeamTrainingIntensity {
+  INTENSE
+  LIGHT
+  NONE
+}
+
+enum CheckInFatigue {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 model User {
   id                String            @id @default(cuid())
   email             String            @unique
@@ -151,6 +169,8 @@ model AthleteProfile {
   onboardingCompletedAt DateTime?
   notes             String?
   exerciseExclusions Json?
+  weeklyGameCount       WeeklyGameCount?
+  teamTrainingIntensity TeamTrainingIntensity?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -160,6 +180,7 @@ model AthleteProfile {
   sessionLogs       SessionLog[]
   techniqueMetrics  AthleteTechniqueMetric[]
   exerciseLoadRecords ExerciseLoadRecord[]
+  weeklyCheckIns    WeeklyCheckIn[]
 }
 
 model CoachAssignment {
@@ -490,6 +511,7 @@ model ScheduledSession {
   title           String
   dayType         DayType
   status          SessionStatus    @default(PLANNED)
+  sequenceOrder   Int?
   rescheduleCount Int              @default(0)
   notes           String?
   createdAt       DateTime         @default(now())
@@ -637,4 +659,18 @@ model MobileAppConfig {
   templateCode String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model WeeklyCheckIn {
+  id               String         @id @default(cuid())
+  athleteProfileId String
+  weekStartDate    DateTime
+  fatigue          CheckInFatigue?
+  hasWeekendGames  Boolean?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  athleteProfile   AthleteProfile @relation(fields: [athleteProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([athleteProfileId, weekStartDate])
+  @@index([athleteProfileId, weekStartDate])
 }
