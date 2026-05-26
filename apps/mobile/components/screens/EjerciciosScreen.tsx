@@ -523,6 +523,8 @@ interface EjerciciosScreenProps {
     adjustedSets: Record<string, number>;
     skippedIds: Set<string>;
   };
+  onToggleTeamDayAdjustment?: () => void;
+  isTeamDayAdjustmentOverridden?: boolean;
   energyScore?: number | null;
   evolutionSuggestions?: Array<{ exerciseId: string; message: string }>;
 }
@@ -549,6 +551,8 @@ export default function EjerciciosScreen({
   exerciseTimeDraft = {},
   onChangeTime,
   overreachAdjustment,
+  onToggleTeamDayAdjustment,
+  isTeamDayAdjustmentOverridden = false,
   energyScore = null,
   evolutionSuggestions = [],
 }: EjerciciosScreenProps) {
@@ -680,6 +684,23 @@ export default function EjerciciosScreen({
                 : "Día de entrenamiento de equipo detectado."}{" "}
             Volumen reducido al 50%. Los ejercicios de Velocidad fueron omitidos.
           </Text>
+          {overreachAdjustment.reason === "teamDay" && onToggleTeamDayAdjustment ? (
+            <Pressable style={styles.teamDayToggleBtn} onPress={onToggleTeamDayAdjustment}>
+              <Text style={styles.teamDayToggleBtnText}>Sesion normal</Text>
+              <Text style={styles.teamDayToggleBtnSub}>Ver sin ajuste de equipo</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : isTeamDayAdjustmentOverridden && onToggleTeamDayAdjustment ? (
+        <View style={styles.teamDayNormalBanner}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.teamDayNormalTitle}>◉ Sesion en modo normal</Text>
+            <Text style={styles.teamDayNormalSub}>Dia de equipo activo · ajuste disponible</Text>
+          </View>
+          <Pressable style={styles.teamDayToggleBtn} onPress={onToggleTeamDayAdjustment}>
+            <Text style={styles.teamDayToggleBtnText}>Sesion ajustada</Text>
+            <Text style={styles.teamDayToggleBtnSub}>Activar ajuste de equipo</Text>
+          </Pressable>
         </View>
       ) : null}
 
@@ -704,6 +725,16 @@ export default function EjerciciosScreen({
                   android_ripple={{ color: 'rgba(255,255,255,0.3)', borderless: false }}>
                   <Text style={styles.btnCompleteText}>Continuar →</Text>
                 </Pressable>
+                {exerciseStep > 0 ? (
+                  <View style={styles.exerciseActionsSub}>
+                    <Pressable
+                      style={({ pressed }) => [styles.btnPrev, pressed && { opacity: 0.7 }]}
+                      onPress={handlePrevious}
+                      android_ripple={{ color: 'rgba(44,196,176,0.25)', borderless: false }}>
+                      <Text style={styles.btnPrevText}>← Anterior</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
             </View>
           );
@@ -832,6 +863,14 @@ export default function EjerciciosScreen({
                   <Text style={styles.btnCompleteText}>Completar ✓</Text>
                 </Pressable>
                 <View style={styles.exerciseActionsSub}>
+                  {exerciseStep > 0 ? (
+                    <Pressable
+                      style={({ pressed }) => [styles.btnPrev, pressed && { opacity: 0.7 }]}
+                      onPress={handlePrevious}
+                      android_ripple={{ color: 'rgba(44,196,176,0.25)', borderless: false }}>
+                      <Text style={styles.btnPrevText}>← Anterior</Text>
+                    </Pressable>
+                  ) : null}
                   <Pressable
                     style={({ pressed }) => [styles.btnSkip, pressed && { opacity: 0.7 }]}
                     onPress={handleSkip}
@@ -1097,6 +1136,16 @@ export default function EjerciciosScreen({
           <Text style={styles.closeOutSub}>
             {done}/{total} ejercicios completados
           </Text>
+          {total > 0 ? (
+            <View style={{ flexDirection: "row" }}>
+              <Pressable
+                style={({ pressed }) => [styles.btnPrev, pressed && { opacity: 0.7 }]}
+                onPress={handlePrevious}
+                android_ripple={{ color: 'rgba(44,196,176,0.25)', borderless: false }}>
+                <Text style={styles.btnPrevText}>← Volver al último ejercicio</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           {/* RPE */}
           <Text style={styles.fieldLabel}>Esfuerzo percibido (RPE 1-10)</Text>
@@ -1323,6 +1372,12 @@ return StyleSheet.create({
   overreachBanner: { backgroundColor: "#7c3a0022", borderRadius: R.md, padding: S.sm, gap: 4, borderWidth: 1, borderColor: "#c0621044" },
   overreachBannerTitle: { color: C.amber, fontWeight: "800", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 },
   overreachBannerText: { color: C.amber, fontSize: 12, lineHeight: 18 },
+  teamDayToggleBtn: { backgroundColor: C.bg, borderRadius: R.md, paddingHorizontal: S.md, paddingVertical: 7, alignItems: "center" as const, alignSelf: "flex-start" as const, borderWidth: 1, borderColor: C.border, marginTop: 4 },
+  teamDayToggleBtnText: { color: C.text, fontWeight: "700" as const, fontSize: 12 },
+  teamDayToggleBtnSub: { color: C.textMuted, fontSize: 10, marginTop: 1 },
+  teamDayNormalBanner: { backgroundColor: C.surfaceRaise, borderRadius: R.md, padding: S.sm, borderWidth: 1, borderColor: C.border, flexDirection: "row" as const, alignItems: "center" as const, gap: S.sm },
+  teamDayNormalTitle: { color: C.textSub, fontWeight: "700" as const, fontSize: 12 },
+  teamDayNormalSub: { color: C.textMuted, fontSize: 11, marginTop: 1 },
 
   // Skipped (VELOCITY) exercise card
   skippedExerciseCard: { backgroundColor: C.surfaceRaise, borderRadius: R.xl, padding: S.lg, gap: S.sm, borderWidth: 1, borderColor: C.border, opacity: 0.7 },

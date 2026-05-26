@@ -2102,10 +2102,11 @@ export default function HomeScreen() {
   const todayWeekday = new Date().getDay(); // 0 = Sunday, 1 = Monday … 6 = Saturday
   const teamTrainingDays = profile?.programPreferences?.teamTrainingDays ?? [];
   const isTeamTrainingDay = teamTrainingDays.includes(todayWeekday);
+  const [teamDayOverride, setTeamDayOverride] = useState(false);
   const overreachAdjustment = useOverreachAdjustment({
     readinessScore: toOptionalNumber(logDraft.readinessScore) ?? null,
     painScore: toOptionalNumber(logDraft.painScore) ?? null,
-    isTeamTrainingDay,
+    isTeamTrainingDay: isTeamTrainingDay && !teamDayOverride,
     session: selectedSession as SharedSessionDetail | null,
   });
 
@@ -4086,6 +4087,8 @@ export default function HomeScreen() {
           onShowJumpGuide={() => setJumpGuideVisible(true)}
           onBack={() => setActiveScreen("hoy")}
           overreachAdjustment={overreachAdjustment}
+          onToggleTeamDayAdjustment={isTeamTrainingDay ? () => setTeamDayOverride((v) => !v) : undefined}
+          isTeamDayAdjustmentOverridden={isTeamTrainingDay && teamDayOverride}
           energyScore={toOptionalNumber(logDraft.readinessScore) ?? null}
           evolutionSuggestions={evolutionSuggestions}
         />
