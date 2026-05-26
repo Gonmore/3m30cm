@@ -81,6 +81,12 @@ function isCoachToken(token: string): boolean {
   );
 }
 
+function isSuperAdminToken(token: string): boolean {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return false;
+  return (payload.platformRole as string | null) === "SUPERADMIN";
+}
+
 function hasAthleteRole(token: string): boolean {
   const payload = decodeJwtPayload(token);
   if (!payload) return false;
@@ -317,6 +323,7 @@ interface SessionListResponse {
     dayType: string;
     status: SessionStatus | "RESCHEDULED";
     scheduledDate: string;
+    originalScheduledDate: string | null;
     personalProgram: {
       id: string;
       name: string;
@@ -4013,6 +4020,16 @@ export default function HomeScreen() {
           onClearCheckIn={clearTodayCheckIn}
           showBouncyInput={showBouncyInput}
           onStartSession={async () => {
+            // One-session-per-day: block unless SUPERADMIN
+            const today = new Date().toISOString().slice(0, 10);
+            const isSuperAdmin = accessToken ? isSuperAdminToken(accessToken) : false;
+            const alreadyDoneToday = !isSuperAdmin && sessions.some(
+              (s) => s.status === "COMPLETED" && s.scheduledDate.slice(0, 10) === today && s.id !== todayPrimarySession?.id,
+            );
+            if (alreadyDoneToday) {
+              Alert.alert("Sesión ya completada", "Ya completaste una sesión hoy. Solo se permite una sesión por día.");
+              return;
+            }
             if (todayPrimarySession) {
               // Pick a random tip to display while the session detail loads
               setSessionStartTip(

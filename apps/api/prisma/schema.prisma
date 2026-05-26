@@ -508,6 +508,7 @@ model ScheduledSession {
   id              String           @id @default(cuid())
   personalProgramId String
   scheduledDate   DateTime
+  originalScheduledDate DateTime?
   title           String
   dayType         DayType
   status          SessionStatus    @default(PLANNED)

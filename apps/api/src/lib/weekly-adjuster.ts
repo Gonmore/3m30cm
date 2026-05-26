@@ -56,7 +56,7 @@ export async function applyFatigueAdjustment(
       status: { in: [SessionStatus.PLANNED, SessionStatus.RESCHEDULED] },
     },
     orderBy: { scheduledDate: "asc" },
-    select: { id: true, scheduledDate: true, dayType: true, title: true, sequenceOrder: true },
+    select: { id: true, scheduledDate: true, dayType: true, title: true, sequenceOrder: true, rescheduleCount: true, originalScheduledDate: true },
   });
 
   if (fatigue === "HIGH") {
@@ -68,6 +68,7 @@ export async function applyFatigueAdjustment(
           scheduledDate: addDays(session.scheduledDate, 1),
           rescheduleCount: { increment: 1 },
           notes: "Reprogramado automáticamente: fatiga alta declarada el lunes.",
+          ...(session.rescheduleCount === 0 ? { originalScheduledDate: session.scheduledDate } : {}),
         },
         select: { id: true, scheduledDate: true, dayType: true, title: true },
       }),
@@ -111,6 +112,7 @@ export async function applyFatigueAdjustment(
         scheduledDate: start, // move to Monday
         rescheduleCount: { increment: 1 },
         notes: "Adelantado automáticamente: fatiga baja declarada el lunes — cuerpo listo antes de tiempo.",
+        ...(nextHeavy.rescheduleCount === 0 ? { originalScheduledDate: nextHeavy.scheduledDate } : {}),
       },
       select: { id: true, scheduledDate: true, dayType: true, title: true },
     });

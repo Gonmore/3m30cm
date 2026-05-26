@@ -107,6 +107,7 @@ export interface SessionSummary {
   dayType: string;
   status: SessionStatus | "RESCHEDULED";
   scheduledDate: string;
+  originalScheduledDate?: string | null;
   personalProgram: { id: string; name: string; phase: string; status: string };
   sessionExercises: Array<{ id: string; orderIndex: number; completedAt: string | null }>;
   logs: Array<{ id: string; perceivedExertion: number | null; createdAt: string; metrics: AthleteLogMetrics | null }>;

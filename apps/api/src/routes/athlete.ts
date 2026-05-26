@@ -1907,7 +1907,13 @@ athleteRouter.get("/sessions", async (req: AuthenticatedRequest, res: Response) 
         },
       },
       orderBy: { scheduledDate: "asc" },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        dayType: true,
+        status: true,
+        scheduledDate: true,
+        originalScheduledDate: true,
         personalProgram: {
           select: {
             id: true,
@@ -1939,7 +1945,11 @@ athleteRouter.get("/sessions", async (req: AuthenticatedRequest, res: Response) 
     });
 
     res.json({
-      sessions: sessions.map((session) => serializeSessionLogs(session)),
+      sessions: sessions.map((session) => ({
+        ...serializeSessionLogs(session),
+        originalScheduledDate: session.originalScheduledDate?.toISOString().slice(0, 10) ?? null,
+        scheduledDate: (session.scheduledDate as Date).toISOString().slice(0, 10),
+      })),
     });
   } catch (error) {
     console.error("Failed to fetch athlete sessions", error);
@@ -2078,6 +2088,8 @@ athleteRouter.post("/sessions/auto-rollover", async (req: AuthenticatedRequest, 
               rescheduleCount: {
                 increment: overdueDays,
               },
+              // Only stamp originalScheduledDate on the first reschedule
+              ...(session.rescheduleCount === 0 ? { originalScheduledDate: session.scheduledDate } : {}),
             },
             select: {
               id: true,
@@ -2164,6 +2176,28 @@ athleteRouter.post("/sessions/:sessionId/logs", async (req: AuthenticatedRequest
     if (!session) {
       res.status(404).json({ message: "Session not found" });
       return;
+    }
+
+    // One-session-per-day enforcement (SUPERADMIN exempt)
+    const isSuperAdmin = req.auth?.platformRole === "SUPERADMIN";
+    const incomingStatus = payload.status;
+    if (!isSuperAdmin && (incomingStatus === SessionStatus.COMPLETED || (!incomingStatus && (payload.completedExerciseIds?.length ?? 0) === session.sessionExercises.length && session.sessionExercises.length > 0))) {
+      const todayStart = startOfLocalDay(new Date());
+      const tomorrowStart = new Date(todayStart);
+      tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+      const alreadyCompletedToday = await prisma.scheduledSession.findFirst({
+        where: {
+          id: { not: session.id },
+          personalProgram: { athleteProfileId: athleteProfile.id },
+          status: SessionStatus.COMPLETED,
+          scheduledDate: { gte: todayStart, lt: tomorrowStart },
+        },
+        select: { id: true },
+      });
+      if (alreadyCompletedToday) {
+        res.status(409).json({ message: "Ya completaste una sesión hoy. Solo se permite una sesión por día." });
+        return;
+      }
     }
 
     const completedExerciseIds = new Set(payload.completedExerciseIds ?? []);

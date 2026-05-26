@@ -16,13 +16,14 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { useEffect, useRef, useState } from "react";
-import Svg, { Circle } from "react-native-svg";
+import Svg, { Circle, Path as SvgPath } from "react-native-svg";
 
 import { R, S } from "@mobile/components/tokens";
 import { useTheme } from "@mobile/components/ThemeContext";
@@ -124,8 +125,15 @@ function buildMotivationText(dayType: string, streak: number) {
   return `${streakLine} Tu sesion de hoy ya esta lista para avanzar sin improvisar.`;
 }
 
+/** Extract short session label like "S3" from a session title. */
+function extractSessionLabel(title: string): string | null {
+  const m = title.match(/[Ss]esi[o\u00f3]n\s*(\d+)/);
+  if (m) return `S${m[1]}`;
+  return null;
+}
+
 /** Week strip: Mon→Sun surrounding today. Each item has date + status. */
-function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string }>) {
+function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null }>) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -134,6 +142,13 @@ function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string }
   const mondayOffset = dow === 0 ? -6 : 1 - dow;
   const monday = new Date(today);
   monday.setDate(today.getDate() + mondayOffset);
+
+  // Track original dates of rescheduled sessions to show ghost X
+  const originalDateSet = new Set(
+    sessions
+      .filter((s) => s.status === "RESCHEDULED" && s.originalScheduledDate)
+      .map((s) => s.originalScheduledDate!.slice(0, 10)),
+  );
 
   return Array.from({ length: 7 }, (_, i) => {
     const date = new Date(monday);
@@ -146,8 +161,12 @@ function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string }
     // Find a session on this date
     const match = sessions.find((s) => s.scheduledDate.slice(0, 10) === iso);
     const status = match?.status ?? null;
+    const sessionLabel = match ? extractSessionLabel(match.title) : null;
 
-    return { date, iso, label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, isPast, isFuture, status };
+    // Ghost X: this date is the original date of a now-rescheduled session, with no active session
+    const isOriginalDate = !match && originalDateSet.has(iso);
+
+    return { date, iso, label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, isPast, isFuture, status, sessionLabel, isOriginalDate };
   });
 }
 
@@ -297,23 +316,61 @@ function ProgressRing({ pct, streak, label }: { pct: number; streak: number; lab
 //  Weekly timeline strip
 // ─────────────────────────────────────────────────────────────
 
-function WeekTimeline({ sessions, colors, styles }: { sessions: Array<{ scheduledDate: string; status: string }>; colors: ReturnType<typeof useTheme>["C"]; styles: ReturnType<typeof makeStyles> }) {
+function WeekTimeline({ sessions, colors, styles }: { sessions: Array<{ scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null }>; colors: ReturnType<typeof useTheme>["C"]; styles: ReturnType<typeof makeStyles> }) {
+  const [rowWidth, setRowWidth] = useState(0);
   const days = buildWeekDays(sessions);
 
+  // Build rescheduled pairs (fromIdx → toIdx) for SVG arrows
+  const rescheduledPairs: Array<{ fromIdx: number; toIdx: number }> = [];
+  sessions.forEach((s) => {
+    if (s.status === "RESCHEDULED" && s.originalScheduledDate) {
+      const fromIdx = days.findIndex((d) => d.iso === s.originalScheduledDate!.slice(0, 10));
+      const toIdx   = days.findIndex((d) => d.iso === s.scheduledDate.slice(0, 10));
+      if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) {
+        rescheduledPairs.push({ fromIdx, toIdx });
+      }
+    }
+  });
+
+  // Circle center y from top of weekRow:
+  // label (~14px) + gap (4px) + half circle (16px) = 34
+  const circleY = 34;
+
   return (
-    <View style={styles.weekRow}>
+    <View
+      style={styles.weekRow}
+      onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}
+    >
+      {/* SVG arrows overlay for rescheduled sessions */}
+      {rowWidth > 0 && rescheduledPairs.length > 0 && (
+        <View
+          style={{ position: "absolute", top: 0, left: 0, width: rowWidth, height: circleY + 16, zIndex: 1 }}
+          pointerEvents="none"
+        >
+          <Svg width={rowWidth} height={circleY + 16}>
+            {rescheduledPairs.map(({ fromIdx, toIdx }) => {
+              const colW = rowWidth / 7;
+              const srcX = (fromIdx + 0.5) * colW;
+              const dstX = (toIdx   + 0.5) * colW;
+              const midX = (srcX + dstX) / 2;
+              const arcY = circleY - 22;
+              // Quadratic bezier arc above the circles
+              const d = `M ${srcX} ${circleY} Q ${midX} ${arcY} ${dstX} ${circleY}`;
+              // Arrowhead pointing down-right at destination
+              const ah = `M ${dstX - 5} ${circleY - 9} L ${dstX} ${circleY} L ${dstX + 5} ${circleY - 9}`;
+              return (
+                <SvgPath key={`${fromIdx}-${toIdx}`} d={d + " " + ah} stroke={colors.amber} strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4,3" />
+              );
+            })}
+          </Svg>
+        </View>
+      )}
+
       {days.map((day) => {
         const isTrainingDay = day.status !== null;
-        const isCompleted = day.status === "COMPLETED";
-        const isSkipped   = day.status === "SKIPPED";
-        const dotColor = day.status ? ({
-          COMPLETED: colors.teal,
-          PLANNED: colors.amberDim,
-          SKIPPED: colors.danger,
-          RESCHEDULED: colors.amber,
-          IN_PROGRESS: colors.teal,
-          CANCELLED: colors.textDisabled,
-        }[day.status] ?? colors.textMuted) : "transparent";
+        const isCompleted   = day.status === "COMPLETED";
+        const isSkipped     = day.status === "SKIPPED";
+        const isRescheduled = day.status === "RESCHEDULED";
 
         return (
           <View key={day.iso} style={[styles.weekDayCol, day.isFuture && styles.weekDayFuture]}>
@@ -321,23 +378,33 @@ function WeekTimeline({ sessions, colors, styles }: { sessions: Array<{ schedule
               {day.label}
             </Text>
 
-            <View style={[
-              styles.weekDayCircle,
-              day.isToday  && styles.weekDayCircleToday,
-              isCompleted  && styles.weekDayCircleCompleted,
-              isSkipped    && styles.weekDayCircleSkipped,
-              isTrainingDay && !day.isToday && !isCompleted && !isSkipped && styles.weekDayCircleTraining,
-            ]}>
-              {isCompleted ? (
-                <Text style={styles.weekDayCheck}>✓</Text>
-              ) : isSkipped ? (
-                <Text style={styles.weekDayCheck}>✗</Text>
-              ) : day.isToday ? (
-                <View style={styles.weekDayTodayDot} />
-              ) : isTrainingDay ? (
-                <View style={[styles.weekDayDot, { backgroundColor: dotColor }]} />
-              ) : null}
-            </View>
+            {/* Ghost circle: original date of a rescheduled session */}
+            {day.isOriginalDate ? (
+              <View style={styles.weekDayCircleOriginal}>
+                <Text style={styles.weekDayOriginalX}>✕</Text>
+              </View>
+            ) : (
+              <View style={[
+                styles.weekDayCircle,
+                day.isToday    && styles.weekDayCircleToday,
+                isCompleted    && styles.weekDayCircleCompleted,
+                isSkipped      && styles.weekDayCircleSkipped,
+                isRescheduled  && styles.weekDayCircleRescheduled,
+                isTrainingDay && !day.isToday && !isCompleted && !isSkipped && !isRescheduled && styles.weekDayCircleTraining,
+              ]}>
+                {isCompleted ? (
+                  <Text style={styles.weekDayCheck}>✓</Text>
+                ) : isSkipped ? (
+                  <Text style={styles.weekDayCheck}>✗</Text>
+                ) : day.sessionLabel ? (
+                  <Text style={[styles.weekDaySessionLabel, isRescheduled && styles.weekDaySessionLabelRescheduled]}>
+                    {day.sessionLabel}
+                  </Text>
+                ) : day.isToday ? (
+                  <View style={styles.weekDayTodayDot} />
+                ) : null}
+              </View>
+            )}
 
             <Text style={[styles.weekDayNum, day.isToday && styles.weekDayNumToday]}>
               {day.date.getDate()}
@@ -966,6 +1033,7 @@ export default function HoyScreenV2({
   const { C } = useTheme();
   const styles = makeStyles(C);
   const [nutritionModal, setNutritionModal] = useState<{ title: string; icon: string; content: string } | null>(null);
+  const [shareVisible, setShareVisible] = useState(false);
   const sessionJustCompleted = sessionCompletedAt != null && (Date.now() - sessionCompletedAt) < 4 * 60 * 60 * 1000;
   const hasProgram   = !!activeProgram;
   const streak       = progress?.summary.currentStreak ?? 0;
@@ -1106,8 +1174,26 @@ export default function HoyScreenV2({
           ╚══════════════════════════════════════════════╝ */}
       <Animated.View style={[entranceStyle, { marginTop: -S.xs }]}>
         <View style={styles.timelineCard}>
-          <Text style={styles.timelineEyebrow}>Esta semana</Text>
-          <WeekTimeline sessions={sessions} colors={C} styles={styles} />
+          <View style={styles.timelineHeader}>
+            <Text style={styles.timelineEyebrow}>Esta semana</Text>
+            <Pressable
+              style={styles.shareBtn}
+              onPress={() => setShareVisible(true)}
+              hitSlop={8}
+            >
+              <Text style={styles.shareBtnIcon}>⬆</Text>
+            </Pressable>
+          </View>
+          <WeekTimeline
+            sessions={sessions.map((s) => ({
+              scheduledDate: s.scheduledDate,
+              status: s.status,
+              title: s.title,
+              originalScheduledDate: (s as { originalScheduledDate?: string | null }).originalScheduledDate,
+            }))}
+            colors={C}
+            styles={styles}
+          />
         </View>
       </Animated.View>
 
@@ -1401,6 +1487,108 @@ export default function HoyScreenV2({
       <Pressable style={styles.refreshHint} onPress={onRefresh} disabled={refreshing}>
         <Text style={styles.refreshHintText}>{refreshing ? "Actualizando..." : "↻ Actualizar"}</Text>
       </Pressable>
+
+      {/* ╔══════════════════════════════════════════════╗
+          ║  SHARE MODAL                                 ║
+          ╚══════════════════════════════════════════════╝ */}
+      <Modal visible={shareVisible} transparent animationType="slide" onRequestClose={() => setShareVisible(false)}>
+        <View style={styles.shareOverlay}>
+          <View style={styles.shareSheet}>
+            {/* Header */}
+            <View style={styles.shareSheetHeader}>
+              <Text style={styles.shareSheetTitle}>Compartir progreso</Text>
+              <Pressable onPress={() => setShareVisible(false)} hitSlop={12}>
+                <Text style={{ color: C.textMuted, fontSize: 18 }}>✕</Text>
+              </Pressable>
+            </View>
+
+            {/* ── Share Card ──────────────────────────── */}
+            <View style={styles.shareCard}>
+              {/* Top brand strip */}
+              <View style={styles.shareCardBrand}>
+                <Text style={styles.shareCardBrandText}>⚡ vJump</Text>
+                <Text style={styles.shareCardBrandSub}>3m30cm.app</Text>
+              </View>
+
+              {/* Streak hero */}
+              <View style={styles.shareCardStreakRow}>
+                <Text style={styles.shareCardFireEmoji}>🔥</Text>
+                <View>
+                  <Text style={styles.shareCardStreakValue}>{streak}</Text>
+                  <Text style={styles.shareCardStreakLabel}>días de racha</Text>
+                </View>
+                {pbJump !== null && (
+                  <View style={styles.shareCardPbBadge}>
+                    <Text style={styles.shareCardPbLabel}>SALTO PB</Text>
+                    <Text style={styles.shareCardPbValue}>{pbJump} cm</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Stats row */}
+              <View style={styles.shareCardStatsRow}>
+                <View style={styles.shareCardStat}>
+                  <Text style={styles.shareCardStatValue}>{progress?.summary.completedSessions ?? 0}</Text>
+                  <Text style={styles.shareCardStatLabel}>sesiones totales</Text>
+                </View>
+                <View style={styles.shareCardStatDivider} />
+                <View style={styles.shareCardStat}>
+                  <Text style={styles.shareCardStatValue}>{progress?.weeklyGoal.completedSessions ?? 0}/{progress?.weeklyGoal.targetSessions ?? 0}</Text>
+                  <Text style={styles.shareCardStatLabel}>esta semana</Text>
+                </View>
+                {typeof progress?.phaseComparison.deltaVsReferencePhaseCm === "number" && (
+                  <>
+                    <View style={styles.shareCardStatDivider} />
+                    <View style={styles.shareCardStat}>
+                      <Text style={[styles.shareCardStatValue, { color: (progress.phaseComparison.deltaVsReferencePhaseCm ?? 0) >= 0 ? C.teal : C.danger }]}>
+                        {(progress.phaseComparison.deltaVsReferencePhaseCm ?? 0) >= 0 ? "+" : ""}{progress.phaseComparison.deltaVsReferencePhaseCm?.toFixed(1)} cm
+                      </Text>
+                      <Text style={styles.shareCardStatLabel}>vs fase anterior</Text>
+                    </View>
+                  </>
+                )}
+              </View>
+
+              {/* Mini week bar chart */}
+              <View style={styles.shareCardWeekChart}>
+                {buildWeekDays(sessions.map((s) => ({ scheduledDate: s.scheduledDate, status: s.status, title: s.title, originalScheduledDate: (s as { originalScheduledDate?: string | null }).originalScheduledDate }))).map((day) => {
+                  const barColor = day.status === "COMPLETED" ? C.teal
+                    : day.status === "SKIPPED" ? C.danger
+                    : day.status === "RESCHEDULED" ? C.amber
+                    : day.status ? C.amberBorder
+                    : C.surfaceRaise;
+                  const barH = day.status === "COMPLETED" ? 28
+                    : day.status ? 16
+                    : 6;
+                  return (
+                    <View key={day.iso} style={styles.shareCardBarCol}>
+                      <View style={[styles.shareCardBar, { height: barH, backgroundColor: barColor }]} />
+                      <Text style={styles.shareCardBarLabel}>{day.label}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Footer */}
+              <Text style={styles.shareCardFooter}>Powered by vJump · Tecnología de salto vertical</Text>
+            </View>
+
+            {/* Share button */}
+            <Pressable
+              style={styles.shareActionBtn}
+              onPress={() => {
+                const msg = `🔥 ${streak} días de racha en vJump!\n`
+                  + `⚡ ${progress?.summary.completedSessions ?? 0} sesiones completadas`
+                  + (pbJump !== null ? ` · Salto PB: ${pbJump} cm` : "")
+                  + `\n\n¿Quieres mejorar tu salto vertical? → 3m30cm.app`;
+                void Share.share({ message: msg, title: "Mi progreso en vJump" });
+              }}
+            >
+              <Text style={styles.shareActionBtnText}>⬆  Compartir ahora</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
         </>
       )}
     </ScrollView>
@@ -1472,7 +1660,10 @@ return StyleSheet.create({
     borderColor: C.border,
     gap: S.sm,
   },
+  timelineHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   timelineEyebrow: { color: C.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1 },
+  shareBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.surfaceRaise, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center" },
+  shareBtnIcon: { color: C.textSub, fontSize: 13, fontWeight: "800" },
 
   weekRow: { flexDirection: "row", justifyContent: "space-between" },
   weekDayCol:    { alignItems: "center", gap: 4, flex: 1 },
@@ -1487,15 +1678,56 @@ return StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     backgroundColor: C.surfaceRaise,
   },
-  weekDayCircleToday:     { borderColor: C.amber, borderWidth: 2 },
-  weekDayCircleCompleted: { backgroundColor: C.tealDim, borderColor: C.teal },
-  weekDayCircleSkipped:   { backgroundColor: C.dangerDim, borderColor: C.danger },
-  weekDayCircleTraining:  { borderColor: C.amberBorder },
-  weekDayCheck: { fontSize: 13, fontWeight: "800", color: C.text },
+  weekDayCircleToday:       { borderColor: C.amber, borderWidth: 2 },
+  weekDayCircleCompleted:   { backgroundColor: C.tealDim, borderColor: C.teal },
+  weekDayCircleSkipped:     { backgroundColor: C.dangerDim, borderColor: C.danger },
+  weekDayCircleTraining:    { borderColor: C.amberBorder, backgroundColor: "rgba(250,189,47,0.07)" },
+  weekDayCircleRescheduled: { borderColor: C.amber, borderWidth: 2, backgroundColor: "rgba(250,189,47,0.12)" },
+  weekDayCircleOriginal:    { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: C.danger, alignItems: "center", justifyContent: "center", opacity: 0.5, backgroundColor: C.dangerDim },
+  weekDayOriginalX: { color: C.danger, fontSize: 11, fontWeight: "800" },
+  weekDaySessionLabel: { color: C.amber, fontSize: 9, fontWeight: "800", letterSpacing: -0.5 },
+  weekDaySessionLabelRescheduled: { color: C.amber },
+  weekDayCheck:    { fontSize: 13, fontWeight: "800", color: C.text },
   weekDayTodayDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.amber },
   weekDayDot:      { width: 7, height: 7, borderRadius: 3.5 },
   weekDayNum:      { color: C.textMuted, fontSize: 11 },
   weekDayNumToday: { color: C.amber, fontWeight: "700" },
+
+  // ── Share modal ───────────────────────────────────────────────
+  shareOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  shareSheet: { backgroundColor: C.surface, borderTopLeftRadius: R.xl, borderTopRightRadius: R.xl, padding: S.lg, gap: S.md, paddingBottom: S.xl },
+  shareSheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  shareSheetTitle: { color: C.text, fontWeight: "800", fontSize: 16 },
+  shareCard: {
+    backgroundColor: C.bg,
+    borderRadius: R.xl,
+    borderWidth: 1,
+    borderColor: C.border,
+    overflow: "hidden",
+    gap: 0,
+  },
+  shareCardBrand: { backgroundColor: C.teal, paddingHorizontal: S.md, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  shareCardBrandText: { color: C.bg, fontWeight: "900", fontSize: 16, letterSpacing: 0.5 },
+  shareCardBrandSub: { color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "700" },
+  shareCardStreakRow: { flexDirection: "row", alignItems: "center", gap: S.md, padding: S.md, paddingBottom: S.sm },
+  shareCardFireEmoji: { fontSize: 40 },
+  shareCardStreakValue: { color: C.text, fontSize: 42, fontWeight: "900", lineHeight: 46 },
+  shareCardStreakLabel: { color: C.textMuted, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 },
+  shareCardPbBadge: { marginLeft: "auto", alignItems: "flex-end", backgroundColor: C.surfaceRaise, borderRadius: R.md, padding: S.sm, borderWidth: 1, borderColor: C.tealBorder },
+  shareCardPbLabel: { color: C.teal, fontSize: 9, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.8 },
+  shareCardPbValue: { color: C.text, fontSize: 22, fontWeight: "900" },
+  shareCardStatsRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: S.md, paddingBottom: S.sm, gap: S.xs },
+  shareCardStat: { flex: 1, alignItems: "center" },
+  shareCardStatValue: { color: C.text, fontSize: 20, fontWeight: "800" },
+  shareCardStatLabel: { color: C.textMuted, fontSize: 10, fontWeight: "700", textAlign: "center", marginTop: 2 },
+  shareCardStatDivider: { width: 1, height: 30, backgroundColor: C.border },
+  shareCardWeekChart: { flexDirection: "row", alignItems: "flex-end", gap: 4, paddingHorizontal: S.md, paddingBottom: S.sm, height: 52 },
+  shareCardBarCol: { flex: 1, alignItems: "center", gap: 3, justifyContent: "flex-end" },
+  shareCardBar: { width: "100%", borderRadius: R.sm, minHeight: 4 },
+  shareCardBarLabel: { color: C.textMuted, fontSize: 9, fontWeight: "700" },
+  shareCardFooter: { backgroundColor: C.surfaceRaise, color: C.textMuted, fontSize: 10, textAlign: "center", padding: 8, fontWeight: "600" },
+  shareActionBtn: { backgroundColor: C.teal, borderRadius: R.full, paddingVertical: 15, alignItems: "center" },
+  shareActionBtnText: { color: C.bg, fontWeight: "800", fontSize: 16, letterSpacing: 0.3 },
 
   // ── Skeleton ─────────────────────────────────────────────────
   skeletonCard: {
