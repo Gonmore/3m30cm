@@ -72,6 +72,29 @@
 
 ---
 
+### 20. UX fixes y corrección de fecha en pantalla Hoy (2026-05-25)
+
+**Objetivos:** Pulir la experiencia post-onboarding: input de estatura tolerante, CTA más visible y fecha correcta.
+
+**Cambios aplicados:**
+
+#### `apps/mobile2/components/screens/HoyScreenV2.tsx`
+- **Input estatura**: en `PhysicalProfileGate`, `onChangeText` de heightCm ahora stripea `.` y `,` antes de guardar el valor → "1.80" y "1,79" → "180" y "179" cm. `keyboardType` cambiado a `number-pad`.
+- **`formatDate`**: reemplazado `new Date(v)` (interpreta como UTC midnight) por `new Date(year, month-1, day)` (local midnight) → fecha almacenada como "2026-05-25T00:00:00Z" se muestra como "lunes 25 de mayo" en cualquier zona horaria, en vez de mostrar el día anterior.
+- **Tip del día**: bloque `nutritionTip` eliminado de la vista Hoy para que el CTA "Iniciar ahora" sea visible sin scroll.
+- **Texto motivacional**: `ctaMotivation` eliminado del card de sesión ("Hoy puede empezar tu primera racha fuerte...") para reducir altura del bloque.
+
+#### `apps/api/src/routes/athlete.ts`
+- **`upcomingSessions` / `dueSessions`**: comparación cambiada de `session.scheduledDate >= now` (datetime) a `slice(0,10) >= nowDateStr` (date string). Antes, una sesión creada a UTC midnight del día actual quedaba en `dueSessions` en cuanto pasaba la medianoche UTC; ahora se considera upcoming todo el día.
+
+**Resultado:** La sesión de hoy siempre aparece como próxima (no la del día siguiente), y la fecha se muestra con el día local correcto.
+
+**Validación:**
+- `npx tsc --noEmit` en `apps/api` ✓ (0 errores)
+- `npx tsc --noEmit` en `apps/mobile2` ✓ (0 errores)
+
+---
+
 ### 18. Modal paso a paso + candidatos enriquecidos para "Buscar media" (2026-05-19)
 
 **Objetivos:**

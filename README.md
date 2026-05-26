@@ -59,6 +59,9 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - `apps/mobile2` muestra cada lunes un modal de check-in de fatiga (Fresco / Normal / Cargado) que llama `POST /api/v1/athlete/weekly-checkin`; según el nivel de fatiga, la API ajusta automáticamente las sesiones de la semana (inserta recuperación, adelanta sesiones o no cambia nada).
 - El dashboard de `apps/mobile2` incluye un toggle de partidos de fin de semana que llama `PATCH /api/v1/athlete/weekly-checkin/weekend-games`; si el atleta tiene partido, la sesión del viernes se convierte a recuperación automáticamente y se restaura si el atleta indica que no hay partido.
 - `ScheduledSession` tiene el campo `sequenceOrder Int?` para futuras ordenaciones dentro del día.
+- Input de estatura en el onboarding de perfil físico tolera notaciones decimales ("1.80", "1,79") y extrae solo los dígitos ("180", "179") automáticamente.
+- La pantalla Hoy muestra el CTA "Iniciar ahora" sin necesidad de scroll (eliminado tip del día y texto motivacional del bloque de sesión).
+- Bug fix: sesiones creadas a midnight UTC ya no se clasifican como "pasadas" durante el mismo día; `nextSession` ahora apunta correctamente a la sesión de hoy.
 
 ## Requisitos previos
 

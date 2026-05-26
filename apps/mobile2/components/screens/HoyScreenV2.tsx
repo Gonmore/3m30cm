@@ -41,7 +41,9 @@ import type {
 // ─────────────────────────────────────────────────────────────
 
 function formatDate(v: string) {
-  return new Date(v).toLocaleDateString("es", {
+  // Parse as local date (not UTC) to avoid timezone day-shift
+  const parts = v.slice(0, 10).split("-").map(Number);
+  return new Date(parts[0]!, parts[1]! - 1, parts[2]!).toLocaleDateString("es", {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -892,8 +894,12 @@ function PhysicalProfileGate({
       <TextInput
         style={styles.profileGateInput}
         value={athleteSetup.heightCm}
-        onChangeText={(value) => onSetAthleteSetup((current) => ({ ...current, heightCm: value }))}
-        keyboardType="decimal-pad"
+        onChangeText={(value) => {
+          // Strip dots and commas: "1.80" → "180", "1,79" → "179"
+          const sanitized = value.replace(/[.,]/g, "");
+          onSetAthleteSetup((current) => ({ ...current, heightCm: sanitized }));
+        }}
+        keyboardType="number-pad"
         placeholder="Altura (cm)"
         placeholderTextColor={C.textDisabled}
       />
@@ -1105,15 +1111,7 @@ export default function HoyScreenV2({
         </View>
       </Animated.View>
 
-      {/* ╔══════════════════════════════════════════════╗
-          ║  TIP DEL DÍA                                 ║
-          ╚══════════════════════════════════════════════╝ */}
-      {nutritionTip ? (
-        <View style={styles.tipChip}>
-          <Text style={styles.tipChipLabel}>💡 Tip del día</Text>
-          <Text style={styles.tipChipText}>{nutritionTip.message}</Text>
-        </View>
-      ) : null}
+      {/* Tip del día removido para mantener CTA visible sin scroll */}
 
       {/* ╔══════════════════════════════════════════════╗
           ║  TODAY'S TRAINING CTA                        ║
@@ -1160,7 +1158,6 @@ export default function HoyScreenV2({
             {formatDate(todayPrimarySession.scheduledDate)}
             {"  ·  "}{translateDayType(todayPrimarySession.dayType)}
           </Text>
-          <Text style={styles.ctaMotivation}>{motivationText}</Text>
 
           {/* Completion mini-bar */}
           {todayCompletion > 0 ? (

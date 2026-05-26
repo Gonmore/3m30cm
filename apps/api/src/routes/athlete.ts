@@ -1300,9 +1300,16 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
     const completedSessions = activeProgramSessions.filter((session) => session.status === SessionStatus.COMPLETED).length;
     const skippedSessions = activeProgramSessions.filter((session) => session.status === SessionStatus.SKIPPED).length;
     const rescheduledSessions = activeProgramSessions.filter((session) => session.status === SessionStatus.RESCHEDULED).length;
-    const dueSessions = activeProgramSessions.filter((session) => session.scheduledDate <= now);
+    // Compare by date string (not datetime) so a session scheduled "today at midnight UTC"
+    // is still considered upcoming until end-of-day, not just until the current UTC moment.
+    const nowDateStr = now.toISOString().slice(0, 10);
+    const dueSessions = activeProgramSessions.filter(
+      (session) => new Date(session.scheduledDate).toISOString().slice(0, 10) <= nowDateStr,
+    );
     const upcomingSessions = activeProgramSessions.filter(
-      (session) => session.scheduledDate >= now && (session.status === SessionStatus.PLANNED || session.status === SessionStatus.RESCHEDULED),
+      (session) =>
+        new Date(session.scheduledDate).toISOString().slice(0, 10) >= nowDateStr &&
+        (session.status === SessionStatus.PLANNED || session.status === SessionStatus.RESCHEDULED),
     );
 
     const serializedLogs = insightLogs.map((log) => ({
