@@ -1656,8 +1656,10 @@ export default function HomeScreen() {
   const [logDraft, setLogDraft] = useState<LogDraftState>(emptyLogDraft);
   // Per-exercise load inputs (exerciseId → kg string entered by athlete)
   const [exerciseLoadDraft, setExerciseLoadDraft] = useState<Record<string, string>>({});
-  // Hints fetched from API: exerciseId → { lastLoadKg, suggestedLoadKg }
-  const [exerciseLoadHints, setExerciseLoadHints] = useState<Record<string, { lastLoadKg: number | null; suggestedLoadKg: number | null }>>({});
+  // Per-exercise time inputs (exerciseId → seconds string for TIME/VELOCITY/HYBRID)
+  const [exerciseTimeDraft, setExerciseTimeDraft] = useState<Record<string, string>>({});
+  // Hints fetched from API: exerciseId → { lastLoadKg, suggestedLoadKg, lastExecTimeSeconds, suggestedExecTimeSeconds, evolutionType }
+  const [exerciseLoadHints, setExerciseLoadHints] = useState<Record<string, { lastLoadKg: number | null; suggestedLoadKg: number | null; lastExecTimeSeconds: number | null; suggestedExecTimeSeconds: number | null; evolutionType: string | null }>>({});
   const [preSessionCheckIns, setPreSessionCheckIns] = useState<Record<string, PreSessionCheckInState>>({});
   const [progress, setProgress] = useState<AthleteProgressResponse | null>(null);
   const [trendWindow, setTrendWindow] = useState<TrendWindow>("28D");
@@ -2558,16 +2560,17 @@ export default function HomeScreen() {
     setLogDraft(mergeCheckInIntoLogDraft(nextDraft, preSessionCheckIns[session.id] ?? null));
     setSelectedJumpTechniqueId(null);
     setExerciseLoadDraft({});
+    setExerciseTimeDraft({});
 
     // Fetch load hints for exercises that require load
     if (accessToken) {
       fetch(`${apiBaseUrl}/api/v1/athlete/sessions/${session.id}/exercise-load-hints`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
-        .then((r) => (r.ok ? r.json() as Promise<Array<{ exerciseId: string; lastLoadKg: number | null; suggestedLoadKg: number | null }>> : []))
+        .then((r) => (r.ok ? r.json() as Promise<Array<{ exerciseId: string; lastLoadKg: number | null; suggestedLoadKg: number | null; lastExecTimeSeconds: number | null; suggestedExecTimeSeconds: number | null; evolutionType: string | null }>> : []))
         .then((hints) => {
-          const map: Record<string, { lastLoadKg: number | null; suggestedLoadKg: number | null }> = {};
-          for (const h of hints) map[h.exerciseId] = { lastLoadKg: h.lastLoadKg, suggestedLoadKg: h.suggestedLoadKg };
+          const map: Record<string, { lastLoadKg: number | null; suggestedLoadKg: number | null; lastExecTimeSeconds: number | null; suggestedExecTimeSeconds: number | null; evolutionType: string | null }> = {};
+          for (const h of hints) map[h.exerciseId] = { lastLoadKg: h.lastLoadKg, suggestedLoadKg: h.suggestedLoadKg, lastExecTimeSeconds: h.lastExecTimeSeconds, suggestedExecTimeSeconds: h.suggestedExecTimeSeconds, evolutionType: h.evolutionType };
           setExerciseLoadHints(map);
         })
         .catch(() => { /* hints are optional */ });
@@ -3549,9 +3552,18 @@ export default function HomeScreen() {
       setMessage("Registro de sesion guardado.");
 
       // Save per-exercise load records (best-effort, don't block if fails)
-      const loadsToSave = Object.entries(exerciseLoadDraft)
-        .map(([exerciseId, val]) => ({ exerciseId, loadKg: parseFloat(val) }))
-        .filter((l) => !isNaN(l.loadKg) && l.loadKg > 0);
+      const allTrackedIds = new Set([...Object.keys(exerciseLoadDraft), ...Object.keys(exerciseTimeDraft)]);
+      const loadsToSave = Array.from(allTrackedIds)
+        .map((exerciseId) => {
+          const kg = parseFloat(exerciseLoadDraft[exerciseId] ?? "");
+          const secs = parseFloat(exerciseTimeDraft[exerciseId] ?? "");
+          return {
+            exerciseId,
+            ...(isFinite(kg) && kg > 0 ? { loadKg: kg } : {}),
+            ...(isFinite(secs) && secs > 0 ? { execTimeSeconds: secs } : {}),
+          };
+        })
+        .filter((l) => l.loadKg !== undefined || l.execTimeSeconds !== undefined);
       if (loadsToSave.length > 0) {
         void fetch(`${apiBaseUrl}/api/v1/athlete/exercise-loads`, {
           method: "POST",
@@ -4040,6 +4052,8 @@ export default function HomeScreen() {
           exerciseLoadHints={exerciseLoadHints}
           exerciseLoadDraft={exerciseLoadDraft}
           onChangeLoad={(exerciseId, value) => setExerciseLoadDraft((prev) => ({ ...prev, [exerciseId]: value }))}
+          exerciseTimeDraft={exerciseTimeDraft}
+          onChangeTime={(exerciseId, value) => setExerciseTimeDraft((prev) => ({ ...prev, [exerciseId]: value }))}
           onApplyJumpTest={(cm) => setLogDraft((p) => ({ ...p, jumpHeightCm: String(cm) }))}
           jumpTechniques={techniques.map((entry) => ({ id: entry.id, title: entry.title }))}
           selectedJumpTechniqueId={selectedJumpTechniqueId}

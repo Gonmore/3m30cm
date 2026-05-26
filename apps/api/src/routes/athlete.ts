@@ -1568,9 +1568,13 @@ athleteRouter.post("/exercise-loads", async (req: AuthenticatedRequest, res: Res
       sessionId: z.string().cuid(),
       loads: z.array(z.object({
         exerciseId: z.string().cuid(),
-        loadKg: z.number().positive(),
+        loadKg: z.number().positive().optional(),
+        execTimeSeconds: z.number().positive().optional(),
         repsPerformed: z.number().int().positive().optional(),
-      })).min(1),
+      })).min(1).refine(
+        (arr) => arr.every((l) => l.loadKg !== undefined || l.execTimeSeconds !== undefined),
+        { message: "Each load entry must have loadKg or execTimeSeconds" },
+      ),
     });
 
     const parsed = bodySchema.safeParse(req.body);
@@ -1596,7 +1600,8 @@ athleteRouter.post("/exercise-loads", async (req: AuthenticatedRequest, res: Res
         athleteProfileId: athleteProfile.id,
         exerciseId: l.exerciseId,
         scheduledSessionId: sessionId,
-        loadKg: l.loadKg,
+        ...(l.loadKg !== undefined ? { loadKg: l.loadKg } : {}),
+        ...(l.execTimeSeconds !== undefined ? { execTimeSeconds: l.execTimeSeconds } : {}),
         performedAt,
         ...(l.repsPerformed !== undefined ? { repsPerformed: l.repsPerformed } : {}),
       })),
@@ -1622,40 +1627,44 @@ athleteRouter.get("/sessions/:sessionId/exercise-load-hints", async (req: Authen
     if (typeof rawSessionId !== "string") { res.status(400).json({ message: "Invalid sessionId" }); return; }
     const sessionId = rawSessionId;
 
-    // Get exercises in this session that require load
+    // Get exercises that need evolution tracking: requiresLoad OR evolution in TIME/VELOCITY/HYBRID
     const session = await prisma.scheduledSession.findFirst({
       where: { id: sessionId, personalProgram: { athleteProfileId: athleteProfile.id } },
       include: {
         sessionExercises: {
           include: {
-            exercise: { select: { id: true, name: true, requiresLoad: true } },
+            exercise: { select: { id: true, name: true, requiresLoad: true, evolution: true } },
           },
         },
       },
     });
     if (!session) { res.status(404).json({ message: "Session not found" }); return; }
 
-    const loadExerciseIds = session.sessionExercises
-      .filter((se) => se.exercise.requiresLoad)
-      .map((se) => se.exerciseId);
+    const trackedExercises = session.sessionExercises.filter(
+      (se) => se.exercise.requiresLoad ||
+        ["WEIGHT", "TIME", "VELOCITY", "HYBRID"].includes(se.exercise.evolution ?? ""),
+    );
 
-    if (loadExerciseIds.length === 0) { res.json([]); return; }
+    if (trackedExercises.length === 0) { res.json([]); return; }
+
+    const trackedIds = trackedExercises.map((se) => se.exerciseId);
 
     // Get the most recent load record for each exercise (excluding current session)
     const lastRecords = await prisma.exerciseLoadRecord.findMany({
       where: {
         athleteProfileId: athleteProfile.id,
-        exerciseId: { in: loadExerciseIds },
+        exerciseId: { in: trackedIds },
         scheduledSessionId: { not: sessionId },
       },
       orderBy: { performedAt: "desc" },
+      select: { exerciseId: true, loadKg: true, execTimeSeconds: true, performedAt: true },
     });
 
     // De-duplicate: keep only the most recent per exercise
-    const latestByExercise = new Map<string, { loadKg: number; performedAt: Date }>();
+    const latestByExercise = new Map<string, { loadKg: number | null; execTimeSeconds: number | null; performedAt: Date }>();
     for (const r of lastRecords) {
       if (!latestByExercise.has(r.exerciseId)) {
-        latestByExercise.set(r.exerciseId, { loadKg: r.loadKg, performedAt: r.performedAt });
+        latestByExercise.set(r.exerciseId, { loadKg: r.loadKg, execTimeSeconds: r.execTimeSeconds, performedAt: r.performedAt });
       }
     }
 
@@ -1664,13 +1673,24 @@ athleteRouter.get("/sessions/:sessionId/exercise-load-hints", async (req: Authen
       return Math.round((lastKg + step) * 4) / 4;
     }
 
-    const hints = loadExerciseIds.map((exerciseId) => {
+    function suggestNextTime(lastSec: number): number {
+      return lastSec + 5;
+    }
+
+    const hints = trackedExercises.map((se) => {
+      const exerciseId = se.exerciseId;
+      const evolutionType = se.exercise.evolution ?? null;
       const last = latestByExercise.get(exerciseId);
-      if (!last) return { exerciseId, lastLoadKg: null, suggestedLoadKg: null, lastPerformedAt: null };
+      if (!last) {
+        return { exerciseId, evolutionType, lastLoadKg: null, suggestedLoadKg: null, lastExecTimeSeconds: null, suggestedExecTimeSeconds: null, lastPerformedAt: null };
+      }
       return {
         exerciseId,
+        evolutionType,
         lastLoadKg: last.loadKg,
-        suggestedLoadKg: suggestNextLoad(last.loadKg),
+        suggestedLoadKg: last.loadKg != null ? suggestNextLoad(last.loadKg) : null,
+        lastExecTimeSeconds: last.execTimeSeconds,
+        suggestedExecTimeSeconds: last.execTimeSeconds != null ? suggestNextTime(last.execTimeSeconds) : null,
         lastPerformedAt: last.performedAt.toISOString(),
       };
     });
@@ -1704,11 +1724,11 @@ athleteRouter.get("/progress/load-trend", async (req: AuthenticatedRequest, res:
       },
     });
 
-    // Group by exercise
+    // Group by exercise (only weight-tracked records for load trend)
     const byExercise = new Map<string, {
       exerciseId: string;
       exerciseName: string;
-      records: { date: string; loadKg: number; repsPerformed: number | null }[];
+      records: { date: string; loadKg: number | null; repsPerformed: number | null }[];
     }>();
 
     for (const r of records) {
@@ -1722,14 +1742,19 @@ athleteRouter.get("/progress/load-trend", async (req: AuthenticatedRequest, res:
       });
     }
 
-    const result = Array.from(byExercise.values()).map((e) => ({
-      ...e,
-      firstLoadKg: e.records[0]?.loadKg ?? null,
-      lastLoadKg: e.records.at(-1)?.loadKg ?? null,
-      deltaPct: e.records.length >= 2
-        ? Math.round(((e.records.at(-1)!.loadKg - e.records[0]!.loadKg) / e.records[0]!.loadKg) * 100)
-        : 0,
-    }));
+    const result = Array.from(byExercise.values()).map((e) => {
+      const weightRecords = e.records.filter((rec) => rec.loadKg != null);
+      const firstKg = weightRecords[0]?.loadKg ?? null;
+      const lastKg = weightRecords.at(-1)?.loadKg ?? null;
+      return {
+        ...e,
+        firstLoadKg: firstKg,
+        lastLoadKg: lastKg,
+        deltaPct: firstKg != null && lastKg != null && firstKg > 0
+          ? Math.round(((lastKg - firstKg) / firstKg) * 100)
+          : 0,
+      };
+    });
 
     res.json(result);
   } catch (error) {

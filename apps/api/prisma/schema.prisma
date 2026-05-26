@@ -561,7 +561,8 @@ model ExerciseLoadRecord {
   athleteProfileId   String
   exerciseId         String
   scheduledSessionId String
-  loadKg             Float
+  loadKg             Float?
+  execTimeSeconds    Float?
   repsPerformed      Int?
   performedAt        DateTime
   createdAt          DateTime         @default(now())

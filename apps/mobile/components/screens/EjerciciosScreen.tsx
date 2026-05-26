@@ -506,9 +506,17 @@ interface EjerciciosScreenProps {
   onSubmitLog: () => void;
   onShowJumpGuide: () => void;
   onBack: () => void;
-  exerciseLoadHints?: Record<string, { lastLoadKg: number | null; suggestedLoadKg: number | null }>;
+  exerciseLoadHints?: Record<string, {
+    lastLoadKg: number | null;
+    suggestedLoadKg: number | null;
+    lastExecTimeSeconds: number | null;
+    suggestedExecTimeSeconds: number | null;
+    evolutionType: string | null;
+  }>;
   exerciseLoadDraft?: Record<string, string>;
   onChangeLoad?: (exerciseId: string, value: string) => void;
+  exerciseTimeDraft?: Record<string, string>;
+  onChangeTime?: (exerciseId: string, value: string) => void;
   overreachAdjustment?: {
     isOverreach: boolean;
     reason?: "fatigue" | "pain" | "teamDay" | null;
@@ -538,6 +546,8 @@ export default function EjerciciosScreen({
   exerciseLoadHints = {},
   exerciseLoadDraft = {},
   onChangeLoad,
+  exerciseTimeDraft = {},
+  onChangeTime,
   overreachAdjustment,
   energyScore = null,
   evolutionSuggestions = [],
@@ -584,11 +594,20 @@ export default function EjerciciosScreen({
     if (now - lastCompletePress.current < 600) return;
     lastCompletePress.current = now;
     if ((logDraft?.completedExerciseIds ?? []).includes(currentExercise.id)) return;
-    if (currentExercise.exercise.requiresLoad) {
+    const evo = currentExercise.exercise.evolution ?? null;
+    if (currentExercise.exercise.requiresLoad || evo === "WEIGHT" || evo === "HYBRID") {
       const loadVal = exerciseLoadDraft[currentExercise.exercise.id];
       const parsed = parseFloat(loadVal ?? "");
       if (!loadVal || isNaN(parsed) || parsed <= 0) {
         Alert.alert("Carga requerida", "Ingresa el peso usado antes de completar el ejercicio.");
+        return;
+      }
+    }
+    if (evo === "TIME") {
+      const timeVal = exerciseTimeDraft[currentExercise.exercise.id];
+      const parsed = parseFloat(timeVal ?? "");
+      if (!timeVal || isNaN(parsed) || parsed <= 0) {
+        Alert.alert("Tiempo requerido", "Ingresa el tiempo de ejecución antes de completar el ejercicio.");
         return;
       }
     }
@@ -910,37 +929,79 @@ export default function EjerciciosScreen({
               </View>
             ) : null}
 
-            {/* Load input for weighted exercises */}
-            {ex.requiresLoad ? (() => {
+            {/* ── Evolution-aware input block ────────────────────── */}
+            {(() => {
+              const evo = ex.evolution ?? null;
               const hint = exerciseLoadHints[ex.id];
-              const currentVal = exerciseLoadDraft[ex.id] ?? "";
+              const showWeight = ex.requiresLoad || evo === "WEIGHT" || evo === "HYBRID";
+              const showTime = evo === "TIME" || evo === "VELOCITY" || evo === "HYBRID";
+              if (!showWeight && !showTime) return null;
+
+              const weightVal = exerciseLoadDraft[ex.id] ?? "";
+              const timeVal = exerciseTimeDraft[ex.id] ?? "";
+
+              const timeLabel = evo === "VELOCITY" ? "⚡ Tiempo de ejecución (s)" : evo === "HYBRID" ? "⏱ Tiempo / velocidad (s)" : "⏱ Tiempo de trabajo (requerido)";
+              const isTimeRequired = evo === "TIME";
+              const isWeightRequired = ex.requiresLoad || evo === "WEIGHT" || evo === "HYBRID";
+
               return (
-                <View style={styles.loadInputWrap}>
-                  <Text style={styles.loadInputTitle}>🏋️ Carga usada (requerida)</Text>
-                  {hint?.lastLoadKg != null ? (
-                    <Text style={styles.loadHintText}>
-                      💪 Última vez: {hint.lastLoadKg} kg{hint.suggestedLoadKg != null ? `  ·  Sugerido: ${hint.suggestedLoadKg} kg` : ""}
-                    </Text>
-                  ) : (
-                    <View style={{ gap: 2 }}>
-                      <Text style={styles.loadHintMuted}>Primera vez con este ejercicio</Text>
-                      <Text style={[styles.loadHintMuted, { fontSize: 12 }]}>Ingresa el peso extra total (barra + discos + implemento)</Text>
+                <View style={{ gap: 10, marginTop: 10 }}>
+                  {showWeight ? (
+                    <View style={styles.loadInputWrap}>
+                      <Text style={styles.loadInputTitle}>🏋️ Carga usada{isWeightRequired ? " (requerida)" : ""}</Text>
+                      {hint?.lastLoadKg != null ? (
+                        <Text style={styles.loadHintText}>
+                          💪 Última vez: {hint.lastLoadKg} kg{hint.suggestedLoadKg != null ? `  ·  Sugerido: ${hint.suggestedLoadKg} kg` : ""}
+                        </Text>
+                      ) : (
+                        <View style={{ gap: 2 }}>
+                          <Text style={styles.loadHintMuted}>Primera vez con este ejercicio</Text>
+                          <Text style={[styles.loadHintMuted, { fontSize: 12 }]}>Ingresa el peso extra total (barra + discos + implemento)</Text>
+                        </View>
+                      )}
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+                        <TextInput
+                          keyboardType="decimal-pad"
+                          placeholder={hint?.suggestedLoadKg != null ? `${hint.suggestedLoadKg}` : "Ej: 40"}
+                          placeholderTextColor={C.textMuted}
+                          value={weightVal}
+                          onChangeText={(v) => onChangeLoad?.(ex.id, v)}
+                          style={[styles.input, { flex: 1 }]}
+                        />
+                        <Text style={{ color: C.text, fontSize: 15, fontWeight: "600" }}>kg</Text>
+                      </View>
                     </View>
-                  )}
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
-                    <TextInput
-                      keyboardType="decimal-pad"
-                      placeholder={hint?.suggestedLoadKg != null ? `${hint.suggestedLoadKg}` : "Ej: 40"}
-                      placeholderTextColor={C.textMuted}
-                      value={currentVal}
-                      onChangeText={(v) => onChangeLoad?.(ex.id, v)}
-                      style={[styles.input, { flex: 1 }]}
-                    />
-                    <Text style={{ color: C.text, fontSize: 15, fontWeight: "600" }}>kg</Text>
-                  </View>
+                  ) : null}
+
+                  {showTime ? (
+                    <View style={styles.loadInputWrap}>
+                      <Text style={styles.loadInputTitle}>{timeLabel}</Text>
+                      {hint?.lastExecTimeSeconds != null ? (
+                        <Text style={styles.loadHintText}>
+                          ⏱ Última vez: {hint.lastExecTimeSeconds}s
+                          {hint.suggestedExecTimeSeconds != null ? `  ·  Sugerido: ${hint.suggestedExecTimeSeconds}s` : ""}
+                        </Text>
+                      ) : evo === "VELOCITY" ? (
+                        <Text style={styles.loadHintMuted}>⚡ Máxima intención explosiva — registrá el tiempo de ejecución</Text>
+                      ) : (
+                        <Text style={styles.loadHintMuted}>Primera vez — registrá el tiempo de trabajo</Text>
+                      )}
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+                        <TextInput
+                          keyboardType="number-pad"
+                          placeholder={hint?.suggestedExecTimeSeconds != null ? `${hint.suggestedExecTimeSeconds}` : "Ej: 30"}
+                          placeholderTextColor={C.textMuted}
+                          value={timeVal}
+                          onChangeText={(v) => onChangeTime?.(ex.id, v)}
+                          style={[styles.input, { flex: 1 }]}
+                        />
+                        <Text style={{ color: C.text, fontSize: 15, fontWeight: "600" }}>s</Text>
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
               );
-            })() : null}
+            })()}
 
             {/* Timer block (only for timed exercises) */}
             {hasTimer ? (
