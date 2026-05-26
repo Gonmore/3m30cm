@@ -1136,16 +1136,14 @@ export default function EjerciciosScreen({
           <Text style={styles.closeOutSub}>
             {done}/{total} ejercicios completados
           </Text>
-          {total > 0 ? (
-            <View style={{ flexDirection: "row" }}>
-              <Pressable
-                style={({ pressed }) => [styles.btnPrev, pressed && { opacity: 0.7 }]}
-                onPress={handlePrevious}
-                android_ripple={{ color: 'rgba(44,196,176,0.25)', borderless: false }}>
-                <Text style={styles.btnPrevText}>← Volver al último ejercicio</Text>
-              </Pressable>
-            </View>
-          ) : null}
+          <View style={{ flexDirection: "row" }}>
+            <Pressable
+              style={({ pressed }) => [styles.btnPrev, pressed && { opacity: 0.7 }]}
+              onPress={handlePrevious}
+              android_ripple={{ color: 'rgba(44,196,176,0.25)', borderless: false }}>
+              <Text style={styles.btnPrevText}>← Volver al último ejercicio</Text>
+            </Pressable>
+          </View>
 
           {/* RPE */}
           <Text style={styles.fieldLabel}>Esfuerzo percibido (RPE 1-10)</Text>

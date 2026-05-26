@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -50,7 +51,7 @@ export default function AppHeader({ title, subtitle, onMenuPress, athleteInitial
       {/* Bell */}
       {onBellPress != null ? (
         <Pressable style={[styles.iconBtn, { position: 'relative', alignItems: 'center', justifyContent: 'center' }]} onPress={onBellPress} hitSlop={8}>
-          <Text style={{ fontSize: 22, lineHeight: 26 }}>🔔</Text>
+          <Ionicons name="notifications-outline" size={22} color={C.textMuted} />
           {bellBadge ? <View style={styles.bellBadge} /> : null}
         </Pressable>
       ) : null}
