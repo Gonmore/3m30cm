@@ -125,17 +125,26 @@ function buildMotivationText(dayType: string, streak: number) {
   return `${streakLine} Tu sesion de hoy ya esta lista para avanzar sin improvisar.`;
 }
 
-/** Extract short session label like "S3" from a session title or sequenceOrder. */
-function extractSessionLabel(title: string, sequenceOrder?: number | null): string | null {
-  // "Sesión 3", "sesion 3" pattern
-  const m = title.match(/[Ss]esi[oó]n\s*(\d+)/);
-  if (m) return `S${m[1]}`;
-  // "Day 3: ..." pattern (our standard format)
+/** Extract day number from a session title or sequenceOrder. */
+function extractDayNumber(title: string, sequenceOrder?: number | null): number | null {
   const d = title.match(/^Day\s+(\d+)/i);
-  if (d) return `S${d[1]}`;
-  // Fallback: sequenceOrder if set
-  if (sequenceOrder != null) return `S${sequenceOrder}`;
+  if (d) return parseInt(d[1]!, 10);
+  const m = title.match(/[Ss]esi[o\u00f3]n\s*(\d+)/);
+  if (m) return parseInt(m[1]!, 10);
+  if (sequenceOrder != null) return sequenceOrder;
   return null;
+}
+
+/** Map SeasonPhase enum value to a numeric phase label (F1, F2, F3). */
+const SEASON_PHASE_NUM: Record<string, number> = {
+  PRESEASON: 1,
+  IN_SEASON: 2,
+  COMPETITION: 3,
+  OFF_SEASON: 1,
+};
+function extractPhaseNumber(phase?: string | null): number | null {
+  if (!phase) return null;
+  return SEASON_PHASE_NUM[phase] ?? null;
 }
 
 /** Transform "Day N: Title" → "Sesión N: Title" for display in modals. */
@@ -144,7 +153,7 @@ function formatSessionTitle(title: string): string {
 }
 
 /** Week strip: Mon→Sun surrounding today. Each item has date + status. */
-function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null; exerciseCount?: number; sequenceOrder?: number | null }>) {
+function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null; exerciseCount?: number; sequenceOrder?: number | null; phase?: string | null }>) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -172,7 +181,10 @@ function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string; 
     // Find a session on this date
     const match = sessions.find((s) => s.scheduledDate.slice(0, 10) === iso);
     const status = match?.status ?? null;
-    const sessionLabel = match ? extractSessionLabel(match.title, match.sequenceOrder) : null;
+    const dayNum   = match ? extractDayNumber(match.title, match.sequenceOrder) : null;
+    const phaseNum = match ? extractPhaseNumber(match.phase) : null;
+    const phaseLabel = phaseNum != null ? `F${phaseNum}` : null;
+    const dayLabel   = dayNum   != null ? `D${dayNum}`   : null;
     const fullTitle    = match ? formatSessionTitle(match.title) : null;
     const exerciseCount = match?.exerciseCount ?? null;
     const estimatedDurationMin = exerciseCount != null ? Math.max(10, Math.round(exerciseCount * 9)) : null;
@@ -180,7 +192,7 @@ function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string; 
     // Ghost X: this date is the original date of a now-rescheduled session, with no active session
     const isOriginalDate = !match && originalDateSet.has(iso);
 
-    return { date, iso, label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, isPast, isFuture, status, sessionLabel, isOriginalDate, fullTitle, exerciseCount, estimatedDurationMin };
+    return { date, iso, label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, isPast, isFuture, status, phaseLabel, dayLabel, isOriginalDate, fullTitle, exerciseCount, estimatedDurationMin };
   });
 }
 
@@ -330,7 +342,7 @@ function ProgressRing({ pct, streak, label }: { pct: number; streak: number; lab
 //  Weekly timeline strip
 // ─────────────────────────────────────────────────────────────
 
-type WeekSession = { scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null; exerciseCount?: number; sequenceOrder?: number | null };
+type WeekSession = { scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null; exerciseCount?: number; sequenceOrder?: number | null; phase?: string | null };
 type WeekDay = ReturnType<typeof buildWeekDays>[number];
 
 function WeekTimeline({ sessions, colors, styles }: { sessions: WeekSession[]; colors: ReturnType<typeof useTheme>["C"]; styles: ReturnType<typeof makeStyles> }) {
@@ -417,10 +429,15 @@ function WeekTimeline({ sessions, colors, styles }: { sessions: WeekSession[]; c
                     <Text style={styles.weekDayCheck}>✓</Text>
                   ) : isSkipped ? (
                     <Text style={styles.weekDayCheck}>✗</Text>
-                  ) : day.sessionLabel ? (
-                    <Text style={[styles.weekDaySessionLabel, isRescheduled && styles.weekDaySessionLabelRescheduled]}>
-                      {day.sessionLabel}
-                    </Text>
+                  ) : (day.phaseLabel || day.dayLabel) ? (
+                    <View style={styles.weekDayFdContainer}>
+                      {day.phaseLabel && (
+                        <Text style={[styles.weekDayPhaseLabel, isRescheduled && styles.weekDayFdRescheduled]}>{day.phaseLabel}</Text>
+                      )}
+                      {day.dayLabel && (
+                        <Text style={[styles.weekDayDayLabel, isRescheduled && styles.weekDayFdRescheduled]}>{day.dayLabel}</Text>
+                      )}
+                    </View>
                   ) : day.isToday ? (
                     <View style={styles.weekDayTodayDot} />
                   ) : null}
@@ -1272,6 +1289,7 @@ export default function HoyScreenV2({
               originalScheduledDate: s.originalScheduledDate,
               exerciseCount: s.exerciseCount,
               sequenceOrder: s.sequenceOrder,
+              phase: s.personalProgram?.phase ?? null,
             }))}
             colors={C}
             styles={styles}
@@ -1633,7 +1651,7 @@ export default function HoyScreenV2({
 
               {/* Mini week bar chart */}
               <View style={styles.shareCardWeekChart}>
-                {buildWeekDays(sessions.map((s) => ({ scheduledDate: s.scheduledDate, status: s.status, title: s.title, originalScheduledDate: s.originalScheduledDate, exerciseCount: s.exerciseCount, sequenceOrder: s.sequenceOrder }))).map((day) => {
+                {buildWeekDays(sessions.map((s) => ({ scheduledDate: s.scheduledDate, status: s.status, title: s.title, originalScheduledDate: s.originalScheduledDate, exerciseCount: s.exerciseCount, sequenceOrder: s.sequenceOrder, phase: s.personalProgram?.phase ?? null }))).map((day) => {
                   const barColor = day.status === "COMPLETED" ? C.teal
                     : day.status === "SKIPPED" ? C.danger
                     : day.status === "RESCHEDULED" ? C.amber
@@ -1794,6 +1812,12 @@ return StyleSheet.create({
   weekDayDot:      { width: 7, height: 7, borderRadius: 3.5 },
   weekDayNum:      { color: C.textMuted, fontSize: 11 },
   weekDayNumToday: { color: C.amber, fontWeight: "700" },
+
+  // F1/D4 two-line label inside training-day circles
+  weekDayFdContainer: { alignItems: "center", gap: 1 },
+  weekDayPhaseLabel:  { color: C.textMuted, fontSize: 7, fontWeight: "700", lineHeight: 8, letterSpacing: -0.3 },
+  weekDayDayLabel:    { color: C.amber, fontSize: 9, fontWeight: "900", lineHeight: 10, letterSpacing: -0.5 },
+  weekDayFdRescheduled: { color: C.amber },
 
   // ── Share modal ───────────────────────────────────────────────
   shareOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
