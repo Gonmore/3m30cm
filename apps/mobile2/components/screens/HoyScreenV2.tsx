@@ -13,6 +13,7 @@
 import {
   Animated,
   Easing,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -23,7 +24,7 @@ import {
   View,
 } from "react-native";
 import { useEffect, useRef, useState } from "react";
-import Svg, { Circle, Path as SvgPath } from "react-native-svg";
+import Svg, { Circle, Path as SvgPath, Polyline, Text as SvgText } from "react-native-svg";
 
 import { R, S } from "@mobile/components/tokens";
 import { useTheme } from "@mobile/components/ThemeContext";
@@ -1131,6 +1132,7 @@ export default function HoyScreenV2({
   const styles = makeStyles(C);
   const [nutritionModal, setNutritionModal] = useState<{ title: string; icon: string; content: string } | null>(null);
   const [shareVisible, setShareVisible] = useState(false);
+  const [sparklineWidth, setSparklineWidth] = useState(0);
   const sessionJustCompleted = sessionCompletedAt != null && (Date.now() - sessionCompletedAt) < 4 * 60 * 60 * 1000;
   const hasProgram   = !!activeProgram;
   const streak       = progress?.summary.currentStreak ?? 0;
@@ -1278,7 +1280,7 @@ export default function HoyScreenV2({
               onPress={() => setShareVisible(true)}
               hitSlop={8}
             >
-              <Text style={styles.shareBtnIcon}>📤</Text>
+              <Text style={styles.shareBtnIcon}>⬆</Text>
             </Pressable>
           </View>
           <WeekTimeline
@@ -1606,7 +1608,10 @@ export default function HoyScreenV2({
             <View style={styles.shareCard}>
               {/* Top brand strip */}
               <View style={styles.shareCardBrand}>
-                <Text style={styles.shareCardBrandText}>⚡ vJump</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                  <Text style={styles.shareCardBrandEmoji}>⚡</Text>
+                  <Text style={styles.shareCardBrandText}>vJump</Text>
+                </View>
                 <Text style={styles.shareCardBrandSub}>3m30cm.app</Text>
               </View>
 
@@ -1649,6 +1654,57 @@ export default function HoyScreenV2({
                 )}
               </View>
 
+              {/* Jump progress sparkline */}
+              {progress?.trends.jumpHeightCm && progress.trends.jumpHeightCm.length >= 2 && (
+                <View
+                  style={styles.shareCardSparkline}
+                  onLayout={(e) => setSparklineWidth(e.nativeEvent.layout.width)}
+                >
+                  <Text style={styles.shareCardSparklineLabel}>Progreso de salto vertical</Text>
+                  {sparklineWidth > 0 && (() => {
+                    const pts = progress.trends.jumpHeightCm.slice(-8);
+                    const vals = pts.map((p) => p.value);
+                    const minV = Math.min(...vals);
+                    const maxV = Math.max(...vals);
+                    const range = maxV - minV || 1;
+                    const W = sparklineWidth;
+                    const H = 44;
+                    const padX = 6; const padY = 8;
+                    const xOf = (i: number) =>
+                      pts.length === 1 ? W / 2 : padX + (i * (W - 2 * padX)) / (pts.length - 1);
+                    const yOf = (v: number) =>
+                      padY + (H - 2 * padY) * (1 - (v - minV) / range);
+                    const polyPts = pts.map((p, i) => `${xOf(i)},${yOf(p.value)}`).join(" ");
+                    const last = pts[pts.length - 1]!;
+                    return (
+                      <Svg width={W} height={H}>
+                        <Polyline
+                          points={polyPts}
+                          fill="none"
+                          stroke={C.teal}
+                          strokeWidth={2}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        {pts.map((p, i) => (
+                          <Circle key={i} cx={xOf(i)} cy={yOf(p.value)} r={2.5} fill={C.teal} />
+                        ))}
+                        <SvgText
+                          x={xOf(pts.length - 1)}
+                          y={yOf(last.value) - 5}
+                          fill={C.teal}
+                          fontSize={8}
+                          fontWeight="bold"
+                          textAnchor="middle"
+                        >
+                          {last.value} cm
+                        </SvgText>
+                      </Svg>
+                    );
+                  })()}
+                </View>
+              )}
+
               {/* Mini week bar chart */}
               <View style={styles.shareCardWeekChart}>
                 {buildWeekDays(sessions.map((s) => ({ scheduledDate: s.scheduledDate, status: s.status, title: s.title, originalScheduledDate: s.originalScheduledDate, exerciseCount: s.exerciseCount, sequenceOrder: s.sequenceOrder, phase: s.personalProgram?.phase ?? null }))).map((day) => {
@@ -1669,8 +1725,15 @@ export default function HoyScreenV2({
                 })}
               </View>
 
-              {/* Footer */}
-              <Text style={styles.shareCardFooter}>Powered by vJump · Tecnología de salto vertical</Text>
+              {/* Footer - matches app footer */}
+              <View style={styles.shareCardFooterRow}>
+                <Text style={styles.shareCardFooterText}>powered</Text>
+                <Image
+                  source={require("../../assets/img/Logo_Blanco.png")}
+                  style={styles.shareCardFooterLogo}
+                  resizeMode="contain"
+                />
+              </View>
             </View>
 
             {/* Share button */}
@@ -1832,9 +1895,10 @@ return StyleSheet.create({
     overflow: "hidden",
     gap: 0,
   },
-  shareCardBrand: { backgroundColor: C.teal, paddingHorizontal: S.md, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  shareCardBrandText: { color: C.bg, fontWeight: "900", fontSize: 16, letterSpacing: 0.5 },
-  shareCardBrandSub: { color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "700" },
+  shareCardBrand: { backgroundColor: C.bg, paddingHorizontal: S.md, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.amberBorder },
+  shareCardBrandEmoji: { fontSize: 18 },
+  shareCardBrandText: { color: C.text, fontWeight: "900", fontSize: 18, letterSpacing: 0.5 },
+  shareCardBrandSub: { color: C.textMuted, fontSize: 11, fontWeight: "600" },
   shareCardStreakRow: { flexDirection: "row", alignItems: "center", gap: S.md, padding: S.md, paddingBottom: S.sm },
   shareCardFireEmoji: { fontSize: 40 },
   shareCardStreakValue: { color: C.text, fontSize: 42, fontWeight: "900", lineHeight: 46 },
@@ -1851,7 +1915,11 @@ return StyleSheet.create({
   shareCardBarCol: { flex: 1, alignItems: "center", gap: 3, justifyContent: "flex-end" },
   shareCardBar: { width: "100%", borderRadius: R.sm, minHeight: 4 },
   shareCardBarLabel: { color: C.textMuted, fontSize: 9, fontWeight: "700" },
-  shareCardFooter: { backgroundColor: C.surfaceRaise, color: C.textMuted, fontSize: 10, textAlign: "center", padding: 8, fontWeight: "600" },
+  shareCardSparkline: { marginHorizontal: S.md, marginTop: S.sm, marginBottom: 2 },
+  shareCardSparklineLabel: { color: C.textMuted, fontSize: 9, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 },
+  shareCardFooterRow: { backgroundColor: "#000", paddingVertical: 10, paddingHorizontal: S.md, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  shareCardFooterText: { color: "rgba(255,255,255,0.38)", fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase" as const, fontWeight: "600" },
+  shareCardFooterLogo: { width: 72, height: 24, opacity: 0.42 },
   shareActionBtn: { backgroundColor: C.teal, borderRadius: R.full, paddingVertical: 15, alignItems: "center" },
   shareActionBtnText: { color: C.bg, fontWeight: "800", fontSize: 16, letterSpacing: 0.3 },
 
