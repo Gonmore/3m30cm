@@ -669,13 +669,21 @@ function NoProgram({
                   <Text style={styles.modalEmoji}>🏀</Text>
                   <Text style={styles.modalTitle}>Tu contexto deportivo</Text>
 
+                  {/* ── Banner Planificación Inteligente ─────────── */}
+                  <View style={{ backgroundColor: "rgba(44,196,176,0.10)", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "rgba(44,196,176,0.25)", gap: 6 }}>
+                    <Text style={{ color: "#2cc4b0", fontWeight: "800", fontSize: 14 }}>🛡️ Planificación Inteligente vJump</Text>
+                    <Text style={{ color: "#b0c4cc", fontSize: 13, lineHeight: 19 }}>
+                      Jugar múltiples partidos en superficies duras desgasta tus articulaciones. Usamos tus respuestas para blindar tus rodillas contra lesiones y reprogramar automáticamente tus entrenamientos si tus fechas se suspenden. Más salto, cero lesiones.
+                    </Text>
+                  </View>
+
                   <Text style={styles.obLabel}>¿Entrenas algún deporte en la semana?</Text>
                   <View style={{ flexDirection: "row", gap: S.sm }}>
                     <Pressable
                       style={[styles.obOptionBtn, athleteSetup.trainsSport && styles.obOptionBtnActive]}
                       onPress={() => onSetAthleteSetup((c) => ({ ...c, trainsSport: true }))}
                     >
-                      <Text style={[styles.obOptionText, athleteSetup.trainsSport && styles.obOptionTextActive]}>Sí</Text>
+                      <Text style={[styles.obOptionText, athleteSetup.trainsSport && styles.obOptionTextActive]}>Sí, entreno</Text>
                     </Pressable>
                     <Pressable
                       style={[styles.obOptionBtn, !athleteSetup.trainsSport && styles.obOptionBtnActive]}
@@ -684,9 +692,12 @@ function NoProgram({
                         trainsSport: false,
                         sportTrainingDays: "",
                         teamTrainingDays: "",
+                        teamTrainingIntensity: "NONE",
+                        weeklyGameCount: "ZERO_TO_ONE",
+                        skipPhase1: false,
                       }))}
                     >
-                      <Text style={[styles.obOptionText, !athleteSetup.trainsSport && styles.obOptionTextActive]}>No</Text>
+                      <Text style={[styles.obOptionText, !athleteSetup.trainsSport && styles.obOptionTextActive]}>No, solo jump</Text>
                     </Pressable>
                   </View>
 
@@ -699,8 +710,48 @@ function NoProgram({
                         onChange={(v) => onSetAthleteSetup((c) => ({ ...c, sportTrainingDays: v, teamTrainingDays: v }))}
                         accent={C.teal}
                       />
+
+                      <Text style={styles.obLabel}>¿Con qué intensidad son esos entrenamientos?</Text>
+                      <View style={{ flexDirection: "row", gap: S.sm }}>
+                        {(["INTENSE", "LIGHT"] as const).map((opt) => {
+                          const labels = { INTENSE: "Intensos", LIGHT: "Suaves (técnica)" };
+                          const active = athleteSetup.teamTrainingIntensity === opt;
+                          return (
+                            <Pressable
+                              key={opt}
+                              style={[styles.obOptionBtn, { flex: 1 }, active && styles.obOptionBtnActive]}
+                              onPress={() => onSetAthleteSetup((c) => ({ ...c, teamTrainingIntensity: opt }))}
+                            >
+                              <Text style={[styles.obOptionText, active && styles.obOptionTextActive]}>{labels[opt]}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+
+                      <Text style={styles.obLabel}>¿Cuántos partidos juegas por fin de semana en promedio?</Text>
+                      <View style={{ flexDirection: "row", gap: S.sm }}>
+                        {(["ZERO_TO_ONE", "TWO_TO_THREE", "FOUR_PLUS"] as const).map((opt) => {
+                          const labels = { ZERO_TO_ONE: "0–1", TWO_TO_THREE: "2–3", FOUR_PLUS: "4+" };
+                          const active = athleteSetup.weeklyGameCount === opt;
+                          return (
+                            <Pressable
+                              key={opt}
+                              style={[styles.obOptionBtn, { flex: 1 }, active && styles.obOptionBtnActive]}
+                              onPress={() => onSetAthleteSetup((c) => ({ ...c, weeklyGameCount: opt }))}
+                            >
+                              <Text style={[styles.obOptionText, active && styles.obOptionTextActive]}>{labels[opt]}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
                     </>
-                  ) : null}
+                  ) : (
+                    <View style={{ backgroundColor: "rgba(250,189,47,0.10)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "rgba(250,189,47,0.25)" }}>
+                      <Text style={{ color: "#c4a020", fontSize: 13, lineHeight: 18 }}>
+                        Tu programa incluirá una fase de adecuación para preparar articulaciones y tendones antes del bloque de carga.
+                      </Text>
+                    </View>
+                  )}
 
                   <Pressable style={styles.obNextBtn} onPress={() => setStep(2)}>
                     <Text style={styles.obNextBtnText}>Siguiente →</Text>
