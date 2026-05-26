@@ -125,15 +125,26 @@ function buildMotivationText(dayType: string, streak: number) {
   return `${streakLine} Tu sesion de hoy ya esta lista para avanzar sin improvisar.`;
 }
 
-/** Extract short session label like "S3" from a session title. */
-function extractSessionLabel(title: string): string | null {
-  const m = title.match(/[Ss]esi[o\u00f3]n\s*(\d+)/);
+/** Extract short session label like "S3" from a session title or sequenceOrder. */
+function extractSessionLabel(title: string, sequenceOrder?: number | null): string | null {
+  // "Sesión 3", "sesion 3" pattern
+  const m = title.match(/[Ss]esi[oó]n\s*(\d+)/);
   if (m) return `S${m[1]}`;
+  // "Day 3: ..." pattern (our standard format)
+  const d = title.match(/^Day\s+(\d+)/i);
+  if (d) return `S${d[1]}`;
+  // Fallback: sequenceOrder if set
+  if (sequenceOrder != null) return `S${sequenceOrder}`;
   return null;
 }
 
+/** Transform "Day N: Title" → "Sesión N: Title" for display in modals. */
+function formatSessionTitle(title: string): string {
+  return title.replace(/^Day\s+(\d+):\s*/i, "Sesión $1: ");
+}
+
 /** Week strip: Mon→Sun surrounding today. Each item has date + status. */
-function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null }>) {
+function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null; exerciseCount?: number; sequenceOrder?: number | null }>) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -161,12 +172,15 @@ function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string; 
     // Find a session on this date
     const match = sessions.find((s) => s.scheduledDate.slice(0, 10) === iso);
     const status = match?.status ?? null;
-    const sessionLabel = match ? extractSessionLabel(match.title) : null;
+    const sessionLabel = match ? extractSessionLabel(match.title, match.sequenceOrder) : null;
+    const fullTitle    = match ? formatSessionTitle(match.title) : null;
+    const exerciseCount = match?.exerciseCount ?? null;
+    const estimatedDurationMin = exerciseCount != null ? Math.max(10, Math.round(exerciseCount * 9)) : null;
 
     // Ghost X: this date is the original date of a now-rescheduled session, with no active session
     const isOriginalDate = !match && originalDateSet.has(iso);
 
-    return { date, iso, label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, isPast, isFuture, status, sessionLabel, isOriginalDate };
+    return { date, iso, label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, isPast, isFuture, status, sessionLabel, isOriginalDate, fullTitle, exerciseCount, estimatedDurationMin };
   });
 }
 
@@ -316,8 +330,12 @@ function ProgressRing({ pct, streak, label }: { pct: number; streak: number; lab
 //  Weekly timeline strip
 // ─────────────────────────────────────────────────────────────
 
-function WeekTimeline({ sessions, colors, styles }: { sessions: Array<{ scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null }>; colors: ReturnType<typeof useTheme>["C"]; styles: ReturnType<typeof makeStyles> }) {
+type WeekSession = { scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null; exerciseCount?: number; sequenceOrder?: number | null };
+type WeekDay = ReturnType<typeof buildWeekDays>[number];
+
+function WeekTimeline({ sessions, colors, styles }: { sessions: WeekSession[]; colors: ReturnType<typeof useTheme>["C"]; styles: ReturnType<typeof makeStyles> }) {
   const [rowWidth, setRowWidth] = useState(0);
+  const [selectedDay, setSelectedDay] = useState<WeekDay | null>(null);
   const days = buildWeekDays(sessions);
 
   // Build rescheduled pairs (fromIdx → toIdx) for SVG arrows
@@ -337,82 +355,144 @@ function WeekTimeline({ sessions, colors, styles }: { sessions: Array<{ schedule
   const circleY = 34;
 
   return (
-    <View
-      style={styles.weekRow}
-      onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}
-    >
-      {/* SVG arrows overlay for rescheduled sessions */}
-      {rowWidth > 0 && rescheduledPairs.length > 0 && (
-        <View
-          style={{ position: "absolute", top: 0, left: 0, width: rowWidth, height: circleY + 16, zIndex: 1 }}
-          pointerEvents="none"
-        >
-          <Svg width={rowWidth} height={circleY + 16}>
-            {rescheduledPairs.map(({ fromIdx, toIdx }) => {
-              const colW = rowWidth / 7;
-              const srcX = (fromIdx + 0.5) * colW;
-              const dstX = (toIdx   + 0.5) * colW;
-              const midX = (srcX + dstX) / 2;
-              const arcY = circleY - 22;
-              // Quadratic bezier arc above the circles
-              const d = `M ${srcX} ${circleY} Q ${midX} ${arcY} ${dstX} ${circleY}`;
-              // Arrowhead pointing down-right at destination
-              const ah = `M ${dstX - 5} ${circleY - 9} L ${dstX} ${circleY} L ${dstX + 5} ${circleY - 9}`;
-              return (
-                <SvgPath key={`${fromIdx}-${toIdx}`} d={d + " " + ah} stroke={colors.amber} strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4,3" />
-              );
-            })}
-          </Svg>
-        </View>
-      )}
+    <>
+      <View
+        style={styles.weekRow}
+        onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}
+      >
+        {/* SVG arrows overlay for rescheduled sessions */}
+        {rowWidth > 0 && rescheduledPairs.length > 0 && (
+          <View
+            style={{ position: "absolute", top: 0, left: 0, width: rowWidth, height: circleY + 16, zIndex: 1 }}
+            pointerEvents="none"
+          >
+            <Svg width={rowWidth} height={circleY + 16}>
+              {rescheduledPairs.map(({ fromIdx, toIdx }) => {
+                const colW = rowWidth / 7;
+                const srcX = (fromIdx + 0.5) * colW;
+                const dstX = (toIdx   + 0.5) * colW;
+                const midX = (srcX + dstX) / 2;
+                const arcY = circleY - 22;
+                const d  = `M ${srcX} ${circleY} Q ${midX} ${arcY} ${dstX} ${circleY}`;
+                const ah = `M ${dstX - 5} ${circleY - 9} L ${dstX} ${circleY} L ${dstX + 5} ${circleY - 9}`;
+                return (
+                  <SvgPath key={`${fromIdx}-${toIdx}`} d={d + " " + ah} stroke={colors.amber} strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4,3" />
+                );
+              })}
+            </Svg>
+          </View>
+        )}
 
-      {days.map((day) => {
-        const isTrainingDay = day.status !== null;
-        const isCompleted   = day.status === "COMPLETED";
-        const isSkipped     = day.status === "SKIPPED";
-        const isRescheduled = day.status === "RESCHEDULED";
+        {days.map((day) => {
+          const isTrainingDay = day.status !== null;
+          const isCompleted   = day.status === "COMPLETED";
+          const isSkipped     = day.status === "SKIPPED";
+          const isRescheduled = day.status === "RESCHEDULED";
 
-        return (
-          <View key={day.iso} style={[styles.weekDayCol, day.isFuture && styles.weekDayFuture]}>
-            <Text style={[styles.weekDayLabel, day.isToday && styles.weekDayLabelToday]}>
-              {day.label}
+          return (
+            <Pressable
+              key={day.iso}
+              style={[styles.weekDayCol, day.isFuture && styles.weekDayFuture]}
+              onPress={() => { if (day.status || day.isOriginalDate) setSelectedDay(day); }}
+              hitSlop={4}
+            >
+              <Text style={[styles.weekDayLabel, day.isToday && styles.weekDayLabelToday]}>
+                {day.label}
+              </Text>
+
+              {day.isOriginalDate ? (
+                <View style={styles.weekDayCircleOriginal}>
+                  <Text style={styles.weekDayOriginalX}>✕</Text>
+                </View>
+              ) : (
+                <View style={[
+                  styles.weekDayCircle,
+                  day.isToday    && styles.weekDayCircleToday,
+                  isCompleted    && styles.weekDayCircleCompleted,
+                  isSkipped      && styles.weekDayCircleSkipped,
+                  isRescheduled  && styles.weekDayCircleRescheduled,
+                  isTrainingDay && !day.isToday && !isCompleted && !isSkipped && !isRescheduled && styles.weekDayCircleTraining,
+                ]}>
+                  {isCompleted ? (
+                    <Text style={styles.weekDayCheck}>✓</Text>
+                  ) : isSkipped ? (
+                    <Text style={styles.weekDayCheck}>✗</Text>
+                  ) : day.sessionLabel ? (
+                    <Text style={[styles.weekDaySessionLabel, isRescheduled && styles.weekDaySessionLabelRescheduled]}>
+                      {day.sessionLabel}
+                    </Text>
+                  ) : day.isToday ? (
+                    <View style={styles.weekDayTodayDot} />
+                  ) : null}
+                </View>
+              )}
+
+              <Text style={[styles.weekDayNum, day.isToday && styles.weekDayNumToday]}>
+                {day.date.getDate()}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Day detail modal */}
+      <Modal
+        visible={!!selectedDay}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedDay(null)}
+      >
+        <Pressable style={styles.dayDetailOverlay} onPress={() => setSelectedDay(null)}>
+          <Pressable style={styles.dayDetailCard} onPress={(e) => e.stopPropagation()}>
+            {/* Date */}
+            <Text style={styles.dayDetailDate}>
+              {selectedDay ? formatDate(selectedDay.iso) : ""}
             </Text>
 
-            {/* Ghost circle: original date of a rescheduled session */}
-            {day.isOriginalDate ? (
-              <View style={styles.weekDayCircleOriginal}>
-                <Text style={styles.weekDayOriginalX}>✕</Text>
-              </View>
-            ) : (
-              <View style={[
-                styles.weekDayCircle,
-                day.isToday    && styles.weekDayCircleToday,
-                isCompleted    && styles.weekDayCircleCompleted,
-                isSkipped      && styles.weekDayCircleSkipped,
-                isRescheduled  && styles.weekDayCircleRescheduled,
-                isTrainingDay && !day.isToday && !isCompleted && !isSkipped && !isRescheduled && styles.weekDayCircleTraining,
-              ]}>
-                {isCompleted ? (
-                  <Text style={styles.weekDayCheck}>✓</Text>
-                ) : isSkipped ? (
-                  <Text style={styles.weekDayCheck}>✗</Text>
-                ) : day.sessionLabel ? (
-                  <Text style={[styles.weekDaySessionLabel, isRescheduled && styles.weekDaySessionLabelRescheduled]}>
-                    {day.sessionLabel}
-                  </Text>
-                ) : day.isToday ? (
-                  <View style={styles.weekDayTodayDot} />
-                ) : null}
+            {selectedDay?.fullTitle ? (
+              <Text style={styles.dayDetailTitle}>{selectedDay.fullTitle}</Text>
+            ) : selectedDay?.isOriginalDate ? (
+              <Text style={[styles.dayDetailTitle, { color: colors.textMuted }]}>Sesión reprogramada</Text>
+            ) : null}
+
+            {selectedDay?.exerciseCount != null && (
+              <View style={styles.dayDetailRow}>
+                <Text style={styles.dayDetailIcon}>📋</Text>
+                <Text style={styles.dayDetailInfo}>Ejercicios programados: <Text style={styles.dayDetailValue}>{selectedDay.exerciseCount}</Text></Text>
               </View>
             )}
 
-            <Text style={[styles.weekDayNum, day.isToday && styles.weekDayNumToday]}>
-              {day.date.getDate()}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
+            {selectedDay?.estimatedDurationMin != null && (
+              <View style={styles.dayDetailRow}>
+                <Text style={styles.dayDetailIcon}>⏱</Text>
+                <Text style={styles.dayDetailInfo}>Duración estimada: <Text style={styles.dayDetailValue}>{selectedDay.estimatedDurationMin} min</Text></Text>
+              </View>
+            )}
+
+            {/* Status badge */}
+            {selectedDay?.status && (
+              <View style={[styles.dayDetailStatusBadge, {
+                backgroundColor: selectedDay.status === "COMPLETED" ? colors.tealDim
+                  : selectedDay.status === "SKIPPED" ? colors.dangerDim
+                  : colors.surfaceRaise,
+              }]}>
+                <Text style={[styles.dayDetailStatusText, {
+                  color: selectedDay.status === "COMPLETED" ? colors.teal
+                    : selectedDay.status === "SKIPPED" ? colors.danger
+                    : selectedDay.status === "RESCHEDULED" ? colors.amber
+                    : colors.textSub,
+                }]}>
+                  {selectedDay.status === "COMPLETED" ? "✓ Completada"
+                    : selectedDay.status === "SKIPPED" ? "✗ Omitida"
+                    : selectedDay.status === "RESCHEDULED" ? "↺ Reprogramada"
+                    : "Planificada"}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -1181,7 +1261,7 @@ export default function HoyScreenV2({
               onPress={() => setShareVisible(true)}
               hitSlop={8}
             >
-              <Text style={styles.shareBtnIcon}>⬆</Text>
+              <Text style={styles.shareBtnIcon}>📤</Text>
             </Pressable>
           </View>
           <WeekTimeline
@@ -1189,7 +1269,9 @@ export default function HoyScreenV2({
               scheduledDate: s.scheduledDate,
               status: s.status,
               title: s.title,
-              originalScheduledDate: (s as { originalScheduledDate?: string | null }).originalScheduledDate,
+              originalScheduledDate: s.originalScheduledDate,
+              exerciseCount: s.exerciseCount,
+              sequenceOrder: s.sequenceOrder,
             }))}
             colors={C}
             styles={styles}
@@ -1551,7 +1633,7 @@ export default function HoyScreenV2({
 
               {/* Mini week bar chart */}
               <View style={styles.shareCardWeekChart}>
-                {buildWeekDays(sessions.map((s) => ({ scheduledDate: s.scheduledDate, status: s.status, title: s.title, originalScheduledDate: (s as { originalScheduledDate?: string | null }).originalScheduledDate }))).map((day) => {
+                {buildWeekDays(sessions.map((s) => ({ scheduledDate: s.scheduledDate, status: s.status, title: s.title, originalScheduledDate: s.originalScheduledDate, exerciseCount: s.exerciseCount, sequenceOrder: s.sequenceOrder }))).map((day) => {
                   const barColor = day.status === "COMPLETED" ? C.teal
                     : day.status === "SKIPPED" ? C.danger
                     : day.status === "RESCHEDULED" ? C.amber
@@ -1663,7 +1745,27 @@ return StyleSheet.create({
   timelineHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   timelineEyebrow: { color: C.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1 },
   shareBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.surfaceRaise, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center" },
-  shareBtnIcon: { color: C.textSub, fontSize: 13, fontWeight: "800" },
+  shareBtnIcon: { color: C.textSub, fontSize: 16 },
+
+  // ── Day detail modal ──────────────────────────────────────────
+  dayDetailOverlay: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)", padding: S.lg },
+  dayDetailCard: {
+    backgroundColor: C.surface,
+    borderRadius: R.xl,
+    padding: S.lg,
+    width: "100%",
+    gap: S.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  dayDetailDate:  { color: C.textMuted, fontSize: 12, fontWeight: "700", textTransform: "capitalize", letterSpacing: 0.3 },
+  dayDetailTitle: { color: C.text, fontSize: 18, fontWeight: "800", lineHeight: 24 },
+  dayDetailRow:   { flexDirection: "row", alignItems: "center", gap: S.xs },
+  dayDetailIcon:  { fontSize: 14 },
+  dayDetailInfo:  { color: C.textSub, fontSize: 13 },
+  dayDetailValue: { color: C.text, fontWeight: "700" },
+  dayDetailStatusBadge: { alignSelf: "flex-start", borderRadius: R.full, paddingHorizontal: 10, paddingVertical: 4, marginTop: 2 },
+  dayDetailStatusText:  { fontSize: 12, fontWeight: "700" },
 
   weekRow: { flexDirection: "row", justifyContent: "space-between" },
   weekDayCol:    { alignItems: "center", gap: 4, flex: 1 },

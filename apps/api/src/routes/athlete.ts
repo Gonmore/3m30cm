@@ -1914,6 +1914,7 @@ athleteRouter.get("/sessions", async (req: AuthenticatedRequest, res: Response) 
         status: true,
         scheduledDate: true,
         originalScheduledDate: true,
+        sequenceOrder: true,
         personalProgram: {
           select: {
             id: true,
@@ -1949,6 +1950,8 @@ athleteRouter.get("/sessions", async (req: AuthenticatedRequest, res: Response) 
         ...serializeSessionLogs(session),
         originalScheduledDate: session.originalScheduledDate?.toISOString().slice(0, 10) ?? null,
         scheduledDate: (session.scheduledDate as Date).toISOString().slice(0, 10),
+        sequenceOrder: session.sequenceOrder ?? null,
+        exerciseCount: session.sessionExercises.length,
       })),
     });
   } catch (error) {

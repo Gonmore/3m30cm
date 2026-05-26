@@ -324,6 +324,8 @@ interface SessionListResponse {
     status: SessionStatus | "RESCHEDULED";
     scheduledDate: string;
     originalScheduledDate: string | null;
+    sequenceOrder: number | null;
+    exerciseCount: number;
     personalProgram: {
       id: string;
       name: string;
