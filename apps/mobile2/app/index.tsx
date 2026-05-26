@@ -159,6 +159,7 @@ interface NotificationsModule {
   setNotificationChannelAsync: (channelId: string, channel: NotificationChannelInput) => Promise<import("expo-notifications/build/NotificationChannelManager.types").NotificationChannel | null>;
   cancelScheduledNotificationAsync: typeof import("expo-notifications/build/cancelScheduledNotificationAsync").default;
   scheduleNotificationAsync: typeof import("expo-notifications/build/scheduleNotificationAsync").default;
+  setBadgeCountAsync: typeof import("expo-notifications/build/setBadgeCountAsync").default;
   AndroidImportance: { HIGH: number };
   SchedulableTriggerInputTypes: NotificationTriggerTypes;
 }
@@ -885,6 +886,7 @@ async function getNotificationsModule() {
         scheduleNotificationModule,
         notificationsTypesModule,
         notificationChannelTypesModule,
+        badgeModule,
       ] = await Promise.all([
         import("expo-notifications/build/NotificationPermissions"),
         import("expo-notifications/build/NotificationsHandler"),
@@ -893,6 +895,7 @@ async function getNotificationsModule() {
         import("expo-notifications/build/scheduleNotificationAsync"),
         import("expo-notifications/build/Notifications.types"),
         import("expo-notifications/build/NotificationChannelManager.types"),
+        import("expo-notifications/build/setBadgeCountAsync"),
       ]);
 
       return {
@@ -902,6 +905,7 @@ async function getNotificationsModule() {
         setNotificationChannelAsync: setNotificationChannelModule.default,
         cancelScheduledNotificationAsync: cancelScheduledNotificationModule.default,
         scheduleNotificationAsync: scheduleNotificationModule.default,
+        setBadgeCountAsync: badgeModule.default,
         AndroidImportance: notificationChannelTypesModule.AndroidImportance,
         SchedulableTriggerInputTypes: notificationsTypesModule.SchedulableTriggerInputTypes,
       } satisfies NotificationsModule;
@@ -917,7 +921,7 @@ void getNotificationsModule().then((notifications) => {
   notifications?.setNotificationHandler({
     handleNotification: async () => ({
       shouldPlaySound: true,
-      shouldSetBadge: false,
+      shouldSetBadge: true,
       shouldShowAlert: true,
       shouldShowBanner: true,
       shouldShowList: true,
@@ -1077,26 +1081,27 @@ function formatSessionDayType(dayType: string) {
   return labels[dayType] ?? dayType.toLowerCase();
 }
 
-function buildMotivationalReminderCopy(session: { title: string; dayType: string }, streak: number) {
-  const streakText = streak > 0 ? `Llevas ${streak} dias de racha.` : "Hoy arranca una nueva racha.";
+function buildMotivationalReminderCopy(session: { title: string; dayType: string }, streak: number, lastJumpCm?: number | null) {
+  const streakText = streak > 0 ? `Racha: ${streak} dias.` : "Hoy arranca una nueva racha.";
+  const jumpText = lastJumpCm != null ? ` Ultimo salto: ${lastJumpCm} cm.` : "";
 
   if (session.dayType === "STRENGTH") {
     return {
-      title: "Hola campeon, hoy toca fuerza",
-      body: `${streakText} Los pesos para evolucionar ya estan programados en ${session.title}. Puedes precargar la sesion para hacerla offline o iniciar ahora mismo.`,
+      title: "Hola campeon, hoy toca fuerza 💪",
+      body: `${streakText}${jumpText} Los pesos para evolucionar estan en ${session.title}. Abri la app y empeza.`,
     };
   }
 
   if (session.dayType === "EXPLOSIVE" || session.dayType === "POWER" || session.dayType === "SPEED") {
     return {
-      title: "Hola campeon, hoy toca velocidad y altura",
-      body: `${streakText} ${session.title} esta lista para que priorices rapidez, alturas y calidad de contacto. Puedes precargar la sesion o iniciarla ahora.`,
+      title: "Hola campeon, hoy toca velocidad y altura ⚡",
+      body: `${streakText}${jumpText} ${session.title}: maxima intencion, rapidez y calidad de contacto. Abri la app y empeza.`,
     };
   }
 
   return {
-    title: `Hola campeon, hoy toca ${formatSessionDayType(session.dayType)}`,
-    body: `${streakText} ${session.title} ya esta preparada. Puedes precargar la sesion o iniciarla ahora desde la app.`,
+    title: `Hola campeon \u2014 ${formatSessionDayType(session.dayType)} 🎯`,
+    body: `${streakText}${jumpText} ${session.title} ya esta preparada. Abri la app y empeza.`,
   };
 }
 
@@ -1767,6 +1772,8 @@ export default function HomeScreen() {
 
   const [notificationPermission, setNotificationPermission] = useState<PermissionState>("unknown");
   const [calendarPermission, setCalendarPermission] = useState<PermissionState>("unknown");
+  const [notifUnread, setNotifUnread] = useState(false);
+  const [notificationInboxVisible, setNotificationInboxVisible] = useState(false);
   const [reminderHour, setReminderHourState] = useState<number>(8);
   const [eveningReminderEnabled, setEveningReminderEnabledState] = useState<boolean>(true);
   const autoSyncKeyRef = useRef<string>("");
@@ -3001,6 +3008,20 @@ export default function HomeScreen() {
     }
   }
 
+  // Clear OS badge and update in-app bell state when the app is opened / user logs in
+  useEffect(() => {
+    if (!accessToken || isWebPlatform) return;
+    void getNotificationsModule().then((n) => n?.setBadgeCountAsync(0).catch(() => undefined));
+  }, [accessToken]);
+
+  useEffect(() => {
+    setNotifUnread(
+      Boolean(todayPrimarySession &&
+        todayPrimarySession.status !== "COMPLETED" &&
+        todayPrimarySession.status !== "SKIPPED"),
+    );
+  }, [todayPrimarySession?.id, todayPrimarySession?.status]);
+
   useEffect(() => {
     if (!accessToken || !todayPrimarySession || isWebPlatform) {
       return;
@@ -3008,8 +3029,8 @@ export default function HomeScreen() {
 
     const syncKey = [
       todayPrimarySession.id,
-      todayPrimarySession.scheduledDate,
       todayPrimarySession.status,
+      sessions.filter((s) => s.status === "PLANNED" || s.status === "RESCHEDULED").length,
       progress?.summary.currentStreak ?? 0,
       notificationPermission,
       calendarPermission,
@@ -3025,37 +3046,43 @@ export default function HomeScreen() {
     autoSyncKeyRef.current = syncKey;
 
     void (async () => {
-      if (notificationPermission === "granted" && isSameLocalDay(todayPrimarySession.scheduledDate, new Date()) && todayPrimarySession.status !== "COMPLETED" && todayPrimarySession.status !== "SKIPPED") {
+      if (notificationPermission === "granted") {
         const notifications = await getNotificationsModule();
         if (notifications) {
+          const lastJumpCm = progress?.personalBests.jumpHeightCm ?? null;
           const reminderMap = await readStoredMap(reminderSyncStorageKey);
-          const existingReminderId = reminderMap[todayPrimarySession.id];
-          const reminderDate = buildReminderDate(todayPrimarySession.scheduledDate, reminderHour);
+          const updatedMap = { ...reminderMap };
 
-          if (existingReminderId) {
-            await notifications.cancelScheduledNotificationAsync(existingReminderId).catch(() => undefined);
-          }
+          // Schedule 8 AM morning reminder for all upcoming PLANNED sessions
+          for (const session of sessions.slice(0, 40)) {
+            if (session.status === "COMPLETED" || session.status === "SKIPPED") continue;
+            const sessionReminderDate = buildReminderDate(session.scheduledDate, reminderHour);
+            if (!sessionReminderDate) continue;
 
-          if (reminderDate) {
-            const reminderCopy = buildMotivationalReminderCopy(todayPrimarySession, progress?.summary.currentStreak ?? 0);
+            const existingId = updatedMap[session.id];
+            if (existingId) {
+              await notifications.cancelScheduledNotificationAsync(existingId).catch(() => undefined);
+            }
+
+            const copy = buildMotivationalReminderCopy(session, progress?.summary.currentStreak ?? 0, lastJumpCm);
             const notificationId = await notifications.scheduleNotificationAsync({
               content: {
-                title: reminderCopy.title,
-                body: reminderCopy.body,
-                data: { sessionId: todayPrimarySession.id },
+                title: copy.title,
+                body: copy.body,
+                data: { sessionId: session.id, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+                badge: 1,
               },
               trigger: {
                 type: notifications.SchedulableTriggerInputTypes.DATE,
-                date: reminderDate,
+                date: sessionReminderDate,
                 channelId: Platform.OS === "android" ? notificationChannelId : undefined,
               },
             });
 
-            await writeStoredMap(reminderSyncStorageKey, {
-              ...reminderMap,
-              [todayPrimarySession.id]: notificationId,
-            });
+            updatedMap[session.id] = notificationId;
           }
+
+          await writeStoredMap(reminderSyncStorageKey, updatedMap);
 
           // Evening notification: schedule for the night before the next session after today
           if (eveningReminderEnabled) {
@@ -3625,22 +3652,6 @@ export default function HomeScreen() {
             <Text style={authSt.logoSub}>athlete app</Text>
           </View>
 
-          {/* ── Tabs ── */}
-          <View style={authSt.tabRow}>
-            <Pressable
-              style={[authSt.tab, authMode === "login" && authSt.tabActive]}
-              onPress={() => setAuthMode("login")}
-            >
-              <Text style={[authSt.tabText, authMode === "login" && authSt.tabTextActive]}>Entrar</Text>
-            </Pressable>
-            <Pressable
-              style={[authSt.tab, authMode === "register" && authSt.tabActive]}
-              onPress={() => setAuthMode("register")}
-            >
-              <Text style={[authSt.tabText, authMode === "register" && authSt.tabTextActive]}>Crear cuenta</Text>
-            </Pressable>
-          </View>
-
           {/* ── Form ── */}
           <View style={authSt.card}>
             {authMode === "login" ? (
@@ -3678,8 +3689,8 @@ export default function HomeScreen() {
                     <Ionicons name={showLoginPassword ? "eye-off" : "eye"} size={20} color={C.textMuted} />
                   </Pressable>
                 </View>
-                <Pressable style={authSt.primaryBtn} onPress={() => void handleLogin()} disabled={loading}>
-                  <Text style={authSt.primaryBtnText}>{loading ? "Entrando..." : "Entrar"}</Text>
+                <Pressable style={[authSt.primaryBtn, { backgroundColor: "transparent", borderWidth: 1, borderColor: C.amber }]} onPress={() => void handleLogin()} disabled={loading}>
+                  <Text style={[authSt.primaryBtnText, { color: C.textMuted }]}>{loading ? "Entrando..." : "Entrar"}</Text>
                 </Pressable>
                 <Pressable onPress={() => { setForgotPasswordEmail(loginForm.email); setForgotPasswordVisible(true); }}>
                   <Text style={authSt.forgotLink}>¿Olvidaste tu contraseña?</Text>
@@ -3690,12 +3701,12 @@ export default function HomeScreen() {
                   <View style={authSt.dividerLine} />
                 </View>
                 <Pressable
-                  style={[authSt.socialBtn, (!googleRequest || !googlePlatformClientConfigured) && authSt.socialBtnDisabled]}
+                  style={[authSt.primaryBtn, { backgroundColor: "transparent", borderWidth: 1, borderColor: C.amber, flexDirection: "row", justifyContent: "center", gap: 8 }, (!googleRequest || !googlePlatformClientConfigured) && authSt.socialBtnDisabled]}
                   onPress={() => void handleGoogleAccess()}
                   disabled={!googleRequest || !googlePlatformClientConfigured || loading}
                 >
-                  <Ionicons name="logo-google" size={18} color={C.text} />
-                  <Text style={authSt.socialBtnText}>Continuar con Google</Text>
+                  <Image source={require('../assets/img/4109-google-color.png')} style={{ width: 18, height: 18 }} resizeMode="contain" />
+                  <Text style={[authSt.primaryBtnText, { color: C.amber, letterSpacing: 0.2 }]}>Continuar con Google</Text>
                 </Pressable>
                 {useNativeAndroidGoogleSignIn && !googleWebClientId ? (
                   <Text style={authSt.helperText}>
@@ -3710,6 +3721,14 @@ export default function HomeScreen() {
                     En Expo Go, Google usa el client web y el redirect URI {googleExpoGoRedirectUri}.
                   </Text>
                 ) : null}
+                <View style={authSt.divider}>
+                  <View style={authSt.dividerLine} />
+                  <Text style={authSt.dividerText}>o</Text>
+                  <View style={authSt.dividerLine} />
+                </View>
+                <Pressable style={[authSt.primaryBtn, { backgroundColor: "transparent", borderWidth: 1, borderColor: C.amber }]} onPress={() => { setAuthMode("register"); setError(""); setMessage(""); }}>
+                  <Text style={[authSt.primaryBtnText, { color: C.textMuted }]}>Crear cuenta</Text>
+                </Pressable>
               </>
             ) : (
               <>
@@ -3771,6 +3790,9 @@ export default function HomeScreen() {
                 />
                 <Pressable style={authSt.primaryBtn} onPress={() => void handleRegister()} disabled={loading || !athleteSetup.email || !athleteSetup.password}>
                   <Text style={authSt.primaryBtnText}>{loading ? "Creando..." : "Crear cuenta"}</Text>
+                </Pressable>
+                <Pressable style={{ alignSelf: "center", marginTop: 8 }} onPress={() => { setAuthMode("login"); setError(""); setMessage(""); }}>
+                  <Text style={authSt.forgotLink}>¿Ya tenés cuenta? Entrar</Text>
                 </Pressable>
               </>
             )}
@@ -3946,6 +3968,8 @@ export default function HomeScreen() {
         onAvatarPress={() => setProfileModalVisible(true)}
         avatarUrl={currentAvatarUrl ?? profile?.user.avatarUrl ?? null}
         athleteInitials={athleteInitials}
+        onBellPress={() => { setNotifUnread(false); setNotificationInboxVisible(true); }}
+        bellBadge={notifUnread}
       />
 
       {/* Role switcher for users with both athlete + coach roles */}
@@ -4363,6 +4387,78 @@ export default function HomeScreen() {
           </View>
         </View>
       ) : null}
+
+      {/* ── NOTIFICATION INBOX MODAL ──────────────────── */}
+      <Modal
+        visible={notificationInboxVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNotificationInboxVisible(false)}
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" }}
+          onPress={() => setNotificationInboxVisible(false)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: C.surface,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: S.lg,
+              gap: S.md,
+              borderWidth: 1,
+              borderColor: C.border,
+            }}
+          >
+            {/* Header row */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={{ fontSize: 22 }}>🔔</Text>
+              <Text style={{ color: C.text, fontWeight: "700", fontSize: 16, flex: 1 }}>Recordatorio del dia</Text>
+              <Text style={{ color: C.textMuted, fontSize: 11 }}>
+                {Intl.DateTimeFormat().resolvedOptions().timeZone}
+              </Text>
+            </View>
+
+            {todayPrimarySession &&
+            todayPrimarySession.status !== "COMPLETED" &&
+            todayPrimarySession.status !== "SKIPPED" ? (
+              <>
+                {(() => {
+                  const lastJumpCm = progress?.personalBests.jumpHeightCm ?? null;
+                  const copy = buildMotivationalReminderCopy(
+                    todayPrimarySession,
+                    progress?.summary.currentStreak ?? 0,
+                    lastJumpCm,
+                  );
+                  return (
+                    <>
+                      <Text style={{ color: C.amber, fontWeight: "700", fontSize: 15 }}>{copy.title}</Text>
+                      <Text style={{ color: C.textMuted, fontSize: 14, lineHeight: 22 }}>{copy.body}</Text>
+                    </>
+                  );
+                })()}
+                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
+                  <Text style={{ color: C.textMuted, fontSize: 12, backgroundColor: C.surfaceRaise, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+                    {formatDate(todayPrimarySession.scheduledDate)}
+                  </Text>
+                  <Text style={{ color: C.textMuted, fontSize: 12, backgroundColor: C.surfaceRaise, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+                    {formatSessionDayType(todayPrimarySession.dayType)}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <Text style={{ color: C.textMuted, fontSize: 14 }}>No hay sesion activa programada para hoy.</Text>
+            )}
+
+            <Pressable
+              style={{ alignSelf: "center", marginTop: 4, paddingVertical: 8, paddingHorizontal: 24 }}
+              onPress={() => setNotificationInboxVisible(false)}
+            >
+              <Text style={{ color: C.textMuted, fontSize: 14 }}>Cerrar</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ── LEGACY VIEW (hidden – pending cleanup) ────── */}
       <View style={{ display: 'none' }}>

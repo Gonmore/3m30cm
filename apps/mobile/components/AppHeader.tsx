@@ -12,9 +12,11 @@ interface AppHeaderProps {
   athleteInitials: string;
   onAvatarPress?: () => void;
   avatarUrl?: string | null;
+  onBellPress?: () => void;
+  bellBadge?: boolean;
 }
 
-export default function AppHeader({ title, subtitle, onMenuPress, athleteInitials, onAvatarPress, avatarUrl }: AppHeaderProps) {
+export default function AppHeader({ title, subtitle, onMenuPress, athleteInitials, onAvatarPress, avatarUrl, onBellPress, bellBadge }: AppHeaderProps) {
   const insets = useSafeAreaInsets();
   const { C } = useTheme();
   const styles = makeStyles(C);
@@ -44,6 +46,14 @@ export default function AppHeader({ title, subtitle, onMenuPress, athleteInitial
           </Text>
         ) : null}
       </View>
+
+      {/* Bell */}
+      {onBellPress != null ? (
+        <Pressable style={[styles.iconBtn, { position: 'relative', alignItems: 'center', justifyContent: 'center' }]} onPress={onBellPress} hitSlop={8}>
+          <Text style={{ fontSize: 22, lineHeight: 26 }}>🔔</Text>
+          {bellBadge ? <View style={styles.bellBadge} /> : null}
+        </Pressable>
+      ) : null}
 
       {/* Avatar */}
       <Pressable style={styles.avatar} hitSlop={20} onPress={onAvatarPress} android_ripple={{ color: 'rgba(255,255,255,0.2)', borderless: true, radius: 22 }}>
@@ -122,6 +132,17 @@ function makeStyles(C: ReturnType<typeof useTheme>["C"]) {
       fontWeight: "800",
       fontSize: 14,
       letterSpacing: 0.5,
+    },
+    bellBadge: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      width: 9,
+      height: 9,
+      borderRadius: 5,
+      backgroundColor: '#E05A3A',
+      borderWidth: 1.5,
+      borderColor: C.surface,
     },
   });
 }
