@@ -188,23 +188,6 @@ function removeDirectoryIfPresent(targetDir) {
   rmSync(targetDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
 }
 
-function cleanAndroidLibraryBuildDirs() {
-  const candidateDirs = [
-    path.join(workspaceRoot, "node_modules", "expo-modules-core", "android", "build"),
-    path.join(workspaceRoot, "node_modules", "expo", "android", "build"),
-    path.join(workspaceRoot, "node_modules", "expo-constants", "android", "build"),
-  ];
-
-  for (const targetDir of candidateDirs) {
-    try {
-      removeDirectoryIfPresent(targetDir);
-    } catch (error) {
-      console.warn(`No se pudo limpiar ${targetDir}.`);
-      if (error instanceof Error) console.warn(error.message);
-    }
-  }
-}
-
 function runExpoPrebuildWithRetry() {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     console.log(`Deteniendo procesos Java/Gradle previos del proyecto...`);
@@ -251,7 +234,6 @@ if (existsSync(appBuildGradlePath)) {
 
 writeFileSync(localPropertiesPath, `sdk.dir=${normalizedAndroidSdkPath}\n`, "utf8");
 enforceGradleProperties();
-cleanAndroidLibraryBuildDirs();
 
 for (const lockFile of projectLockFiles) {
   if (existsSync(lockFile)) {
@@ -263,11 +245,19 @@ for (const lockFile of projectLockFiles) {
   }
 }
 
-// Clean previous debug build outputs to avoid stale cached class files
-// that cause NoClassDefFoundError at runtime (e.g. expo-modules-core AnyTypeCache).
-const appBuildDir = path.join(androidDir, "app", "build");
-console.log("Limpiando build anterior del app...");
-removeDirectoryIfPresent(appBuildDir);
+// Run `gradlew clean` to wipe ALL build outputs for ALL Gradle subprojects,
+// including library subprojects registered in settings.gradle that live in
+// node_modules/*/android/build/. The previous approach of manually removing
+// android/app/build and a few known library dirs was insufficient: Gradle was
+// still finding 28+ library tasks "up-to-date" from their node_modules build
+// dirs, reusing stale class files that caused NoClassDefFoundError (AnyTypeCache)
+// at runtime. gradlew clean is the authoritative fix.
+console.log("Ejecutando gradlew clean para limpiar todos los subproyectos...");
+const cleanResult = runGradle(["clean", "--no-daemon", "--max-workers=1", "--no-parallel"]);
+if (typeof cleanResult.status === "number" && cleanResult.status !== 0) {
+  console.error("gradlew clean falló. Abortando.");
+  process.exit(cleanResult.status);
+}
 
 const result = runGradle(["assembleDebug", "--no-daemon", "--max-workers=1", "--no-parallel"]);
 
