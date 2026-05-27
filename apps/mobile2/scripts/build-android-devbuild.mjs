@@ -231,6 +231,24 @@ console.log(`Usando ANDROID SDK=${androidSdkPath}`);
 
 runExpoPrebuildWithRetry();
 
+// Patch build.gradle: add applicationIdSuffix ".debug" so the debug APK can
+// coexist with the release APK on the same device (different package names).
+const appBuildGradlePath = path.join(androidDir, "app", "build.gradle");
+if (existsSync(appBuildGradlePath)) {
+  const gradleContent = readFileSync(appBuildGradlePath, "utf8");
+  const patched = gradleContent.replace(
+    /(\bbuildTypes\s*\{[^}]*?\bdebug\s*\{)/s,
+    (match) => {
+      if (match.includes("applicationIdSuffix")) return match;
+      return match.replace(/(\bdebug\s*\{)/, '$1\n            applicationIdSuffix ".debug"');
+    }
+  );
+  if (patched !== gradleContent) {
+    writeFileSync(appBuildGradlePath, patched, "utf8");
+    console.log("✓ Parcheado build.gradle: applicationIdSuffix \".debug\" agregado al buildType debug.");
+  }
+}
+
 writeFileSync(localPropertiesPath, `sdk.dir=${normalizedAndroidSdkPath}\n`, "utf8");
 enforceGradleProperties();
 cleanAndroidLibraryBuildDirs();
