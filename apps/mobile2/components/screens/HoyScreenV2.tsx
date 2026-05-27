@@ -1666,10 +1666,10 @@ export default function HoyScreenV2({
                     const maxV = Math.max(...vals);
                     const range = maxV - minV || 1;
                     const W = sparklineWidth;
-                    const H = 90;
-                    const padX = 8; const padY = 14;
+                    const H = 110;
+                    const padXL = 12; const padXR = 30; const padY = 14;
                     const xOf = (i: number) =>
-                      pts.length === 1 ? W / 2 : padX + (i * (W - 2 * padX)) / (pts.length - 1);
+                      pts.length === 1 ? W / 2 : padXL + (i * (W - padXL - padXR)) / (pts.length - 1);
                     const yOf = (v: number) =>
                       padY + (H - 2 * padY) * (1 - (v - minV) / range);
                     // Build smooth cubic bezier path

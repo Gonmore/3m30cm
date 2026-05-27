@@ -6,8 +6,8 @@ Guia operativa para generar el APK Android de `apps/mobile2` con una version esp
 
 ## Version actual
 
-- `mobile2` queda en `version = 2.1.4`
-- `android.versionCode = 214`
+- `mobile2` queda en `version = 2.1.5`
+- `android.versionCode = 215`
 
 ## Regla de versionado
 

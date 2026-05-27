@@ -1599,3 +1599,25 @@ La validacion paso despues del refactor del cliente.
 **Validación:** 0 errores TypeScript.
 **Branch:** `bio`.
 
+---
+
+### 34. Share card + etiquetas de día en timeline semanal (2026-05-26)
+
+**Objetivo:** Mejorar la tarjeta de compartir progreso y las etiquetas de los círculos de la semana.
+
+**Cambios aplicados:**
+
+#### HoyScreenV2.tsx — etiquetas de círculos
+- Eliminada la etiqueta de fase (`F2`) de los círculos del timeline semanal. Ahora solo se muestra el número de día (`D4`).
+- Corregida la función `extractDayNumber`: el regex anterior (`/^Day\s+(\d+)/i`) no capturaba el formato real generado por la API (`"IN_SEASON/Día 4: Título"`). Nuevo regex: `/\b(?:Day|D[ií]a)\s*(\d+)/i` — captura "Day", "Día" y "Dia" en cualquier posición del título.
+
+#### HoyScreenV2.tsx — tarjeta de compartir
+- **Cabecera de marca**: cambiada de fondo `C.teal` (muy verde) a `C.bg` con borde inferior `C.amberBorder`. Icono ⚡ separado del texto "vJump".
+- **Gráfica de progreso de salto**: añadida encima de las barras semanales. Usa `progress.trends.jumpHeightCm` (últimos 10 registros). Curva SVG cúbica bezier (no líneas rectas), altura 110px, relleno completo del ancho de la tarjeta. Padding asimétrico (`padXL=12`, `padXR=30`) para evitar que la etiqueta del último valor se recorte. Ordenado cronológicamente (izquierda=más antiguo, derecha=más reciente).
+- **Footer**: reemplazado texto plano por el footer idéntico al de la app: fondo `#000`, texto "powered" (blanco tenue, uppercase, letterSpacing 1.5) + `Logo_Blanco.png` (opacity 0.42).
+- **Emoji del botón de compartir**: revertido de `⬆` a `📤`.
+
+**Validación:** 0 errores TypeScript.
+**Branch:** `bio`. Commits: `ce97725`, `ffedafa`, `eab1117`, `(sparkline fix)`.  
+**APK:** v2.1.5 generada a partir de estos cambios.
+
