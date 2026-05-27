@@ -22,6 +22,14 @@
         {
           "defaultChannel": "training-reminders"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "cruncherEnabled": false
+          }
+        }
       ]
     ],
     "experiments": {
