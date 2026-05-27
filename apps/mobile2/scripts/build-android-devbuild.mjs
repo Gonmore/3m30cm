@@ -263,6 +263,12 @@ for (const lockFile of projectLockFiles) {
   }
 }
 
+// Clean previous debug build outputs to avoid stale cached class files
+// that cause NoClassDefFoundError at runtime (e.g. expo-modules-core AnyTypeCache).
+const appBuildDir = path.join(androidDir, "app", "build");
+console.log("Limpiando build anterior del app...");
+removeDirectoryIfPresent(appBuildDir);
+
 const result = runGradle(["assembleDebug", "--no-daemon", "--max-workers=1", "--no-parallel"]);
 
 if (result.status === 0) {
