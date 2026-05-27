@@ -17,6 +17,11 @@ config.resolver.extraNodeModules = {
   react: path.resolve(workspaceRoot, "node_modules/react"),
   "react-dom": path.resolve(workspaceRoot, "node_modules/react-dom"),
   "react-native": path.resolve(workspaceRoot, "node_modules/react-native"),
+  // Force all @react-native/* to resolve from workspace root to avoid nested-node_modules Metro issues
+  "@react-native/virtualized-lists": path.resolve(workspaceRoot, "node_modules/@react-native/virtualized-lists"),
+  "@react-native/assets-registry": path.resolve(workspaceRoot, "node_modules/@react-native/assets-registry"),
+  "@react-native/normalize-colors": path.resolve(workspaceRoot, "node_modules/@react-native/normalize-colors"),
+  "@react-native/js-polyfills": path.resolve(workspaceRoot, "node_modules/@react-native/js-polyfills"),
 };
 
 module.exports = config;
