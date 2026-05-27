@@ -430,15 +430,8 @@ function WeekTimeline({ sessions, colors, styles }: { sessions: WeekSession[]; c
                     <Text style={styles.weekDayCheck}>✓</Text>
                   ) : isSkipped ? (
                     <Text style={styles.weekDayCheck}>✗</Text>
-                  ) : (day.phaseLabel || day.dayLabel) ? (
-                    <View style={styles.weekDayFdContainer}>
-                      {day.phaseLabel && (
-                        <Text style={[styles.weekDayPhaseLabel, isRescheduled && styles.weekDayFdRescheduled]}>{day.phaseLabel}</Text>
-                      )}
-                      {day.dayLabel && (
-                        <Text style={[styles.weekDayDayLabel, isRescheduled && styles.weekDayFdRescheduled]}>{day.dayLabel}</Text>
-                      )}
-                    </View>
+                  ) : day.dayLabel ? (
+                    <Text style={[styles.weekDayDayLabel, isRescheduled && styles.weekDayFdRescheduled]}>{day.dayLabel}</Text>
                   ) : day.isToday ? (
                     <View style={styles.weekDayTodayDot} />
                   ) : null}
@@ -1280,7 +1273,7 @@ export default function HoyScreenV2({
               onPress={() => setShareVisible(true)}
               hitSlop={8}
             >
-              <Text style={styles.shareBtnIcon}>⬆</Text>
+              <Text style={styles.shareBtnIcon}>📤</Text>
             </Pressable>
           </View>
           <WeekTimeline
@@ -1662,41 +1655,49 @@ export default function HoyScreenV2({
                 >
                   <Text style={styles.shareCardSparklineLabel}>Progreso de salto vertical</Text>
                   {sparklineWidth > 0 && (() => {
-                    const pts = progress.trends.jumpHeightCm.slice(-8);
+                    // Sort oldest→newest so chart reads left-to-right
+                    const pts = progress.trends.jumpHeightCm
+                      .slice()
+                      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                      .slice(-10);
                     const vals = pts.map((p) => p.value);
                     const minV = Math.min(...vals);
                     const maxV = Math.max(...vals);
                     const range = maxV - minV || 1;
                     const W = sparklineWidth;
-                    const H = 44;
-                    const padX = 6; const padY = 8;
+                    const H = 90;
+                    const padX = 8; const padY = 14;
                     const xOf = (i: number) =>
                       pts.length === 1 ? W / 2 : padX + (i * (W - 2 * padX)) / (pts.length - 1);
                     const yOf = (v: number) =>
                       padY + (H - 2 * padY) * (1 - (v - minV) / range);
-                    const polyPts = pts.map((p, i) => `${xOf(i)},${yOf(p.value)}`).join(" ");
+                    // Build smooth cubic bezier path
+                    let d = `M ${xOf(0)},${yOf(pts[0]!.value)}`;
+                    for (let i = 1; i < pts.length; i++) {
+                      const x0 = xOf(i - 1); const y0 = yOf(pts[i - 1]!.value);
+                      const x1 = xOf(i);     const y1 = yOf(pts[i]!.value);
+                      const cpX = (x0 + x1) / 2;
+                      d += ` C ${cpX},${y0} ${cpX},${y1} ${x1},${y1}`;
+                    }
                     const last = pts[pts.length - 1]!;
+                    const first = pts[0]!;
                     return (
                       <Svg width={W} height={H}>
-                        <Polyline
-                          points={polyPts}
+                        <SvgPath
+                          d={d}
                           fill="none"
                           stroke={C.teal}
-                          strokeWidth={2}
+                          strokeWidth={2.5}
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         />
                         {pts.map((p, i) => (
-                          <Circle key={i} cx={xOf(i)} cy={yOf(p.value)} r={2.5} fill={C.teal} />
+                          <Circle key={i} cx={xOf(i)} cy={yOf(p.value)} r={3} fill={C.teal} />
                         ))}
-                        <SvgText
-                          x={xOf(pts.length - 1)}
-                          y={yOf(last.value) - 5}
-                          fill={C.teal}
-                          fontSize={8}
-                          fontWeight="bold"
-                          textAnchor="middle"
-                        >
+                        <SvgText x={xOf(0)} y={H - 3} fill={C.textMuted} fontSize={8} textAnchor="middle">
+                          {first.value} cm
+                        </SvgText>
+                        <SvgText x={xOf(pts.length - 1)} y={H - 3} fill={C.teal} fontSize={8} fontWeight="bold" textAnchor="middle">
                           {last.value} cm
                         </SvgText>
                       </Svg>
@@ -1915,7 +1916,7 @@ return StyleSheet.create({
   shareCardBarCol: { flex: 1, alignItems: "center", gap: 3, justifyContent: "flex-end" },
   shareCardBar: { width: "100%", borderRadius: R.sm, minHeight: 4 },
   shareCardBarLabel: { color: C.textMuted, fontSize: 9, fontWeight: "700" },
-  shareCardSparkline: { marginHorizontal: S.md, marginTop: S.sm, marginBottom: 2 },
+  shareCardSparkline: { marginHorizontal: 0, marginTop: S.sm, marginBottom: 2 },
   shareCardSparklineLabel: { color: C.textMuted, fontSize: 9, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 },
   shareCardFooterRow: { backgroundColor: "#000", paddingVertical: 10, paddingHorizontal: S.md, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   shareCardFooterText: { color: "rgba(255,255,255,0.38)", fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase" as const, fontWeight: "600" },
