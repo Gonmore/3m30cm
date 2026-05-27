@@ -128,9 +128,10 @@ function buildMotivationText(dayType: string, streak: number) {
 
 /** Extract day number from a session title or sequenceOrder. */
 function extractDayNumber(title: string, sequenceOrder?: number | null): number | null {
-  const d = title.match(/^Day\s+(\d+)/i);
+  // Match "Day 4", "Day4", "Día 4", "Dia 4" anywhere in title (case-insensitive)
+  const d = title.match(/\b(?:Day|D[ií]a)\s*(\d+)/i);
   if (d) return parseInt(d[1]!, 10);
-  const m = title.match(/[Ss]esi[o\u00f3]n\s*(\d+)/);
+  const m = title.match(/[Ss]esi[oó]n\s*(\d+)/);
   if (m) return parseInt(m[1]!, 10);
   if (sequenceOrder != null) return sequenceOrder;
   return null;
