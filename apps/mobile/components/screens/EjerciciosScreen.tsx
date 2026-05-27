@@ -1,4 +1,4 @@
-import { Alert, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useEffect, useRef, useState } from "react";
 import * as Speech from "expo-speech";
 import * as WebBrowser from "expo-web-browser";
@@ -79,9 +79,11 @@ function ExerciseMediaView({
   const remoteUri = rewriteAssetUrl(asset.url);
   const offlineUri = asset.offlineUrl ?? null;
   const [uri, setUri] = useState<string | null>(offlineUri ?? remoteUri);
+  const [mediaLoading, setMediaLoading] = useState(true);
 
   useEffect(() => {
     setUri(offlineUri ?? remoteUri);
+    setMediaLoading(true);
   }, [asset.id, offlineUri, remoteUri]);
 
   if (!uri) {
@@ -134,8 +136,15 @@ function ExerciseMediaView({
           resizeMode={ResizeMode.CONTAIN}
           shouldPlay={false}
           isLooping={false}
+          onLoadStart={() => setMediaLoading(true)}
+          onReadyForDisplay={() => setMediaLoading(false)}
           onError={handleMediaError}
         />
+        {mediaLoading && (
+          <View style={styles.mediaLoadingOverlay}>
+            <ActivityIndicator size="large" color="#2CC4B0" />
+          </View>
+        )}
         <View style={styles.mediaKindChip}>
           <Text style={styles.mediaKindChipText}>VIDEO</Text>
         </View>
@@ -152,8 +161,15 @@ function ExerciseMediaView({
         transition={150}
         autoplay={asset.kind === "GIF" || isLocalFileUri(uri)}
         cachePolicy="none"
+        onLoadStart={() => setMediaLoading(true)}
+        onLoadEnd={() => setMediaLoading(false)}
         onError={handleMediaError}
       />
+      {mediaLoading && (
+        <View style={styles.mediaLoadingOverlay}>
+          <ActivityIndicator size="large" color="#2CC4B0" />
+        </View>
+      )}
       <View style={styles.mediaKindChip}>
         <Text style={styles.mediaKindChipText}>{asset.kind === "GIF" ? "GIF" : "IMG"}</Text>
       </View>
@@ -1295,6 +1311,7 @@ return StyleSheet.create({
   exerciseImage: { width: "100%", height: "100%", backgroundColor: C.surfaceRaise },
   exerciseVideo: { width: "100%", height: "100%", backgroundColor: C.surfaceRaise },
   mediaKindChip: { position: "absolute", right: 10, bottom: 10, backgroundColor: C.surface + "dd", borderRadius: R.full, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.borderStrong },
+  mediaLoadingOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.18)" },
   mediaKindChipText: { color: C.text, fontSize: 11, fontWeight: "800", letterSpacing: 0.6 },
   exerciseImagePlaceholder: { width: "100%", height: 120, borderRadius: R.lg, backgroundColor: C.surfaceRaise, justifyContent: "center", alignItems: "center", borderWidth: 1, borderColor: C.border },
   exerciseImagePlaceholderText: { color: C.textDisabled, fontSize: 13 },

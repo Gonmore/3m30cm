@@ -11,19 +11,22 @@
  * swapped in as a drop-in replacement.
  */
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Image,
   Modal,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { useEffect, useRef, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { captureRef } from "react-native-view-shot";
+import { shareAsync } from "expo-sharing";
 import Svg, { Circle, Path as SvgPath, Polyline, Text as SvgText } from "react-native-svg";
 
 import { R, S } from "@mobile/components/tokens";
@@ -1124,8 +1127,11 @@ export default function HoyScreenV2({
 }: HoyScreenV2Props) {
   const { C } = useTheme();
   const styles = makeStyles(C);
+  const insets = useSafeAreaInsets();
+  const shareCardRef = useRef<View>(null);
   const [nutritionModal, setNutritionModal] = useState<{ title: string; icon: string; content: string } | null>(null);
   const [shareVisible, setShareVisible] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [sparklineWidth, setSparklineWidth] = useState(0);
   const sessionJustCompleted = sessionCompletedAt != null && (Date.now() - sessionCompletedAt) < 4 * 60 * 60 * 1000;
   const hasProgram   = !!activeProgram;
@@ -1589,7 +1595,7 @@ export default function HoyScreenV2({
           ╚══════════════════════════════════════════════╝ */}
       <Modal visible={shareVisible} transparent animationType="slide" onRequestClose={() => setShareVisible(false)}>
         <View style={styles.shareOverlay}>
-          <View style={styles.shareSheet}>
+          <View style={[styles.shareSheet, { paddingBottom: insets.bottom + S.lg }]}>
             {/* Header */}
             <View style={styles.shareSheetHeader}>
               <Text style={styles.shareSheetTitle}>Compartir progreso</Text>
@@ -1599,7 +1605,7 @@ export default function HoyScreenV2({
             </View>
 
             {/* ── Share Card ──────────────────────────── */}
-            <View style={styles.shareCard}>
+            <View ref={shareCardRef} style={styles.shareCard}>
               {/* Top brand strip */}
               <View style={styles.shareCardBrand}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
@@ -1727,7 +1733,7 @@ export default function HoyScreenV2({
                 })}
               </View>
 
-              {/* Footer - matches app footer */}
+              {/* Footer strip inside card — included in captured image */}
               <View style={styles.shareCardFooterRow}>
                 <Text style={styles.shareCardFooterText}>powered</Text>
                 <Image
@@ -1740,16 +1746,31 @@ export default function HoyScreenV2({
 
             {/* Share button */}
             <Pressable
-              style={styles.shareActionBtn}
-              onPress={() => {
-                const msg = `🔥 ${streak} días de racha en vJump!\n`
-                  + `⚡ ${progress?.summary.completedSessions ?? 0} sesiones completadas`
-                  + (pbJump !== null ? ` · Salto PB: ${pbJump} cm` : "")
-                  + `\n\n¿Quieres mejorar tu salto vertical? → 3m30cm.app`;
-                void Share.share({ message: msg, title: "Mi progreso en vJump" });
+              style={[styles.shareActionBtn, sharing && { opacity: 0.6 }]}
+              disabled={sharing}
+              onPress={async () => {
+                if (!shareCardRef.current) return;
+                try {
+                  setSharing(true);
+                  const uri = await captureRef(shareCardRef, {
+                    format: "jpg",
+                    quality: 0.95,
+                  });
+                  await shareAsync(uri, {
+                    mimeType: "image/jpeg",
+                    dialogTitle: "Compartir progreso vJump",
+                    UTI: "public.jpeg",
+                  });
+                } catch {
+                  // user cancelled or error — silently ignore
+                } finally {
+                  setSharing(false);
+                }
               }}
             >
-              <Text style={styles.shareActionBtnText}>⬆  Compartir ahora</Text>
+              {sharing
+                ? <ActivityIndicator color={C.bg} />
+                : <Text style={styles.shareActionBtnText}>📤  Compartir ahora</Text>}
             </Pressable>
           </View>
         </View>
@@ -1886,7 +1907,7 @@ return StyleSheet.create({
 
   // ── Share modal ───────────────────────────────────────────────
   shareOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
-  shareSheet: { backgroundColor: C.surface, borderTopLeftRadius: R.xl, borderTopRightRadius: R.xl, padding: S.lg, gap: S.md, paddingBottom: S.xl },
+  shareSheet: { backgroundColor: C.surface, borderTopLeftRadius: R.xl, borderTopRightRadius: R.xl, padding: S.lg, gap: S.md },  // paddingBottom set dynamically via insets
   shareSheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   shareSheetTitle: { color: C.text, fontWeight: "800", fontSize: 16 },
   shareCard: {
@@ -1919,7 +1940,7 @@ return StyleSheet.create({
   shareCardBarLabel: { color: C.textMuted, fontSize: 9, fontWeight: "700" },
   shareCardSparkline: { marginHorizontal: 0, marginTop: S.sm, marginBottom: 2 },
   shareCardSparklineLabel: { color: C.textMuted, fontSize: 9, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 },
-  shareCardFooterRow: { backgroundColor: "#000", paddingVertical: 10, paddingHorizontal: S.md, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  shareCardFooterRow: { backgroundColor: "#000", paddingVertical: 4, paddingHorizontal: S.md, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   shareCardFooterText: { color: "rgba(255,255,255,0.38)", fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase" as const, fontWeight: "600" },
   shareCardFooterLogo: { width: 72, height: 24, opacity: 0.42 },
   shareActionBtn: { backgroundColor: C.teal, borderRadius: R.full, paddingVertical: 15, alignItems: "center" },
