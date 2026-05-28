@@ -4,6 +4,26 @@ Guia operativa para generar el APK Android de `apps/mobile2` con una version esp
 
 `apps/mobile2` es la app oficial del atleta. Cualquier trabajo actual de producto, onboarding, técnica, evolución o bio-referencia debe validarse sobre esta app y no sobre `apps/mobile`.
 
+## Seccion especial: como evitar el ultimo crash de APK y como se resolvio
+
+El problema que rompio los ultimos APKs release no fue de Gradle ni de firma; fue una mezcla de runtime nativo y resolucion JS:
+
+- `expo-sharing 56.x` chocaba con Expo SDK 54 / `expo-modules-core 3.0.30` y provocaba `NoClassDefFoundError` en Android.
+- Despues, `mobile2` cargaba `ThemeProvider` desde `apps/mobile`, pero Metro resolvia paquetes base desde arboles distintos y el release terminaba con `Cannot read property 'useState' of null`.
+
+La solucion estable que debe conservarse es esta:
+
+- Mantener `expo-sharing` en `~14.0.8` mientras `apps/mobile2` siga en Expo SDK 54.
+- No quitar la logica de `apps/mobile2/scripts/build-android-apk.mjs` que resuelve dependencias desde `apps/mobile2/node_modules`.
+- No quitar de `apps/mobile2/metro.config.js` ni `disableHierarchicalLookup` ni los aliases forzados para `react`, `react-native` y paquetes Expo.
+
+Checklist anti-regresion antes de un release:
+
+1. Revisar `npm --prefix apps/mobile2 ls expo-sharing react react-native`.
+2. Correr `npm --prefix apps/mobile2 run build`.
+3. Generar la APK nueva.
+4. Probar la APK nueva instalada, no una version anterior ya presente en el telefono.
+
 ## Version actual
 
 - `mobile2` queda en `version = 2.1.5`
@@ -128,6 +148,7 @@ Checklist corto para la proxima version:
 - La ultima iteracion del editor biomecanico visual vive en `apps/web` y `apps/api`; no obliga por si sola a generar una APK nueva mientras no cambie el runtime de `apps/mobile2`.
 - La app movil no debe depender de links directos a MinIO si el bucket productivo es privado; la ruta correcta para media queda proxyada por la API bajo `/api/v1/assets/...` y por eso una APK nueva es necesaria cuando cambia esa logica cliente.
 - Si Google login falla en un APK firmado, revisa el SHA-1 real del build release antes de tocar el codigo JS.
+- Si reaparece un crash al abrir una release, primero confirma que la APK instalada fue generada despues del ultimo cambio en `metro.config.js` o dependencias nativas; si no, el diagnostico parte de un binario viejo.
 
 ## Historial de builds
 

@@ -9,6 +9,26 @@ Monorepo de la plataforma de planificacion y seguimiento de salto vertical para 
 - `api_reference.md`: endpoints y variables de entorno de la API.
 - `bitacora.md`: registro historico de decisiones y cambios.
 
+## Seccion especial: blindaje del APK mobile2
+
+Este repo ya tuvo un incidente de release Android donde el APK se instalaba pero se cerraba al abrir. La causa real fueron dos desalineaciones a la vez:
+
+- `expo-sharing 56.x` en `apps/mobile2` no era compatible con Expo SDK 54 y `expo-modules-core 3.0.30`.
+- `apps/mobile2` importa runtime compartido desde `apps/mobile` via `@mobile/*`, y Metro estaba resolviendo parte de `react` y paquetes Expo desde arboles distintos.
+
+Como quedo solucionado:
+
+- `apps/mobile2/package.json` queda alineado en `expo-sharing ~14.0.8`.
+- `apps/mobile2/scripts/build-android-apk.mjs` resuelve paquetes desde `apps/mobile2/node_modules` antes que desde la raiz.
+- `apps/mobile2/metro.config.js` mantiene `disableHierarchicalLookup = true` y fija `react`, `react-native` y paquetes Expo criticos al arbol de `apps/mobile2/node_modules`.
+
+Reglas para que no vuelva a pasar:
+
+- No actualizar paquetes nativos de Expo en `apps/mobile2` fuera de la matriz de Expo SDK 54 sin validar compatibilidad exacta.
+- Si `mobile2` sigue consumiendo codigo de `apps/mobile` via `@mobile/*`, no quitar ni relajar la configuracion de Metro ya corregida.
+- Antes de distribuir una APK, correr `npm --prefix apps/mobile2 run build`.
+- Para release final, generar una APK nueva con `npm --prefix apps/mobile2 run apk:vjump` o el script release correspondiente e instalar ese binario nuevo; una APK vieja no incorpora el bundle JS corregido.
+
 ## Stack
 
 - **App movil oficial**: Expo SDK 54 + React Native 0.81 + Expo Router en `apps/mobile2` (puerto 8082)

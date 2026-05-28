@@ -4,6 +4,16 @@ Este documento deja escrito el patron operativo que hoy usa `3m30cm` para que pu
 
 La idea no es solo documentar que existe hoy, sino dejar claras las decisiones que simplifican desarrollo, deploy y operacion.
 
+## Seccion especial: leccion operativa del APK `mobile2`
+
+La ultima caida fuerte del APK Android dejo una regla operativa importante para este patron:
+
+- En monorepos con Expo y codigo compartido entre apps, no alcanza con que `npm ls` se vea limpio; Metro puede resolver runtime desde arboles distintos si no se lo fuerza.
+- En `3m30cm`, `apps/mobile2` consume codigo de `apps/mobile` via `@mobile/*`, por lo que hay que mantener blindado `apps/mobile2/metro.config.js` con `disableHierarchicalLookup` y aliases de runtime hacia `apps/mobile2/node_modules`.
+- Las librerias nativas Expo deben mantenerse estrictamente alineadas al SDK activo. En este caso, el release estable exige `expo-sharing ~14.0.8` mientras `mobile2` siga en Expo SDK 54.
+
+Traduccion operativa: cuando haya una incidencia similar, primero se valida alineacion de versiones Expo y luego resolucion real de Metro antes de tocar infraestructura o deploy remoto.
+
 ## 1. Objetivo del patron
 
 El objetivo es trabajar con una sola base de codigo y con un flujo que cumpla estas reglas:

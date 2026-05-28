@@ -39,7 +39,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
 // Required for expo-auth-session to handle browser redirects
@@ -1582,10 +1582,14 @@ function InitialLoadingScreen({
 }
 
 export default function HomeScreen() {
-  const { C } = useTheme();
+  const { C, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const { resetToken } = useLocalSearchParams<{ resetToken?: string }>();
   const appConfigExtra = getRuntimeAppConfigExtra();
   const googleClientIds = appConfigExtra.googleClientIds ?? {};
+  const footerLogoSource = mode === "dark"
+    ? require("../assets/img/Logo_Blanco.png")
+    : require("../assets/img/Logo_Azul.png");
   const authSt = useMemo(() => StyleSheet.create({
     safeArea:       { flex: 1, backgroundColor: C.bg },
     scroll:         { flexGrow: 1, paddingHorizontal: S.lg, paddingBottom: S.xl, gap: S.md },
@@ -1611,10 +1615,10 @@ export default function HomeScreen() {
     feedbackText:   { color: C.text, fontWeight: '700', fontSize: 13, textAlign: 'center' },
     errorText:      { color: C.danger, fontWeight: '600', fontSize: 13, textAlign: 'center' },
     successText:    { color: C.teal, fontWeight: '600', fontSize: 13, textAlign: 'center' },
-    footer:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#000', paddingVertical: 14, paddingHorizontal: S.lg },
-    footerText:     { color: 'rgba(255,255,255,0.38)', fontSize: 10, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' },
-    byBadge:        { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center' },
-    byText:         { color: 'rgba(255,255,255,0.38)', fontSize: 7, fontWeight: '700' },
+    footer:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: mode === 'dark' ? '#000' : C.surfaceRaise, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 14, paddingHorizontal: S.lg },
+    footerText:     { color: mode === 'dark' ? 'rgba(255,255,255,0.38)' : C.textMuted, fontSize: 10, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' },
+    byBadge:        { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: mode === 'dark' ? 'rgba(255,255,255,0.3)' : C.borderStrong, alignItems: 'center', justifyContent: 'center' },
+    byText:         { color: mode === 'dark' ? 'rgba(255,255,255,0.38)' : C.textMuted, fontSize: 7, fontWeight: '700' },
     footerLogo:     { width: 72, height: 26, opacity: 0.42 },
     forgotLink:     { color: C.textMuted, fontSize: 13, textAlign: 'center', paddingVertical: 4 },
     divider:        { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1626,7 +1630,11 @@ export default function HomeScreen() {
     helperText:     { color: C.textMuted, fontSize: 12, lineHeight: 18, textAlign: 'center' },
     modalOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', paddingHorizontal: S.lg },
     modalCard:      { backgroundColor: C.surface, borderRadius: R.xl, padding: S.lg, gap: S.sm, borderWidth: 1, borderColor: C.border },
-  }), [C]);
+  }), [C, mode]);
+  const footerContainerStyle = useMemo(
+    () => [authSt.footer, { paddingBottom: 14 + Math.max(insets.bottom, 8) }],
+    [authSt.footer, insets.bottom],
+  );
 
   const [booting, setBooting] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -3637,10 +3645,10 @@ export default function HomeScreen() {
           <Image source={require('../assets/img/Logo_Blanco.png')} style={{ width: 140, height: 48 }} resizeMode="contain" />
           <ActivityIndicator size="large" color={C.amber} />
         </View>
-        <View style={authSt.footer}>
+        <View style={footerContainerStyle}>
           <Text style={authSt.footerText}>powered</Text>
           <View style={authSt.byBadge}><Text style={authSt.byText}>by</Text></View>
-          <Image source={require('../assets/img/Logo_Blanco.png')} style={authSt.footerLogo} resizeMode="contain" />
+          <Image source={footerLogoSource} style={authSt.footerLogo} resizeMode="contain" />
         </View>
       </SafeAreaView>
     );
@@ -3811,10 +3819,10 @@ export default function HomeScreen() {
         </ScrollView>
 
         {/* ── Footer ── */}
-        <View style={authSt.footer}>
+        <View style={footerContainerStyle}>
           <Text style={authSt.footerText}>powered</Text>
           <View style={authSt.byBadge}><Text style={authSt.byText}>by</Text></View>
-          <Image source={require('../assets/img/Logo_Blanco.png')} style={authSt.footerLogo} resizeMode="contain" />
+          <Image source={footerLogoSource} style={authSt.footerLogo} resizeMode="contain" />
         </View>
 
         {/* ── Forgot password modal ── */}
@@ -5630,10 +5638,10 @@ export default function HomeScreen() {
       </View>{/* end legacy */}
 
       {/* ── POWERED-BY FOOTER ─────────────────────────── */}
-      <View style={authSt.footer}>
+      <View style={footerContainerStyle}>
         <Text style={authSt.footerText}>powered</Text>
         <View style={authSt.byBadge}><Text style={authSt.byText}>by</Text></View>
-        <Image source={require('../assets/img/Logo_Blanco.png')} style={authSt.footerLogo} resizeMode="contain" />
+        <Image source={footerLogoSource} style={authSt.footerLogo} resizeMode="contain" />
       </View>
     </View>
   );

@@ -1,5 +1,13 @@
 # Guía: Importar ejercicios de una fase (CSV)
 
+## Seccion especial: nota de estabilidad del APK `mobile2`
+
+Esta guia no participa del build Android, pero queda en la raiz del repo y debe dejar visible la leccion reciente: el ultimo crash de release se debio a dependencias Expo desalineadas y a resolucion incorrecta de Metro entre `apps/mobile2` y `apps/mobile`. Para evitar repetirlo:
+
+- No mezclar upgrades de librerias nativas Expo en `apps/mobile2` sin validar compatibilidad exacta con el SDK activo.
+- No relajar el blindaje de `apps/mobile2/metro.config.js` mientras exista el alias `@mobile/*`.
+- Si un cambio es solo de datos/importacion, no asumir que obliga a un APK nuevo; si el cambio toca runtime cliente o bundle, si hay que regenerar e instalar una APK nueva.
+
 ## Formato del CSV
 
 El importador acepta texto separado por coma (`,`), punto y coma (`;`), tabulación o pipe (`|`).  

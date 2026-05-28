@@ -1,5 +1,5 @@
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Svg, { Circle, Line, Polyline, Text as SvgText } from "react-native-svg";
+import Svg, { Circle, Line, Path as SvgPath, Text as SvgText } from "react-native-svg";
 import { useState } from "react";
 
 import { useTheme } from "../ThemeContext";
@@ -151,6 +151,35 @@ const TREND_PAD_R = 16;
 const TREND_PAD_T = 18;
 const TREND_PAD_B = 30;
 
+function buildSmoothPath(points: Array<{ x: number; y: number }>) {
+  if (points.length === 0) {
+    return "";
+  }
+
+  if (points.length === 1) {
+    const point = points[0];
+    return `M ${point.x} ${point.y}`;
+  }
+
+  let path = `M ${points[0].x} ${points[0].y}`;
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const previous = points[index - 1] ?? points[index];
+    const current = points[index];
+    const next = points[index + 1];
+    const afterNext = points[index + 2] ?? next;
+
+    const controlPoint1X = current.x + (next.x - previous.x) / 6;
+    const controlPoint1Y = current.y + (next.y - previous.y) / 6;
+    const controlPoint2X = next.x - (afterNext.x - current.x) / 6;
+    const controlPoint2Y = next.y - (afterNext.y - current.y) / 6;
+
+    path += ` C ${controlPoint1X} ${controlPoint1Y}, ${controlPoint2X} ${controlPoint2Y}, ${next.x} ${next.y}`;
+  }
+
+  return path;
+}
+
 function TechniqueTrendChart({
   metrics,
   metrics2,
@@ -188,8 +217,12 @@ function TechniqueTrendChart({
 
   const toX = (index: number, total: number) => TREND_PAD_L + (index / Math.max(total - 1, 1)) * plotW;
   const toY = (value: number) => TREND_PAD_T + plotH - ((value - paddedMinY) / rangeY) * plotH;
-  const points = ordered.map((metric, index) => `${toX(index, ordered.length)},${toY(metric.value)}`).join(" ");
-  const points2 = ordered2 ? ordered2.map((metric, index) => `${toX(index, ordered2.length)},${toY(metric.value)}`).join(" ") : null;
+  const plottedPoints = ordered.map((metric, index) => ({ x: toX(index, ordered.length), y: toY(metric.value), metric }));
+  const plottedPoints2 = ordered2
+    ? ordered2.map((metric, index) => ({ x: toX(index, ordered2.length), y: toY(metric.value), metric }))
+    : null;
+  const primaryPath = buildSmoothPath(plottedPoints.map(({ x, y }) => ({ x, y })));
+  const secondaryPath = plottedPoints2 ? buildSmoothPath(plottedPoints2.map(({ x, y }) => ({ x, y }))) : null;
   const baselineMetric = ordered.find((metric) => metric.isBaseline) ?? ordered[0] ?? null;
   const baselineY = baselineMetric ? toY(baselineMetric.value) : null;
   const firstDate = formatDate(ordered[0].recordedAt);
@@ -214,34 +247,30 @@ function TechniqueTrendChart({
         />
       ) : null}
       {/* Primary series */}
-      <Polyline points={points} fill="none" stroke={accentColor} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
-      {ordered.map((metric, index) => {
-        const cx = toX(index, ordered.length);
-        const cy = toY(metric.value);
+      <SvgPath d={primaryPath} fill="none" stroke={accentColor} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
+      {plottedPoints.map(({ x, y, metric }) => {
         const isLatest = metric.id === lastPoint?.id;
         return (
           <Circle
             key={metric.id}
-            cx={cx}
-            cy={cy}
+            cx={x}
+            cy={y}
             r={isLatest ? 4.5 : 3.5}
             fill={isLatest ? "#f5b324" : accentColor}
           />
         );
       })}
       {/* Overlay second series */}
-      {points2 && ordered2 ? (
+      {secondaryPath && plottedPoints2 ? (
         <>
-          <Polyline points={points2} fill="none" stroke={accent2Color ?? "#e76f51"} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" strokeDasharray="6,3" />
-          {ordered2.map((metric, index) => {
-            const cx = toX(index, ordered2.length);
-            const cy = toY(metric.value);
+          <SvgPath d={secondaryPath} fill="none" stroke={accent2Color ?? "#e76f51"} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" strokeDasharray="6,3" />
+          {plottedPoints2.map(({ x, y, metric }) => {
             const isLatest = metric.id === lastPoint2?.id;
             return (
               <Circle
                 key={`b-${metric.id}`}
-                cx={cx}
-                cy={cy}
+                cx={x}
+                cy={y}
                 r={isLatest ? 4 : 3}
                 fill={accent2Color ?? "#e76f51"}
                 opacity={0.85}

@@ -3,6 +3,14 @@
 > Base URL: `/api/v1`  
 > Autenticación: Bearer token en header `Authorization: Bearer <token>`
 
+## Seccion especial: estabilidad de la APK `apps/mobile2`
+
+Aunque este archivo documenta API, el ultimo incidente fuerte de mobile release no vino del backend sino de la combinacion entre dependencias nativas Expo y resolucion del bundle JS. Para no repetirlo:
+
+- Mantener `apps/mobile2` alineado con Expo SDK 54, especialmente `expo-sharing ~14.0.8`.
+- No romper la resolucion de Metro de `apps/mobile2` hacia `apps/mobile`, porque ese cruce de codigo compartido exige un solo arbol efectivo de `react` y `react-native`.
+- Cuando se valide una correccion de runtime que dependa de cliente, la referencia correcta es una APK nueva generada despues del cambio; la API sola no corrige un binario viejo ya instalado.
+
 ---
 
 ## Autenticación

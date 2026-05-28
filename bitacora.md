@@ -13,6 +13,35 @@
 
 ## Registro de trabajo
 
+### 21. Blindaje release Android `mobile2` + correccion de Metro cross-app (2026-05-28)
+
+**Objetivo:** cerrar definitivamente el crash de la APK release `vjump` y dejar documentado como evitar que reaparezca.
+
+**Problema real detectado:**
+
+- El release habia quedado con `expo-sharing 56.x`, incompatible con Expo SDK 54 y `expo-modules-core 3.0.30`, causando `NoClassDefFoundError` nativo.
+- Luego del fix nativo, el APK seguia cayendo porque `apps/mobile2` importaba `ThemeProvider` desde `apps/mobile` y Metro resolvia runtime packages desde arboles distintos, generando `Cannot read property 'useState' of null` en release.
+
+**Cambios aplicados:**
+
+- `apps/mobile2/package.json`: `expo-sharing` fijado nuevamente en `~14.0.8`.
+- `apps/mobile2/scripts/build-android-apk.mjs`: resolucion de paquetes corregida para priorizar `apps/mobile2/node_modules`; los shims de compatibilidad quedaron condicionados solo para `expo-sharing 56.x`.
+- `apps/mobile2/metro.config.js`: `disableHierarchicalLookup = true`, prioridad de `nodeModulesPaths` para `apps/mobile2`, y aliases forzados para `react`, `react-native` y dependencias Expo clave.
+- `apps/mobile2/app/index.tsx`: footer responsive al tema y con respeto del inset inferior de Android; en modo claro usa `Logo_Azul.png`.
+- `apps/mobile/components/screens/EvolucionScreen.tsx`: el grafico de `Evolucion -> Mejora` paso de segmentos rectos a curva suavizada.
+
+**Reglas de prevencion:**
+
+- No subir librerias nativas Expo por fuera de la version esperada por el SDK de `apps/mobile2`.
+- Mientras exista el alias `@mobile/*`, no remover el blindaje de Metro en `apps/mobile2`.
+- Validar siempre con `npm --prefix apps/mobile2 run build` antes de un APK.
+- Probar una APK recien generada y reinstalada; una instalada previamente puede seguir conteniendo el bundle defectuoso.
+
+**Validacion:**
+
+- `npm --prefix apps/mobile2 run build` ✓
+- `npm --prefix apps/mobile2 run apk:vjump` ✓ `BUILD SUCCESSFUL`
+
 ### 19. Onboarding Inteligente y Sistema de Planificación Híbrido (2026-05-25)
 
 **Objetivo:** Implementar 3 fases de inteligencia de planificación:
