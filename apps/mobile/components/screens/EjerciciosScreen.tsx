@@ -350,10 +350,17 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg, isMuted = 
             if (isLeg2 || !perLeg) {
               // leg2 done (or non-perLeg work done) → rest or done
               if (currentSet >= totalSets) {
-                speak("¡Listo!");
+                speak("¡Buen trabajo!");
                 setPhase("done");
               } else {
-                speak("Descansa");
+                const remaining = totalSets - currentSet;
+                if (remaining === 1) {
+                  speak("¡Última serie, campeón!");
+                } else if (remaining === 2) {
+                  speak("¡Solo 2 series más!");
+                } else {
+                  speak("Descansa");
+                }
                 setPhase("rest");
                 setRemaining(restSeconds);
               }
@@ -391,8 +398,8 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg, isMuted = 
     work: perLeg ? `Serie ${currentSet}/${totalSets} — Pierna 1` : `Serie ${currentSet} de ${totalSets}`,
     "leg2-countdown": "¡Cambia de pierna!",
     "leg2-work": `Serie ${currentSet}/${totalSets} — Pierna 2`,
-    rest: `Descanso — serie ${currentSet + 1} en breve`,
-    done: "¡Completado! 🔥",
+    rest: `Completado ${currentSet} de ${totalSets} · descansando`,
+    done: `¡Completado ${totalSets} de ${totalSets}! 🔥`,
   };
   const phaseColor: Record<TimerPhase, string> = {
     idle: C.textMuted, countdown: C.amber, work: C.teal,
@@ -768,15 +775,17 @@ export default function EjerciciosScreen({
         }
         const summary = instructions?.summary ?? null;
 
-        // Timer params — only show if durationSeconds is set (restSeconds=0 is allowed)
+        // Timer params — only show if durationSeconds is set
         const workSec = currentExercise.durationSeconds ?? 0;
-        const restSec = currentExercise.restSeconds ?? 0;
+        const hasTimer = !!(currentExercise.durationSeconds);
+        // Timed exercises must have at least 45s rest; if missing/0 default to 45s
+        const rawRestSec = currentExercise.restSeconds ?? 0;
+        const restSec = hasTimer ? Math.max(rawRestSec, 45) : rawRestSec;
         // Use adjusted sets if overreach is active
         const originalSets = currentExercise.sets ?? 3;
         const sets = overreachAdjustment?.isOverreach
           ? (overreachAdjustment.adjustedSets[currentExercise.id] ?? originalSets)
           : originalSets;
-        const hasTimer = !!(currentExercise.durationSeconds);
 
         // Build prescription label
         const parts: string[] = [];

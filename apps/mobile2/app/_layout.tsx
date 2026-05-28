@@ -12,7 +12,9 @@ function AppShell() {
 
   useEffect(() => {
     if (Platform.OS === "android") {
-      void NavigationBar.setBackgroundColorAsync(C.bg);
+      void NavigationBar.setPositionAsync("absolute");
+      void NavigationBar.setBackgroundColorAsync("#00000000");
+      void NavigationBar.setBehaviorAsync("overlay-swipe");
       void NavigationBar.setButtonStyleAsync(mode === "dark" ? "light" : "dark");
     }
   }, [mode, C.bg]);

@@ -1615,11 +1615,11 @@ export default function HomeScreen() {
     feedbackText:   { color: C.text, fontWeight: '700', fontSize: 13, textAlign: 'center' },
     errorText:      { color: C.danger, fontWeight: '600', fontSize: 13, textAlign: 'center' },
     successText:    { color: C.teal, fontWeight: '600', fontSize: 13, textAlign: 'center' },
-    footer:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: mode === 'dark' ? '#000' : C.surfaceRaise, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 14, paddingHorizontal: S.lg },
-    footerText:     { color: mode === 'dark' ? 'rgba(255,255,255,0.38)' : C.textMuted, fontSize: 10, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' },
-    byBadge:        { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: mode === 'dark' ? 'rgba(255,255,255,0.3)' : C.borderStrong, alignItems: 'center', justifyContent: 'center' },
-    byText:         { color: mode === 'dark' ? 'rgba(255,255,255,0.38)' : C.textMuted, fontSize: 7, fontWeight: '700' },
-    footerLogo:     { width: 72, height: 26, opacity: 0.42 },
+    footer:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: mode === 'dark' ? '#000' : C.surfaceRaise, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 6, paddingHorizontal: S.lg },
+    footerText:     { color: mode === 'dark' ? 'rgba(255,255,255,0.26)' : 'rgba(0,0,0,0.28)', fontSize: 10, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' },
+    byBadge:        { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: mode === 'dark' ? 'rgba(255,255,255,0.22)' : C.borderStrong, alignItems: 'center', justifyContent: 'center' },
+    byText:         { color: mode === 'dark' ? 'rgba(255,255,255,0.26)' : 'rgba(0,0,0,0.28)', fontSize: 7, fontWeight: '700' },
+    footerLogo:     { width: 72, height: 26, opacity: 0.30 },
     forgotLink:     { color: C.textMuted, fontSize: 13, textAlign: 'center', paddingVertical: 4 },
     divider:        { flexDirection: 'row', alignItems: 'center', gap: 8 },
     dividerLine:    { flex: 1, height: 1, backgroundColor: C.border },
@@ -1631,9 +1631,17 @@ export default function HomeScreen() {
     modalOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', paddingHorizontal: S.lg },
     modalCard:      { backgroundColor: C.surface, borderRadius: R.xl, padding: S.lg, gap: S.sm, borderWidth: 1, borderColor: C.border },
   }), [C, mode]);
+  // footerContainerStyle adds bottom inset for screens rendered outside SafeAreaView.
+  // For SafeAreaView-wrapped screens we use authSt.footer directly to avoid double-inset.
   const footerContainerStyle = useMemo(
-    () => [authSt.footer, { paddingBottom: 14 + Math.max(insets.bottom, 8) }],
+    () => [authSt.footer, { paddingBottom: 6 + Math.max(insets.bottom, 6) }],
     [authSt.footer, insets.bottom],
+  );
+  // For SafeAreaView screens (booting / login / register), SafeAreaView already handles bottom
+  // inset so we only add a small flat padding.
+  const footerInSafeAreaStyle = useMemo(
+    () => [authSt.footer, { paddingBottom: 6 }],
+    [authSt.footer],
   );
 
   const [booting, setBooting] = useState(true);
@@ -3645,7 +3653,7 @@ export default function HomeScreen() {
           <Image source={require('../assets/img/Logo_Blanco.png')} style={{ width: 140, height: 48 }} resizeMode="contain" />
           <ActivityIndicator size="large" color={C.amber} />
         </View>
-        <View style={footerContainerStyle}>
+        <View style={footerInSafeAreaStyle}>
           <Text style={authSt.footerText}>powered</Text>
           <View style={authSt.byBadge}><Text style={authSt.byText}>by</Text></View>
           <Image source={footerLogoSource} style={authSt.footerLogo} resizeMode="contain" />
@@ -3819,7 +3827,7 @@ export default function HomeScreen() {
         </ScrollView>
 
         {/* ── Footer ── */}
-        <View style={footerContainerStyle}>
+        <View style={footerInSafeAreaStyle}>
           <Text style={authSt.footerText}>powered</Text>
           <View style={authSt.byBadge}><Text style={authSt.byText}>by</Text></View>
           <Image source={footerLogoSource} style={authSt.footerLogo} resizeMode="contain" />
