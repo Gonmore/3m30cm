@@ -3723,7 +3723,7 @@ export default function HomeScreen() {
                   onPress={() => void handleGoogleAccess()}
                   disabled={!googleRequest || !googlePlatformClientConfigured || loading}
                 >
-                  <Image source={require('../assets/img/4109-google-color.png')} style={{ width: 18, height: 18 }} resizeMode="contain" />
+                  <Ionicons name="logo-google" size={18} color={C.amber} />
                   <Text style={[authSt.primaryBtnText, { color: C.amber, letterSpacing: 0.2 }]}>Continuar con Google</Text>
                 </Pressable>
                 {useNativeAndroidGoogleSignIn && !googleWebClientId ? (
