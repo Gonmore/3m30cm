@@ -769,31 +769,34 @@ function attachSessionOfflineMedia(
 
   return {
     ...session,
-    sessionExercises: session.sessionExercises.map((sessionExercise) => ({
-      ...sessionExercise,
-      exercise: {
-        ...sessionExercise.exercise,
-        mediaAssets: sessionExercise.exercise.mediaAssets.map((asset) => ({
-          ...asset,
-          offlineUrl: resolveOfflineUrl(asset.url),
-        })),
-        asBlock: sessionExercise.exercise.asBlock
-          ? {
-              ...sessionExercise.exercise.asBlock,
-              items: sessionExercise.exercise.asBlock.items.map((item) => ({
-                ...item,
-                exercise: {
-                  ...item.exercise,
-                  mediaAssets: item.exercise.mediaAssets.map((asset) => ({
-                    ...asset,
-                    offlineUrl: resolveOfflineUrl(asset.url),
-                  })),
-                },
-              })),
-            }
-          : null,
-      },
-    })),
+    sessionExercises: session.sessionExercises.map((sessionExercise) => {
+      if (!sessionExercise.exercise) return sessionExercise;
+      return {
+        ...sessionExercise,
+        exercise: {
+          ...sessionExercise.exercise,
+          mediaAssets: sessionExercise.exercise.mediaAssets.map((asset) => ({
+            ...asset,
+            offlineUrl: resolveOfflineUrl(asset.url),
+          })),
+          asBlock: sessionExercise.exercise.asBlock
+            ? {
+                ...sessionExercise.exercise.asBlock,
+                items: sessionExercise.exercise.asBlock.items.map((item) => ({
+                  ...item,
+                  exercise: {
+                    ...item.exercise,
+                    mediaAssets: item.exercise.mediaAssets.map((asset) => ({
+                      ...asset,
+                      offlineUrl: resolveOfflineUrl(asset.url),
+                    })),
+                  },
+                })),
+              }
+            : null,
+        },
+      };
+    }),
   };
 }
 
@@ -814,11 +817,13 @@ function collectSessionMediaDownloads(session: SessionDetailResponse["session"],
   };
 
   session.sessionExercises.forEach((sessionExercise) => {
+    if (!sessionExercise.exercise) return;
     sessionExercise.exercise.mediaAssets.forEach((asset) => {
       registerAsset(asset.id, asset.url, asset.kind);
     });
 
     sessionExercise.exercise.asBlock?.items.forEach((item) => {
+      if (!item.exercise) return;
       item.exercise.mediaAssets.forEach((asset) => {
         registerAsset(asset.id, asset.url, asset.kind);
       });
@@ -1118,7 +1123,7 @@ function buildSessionNotes(session: SessionDetailResponse["session"]) {
   return session.sessionExercises
     .map((exercise) => {
       const parts = [
-        `${exercise.orderIndex}. ${exercise.exercise.name}`,
+        `${exercise.orderIndex}. ${exercise.exercise?.name ?? "Sin ejercicio"}`,
         exercise.sets ? `${exercise.sets} sets` : null,
         exercise.repsText,
         exercise.durationSeconds ? `${exercise.durationSeconds}s` : null,
@@ -2137,7 +2142,9 @@ export default function HomeScreen() {
   });
 
   // ── Athletic Intelligence: Evolution Sync Module ─────────────────────
-  const evolutionExercises = selectedSession?.sessionExercises.map((se) => ({
+  const evolutionExercises = selectedSession?.sessionExercises
+    .filter((se): se is typeof se & { exercise: NonNullable<typeof se.exercise> } => se.exercise != null)
+    .map((se) => ({
     exerciseId: se.exercise.id,
     evolutionType: se.exercise.evolution,
     totalSets: se.sets ?? 3,
@@ -5396,14 +5403,14 @@ export default function HomeScreen() {
                 >
                   <View style={styles.exerciseHeader}>
                     <View style={styles.exerciseCopy}>
-                      <Text style={styles.cardTitle}>{sessionExercise.orderIndex}. {sessionExercise.exercise.name}</Text>
-                      <Text style={styles.cardDetail}>{sessionExercise.exercise.category}</Text>
+                      <Text style={styles.cardTitle}>{sessionExercise.orderIndex}. {sessionExercise.exercise?.name ?? "Sin ejercicio"}</Text>
+                      <Text style={styles.cardDetail}>{sessionExercise.exercise?.category ?? ""}</Text>
                     </View>
                     <Pressable
                       style={[styles.toggleChip, isCompleted ? styles.toggleChipActive : null]}
                       onPress={() => {
-                        if (!isCompleted && sessionExercise.exercise.requiresLoad) {
-                          const loadVal = exerciseLoadDraft[sessionExercise.exercise.id];
+                        if (!isCompleted && sessionExercise.exercise?.requiresLoad) {
+                          const loadVal = exerciseLoadDraft[sessionExercise.exercise?.id ?? ""];
                           const parsed = parseFloat(loadVal ?? "");
                           if (!loadVal || isNaN(parsed) || parsed <= 0) {
                             Alert.alert("Carga requerida", "Ingresa el peso usado antes de marcar el ejercicio como completado.");
@@ -5440,9 +5447,10 @@ export default function HomeScreen() {
                     </Pressable>
                   ) : null}
                   {coachingChip}
-                  {sessionExercise.exercise.requiresLoad ? (() => {
-                    const hint = exerciseLoadHints[sessionExercise.exercise.id];
-                    const currentVal = exerciseLoadDraft[sessionExercise.exercise.id] ?? "";
+                  {sessionExercise.exercise?.requiresLoad ? (() => {
+                    const exerciseId = sessionExercise.exercise?.id ?? "";
+                    const hint = exerciseLoadHints[exerciseId];
+                    const currentVal = exerciseLoadDraft[exerciseId] ?? "";
                     return (
                       <View style={{ marginTop: 8, gap: 4 }}>
                         {hint?.lastLoadKg != null ? (
@@ -5458,7 +5466,7 @@ export default function HomeScreen() {
                             placeholder={hint?.suggestedLoadKg != null ? `${hint.suggestedLoadKg} kg` : "Carga (kg)"}
                             placeholderTextColor="#7a879d"
                             value={currentVal}
-                            onChangeText={(v) => setExerciseLoadDraft((prev) => ({ ...prev, [sessionExercise.exercise.id]: v }))}
+                            onChangeText={(v) => setExerciseLoadDraft((prev) => ({ ...prev, [exerciseId]: v }))}
                             style={[styles.input, { flex: 1, marginBottom: 0 }]}
                           />
                           <Text style={[styles.helperText, { marginBottom: 0 }]}>kg</Text>
