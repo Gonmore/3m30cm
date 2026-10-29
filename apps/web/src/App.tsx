@@ -7969,7 +7969,7 @@ export default function App() {
                       <p>
                         {program.phase} · {program.status} · {new Date(program.startDate).toLocaleDateString()}
                       </p>
-                      <small>{program.template.name}</small>
+                      <small>{program.template?.name ?? "Sin template"}</small>
                       <div className="chip-row">
                         {program.sessions.map((session) => (
                           <span key={session.id} className="session-chip">
