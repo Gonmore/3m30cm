@@ -18,6 +18,14 @@
       "expo-router",
       "expo-web-browser",
       [
+        "expo-navigation-bar",
+        {
+          "hidden": true,
+          "enforceContrast": false,
+          "style": "light"
+        }
+      ],
+      [
         "expo-notifications",
         {
           "defaultChannel": "training-reminders"

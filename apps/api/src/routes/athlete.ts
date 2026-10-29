@@ -965,6 +965,9 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
                   select: {
                     id: true,
                     defaultSeriesProtocol: true,
+                    mediaAssets: {
+                      select: { id: true, kind: true, url: true, title: true, isPrimary: true },
+                    },
                   },
                 },
               },
@@ -981,10 +984,13 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
                   orderBy: { orderIndex: "asc" },
                   where: { exerciseId: { not: null } },
                   include: {
-                    exercise: {
+                     exercise: {
                       select: {
                         id: true,
                         defaultSeriesProtocol: true,
+                        mediaAssets: {
+                          select: { id: true, kind: true, url: true, title: true, isPrimary: true },
+                        },
                       },
                     },
                   },
@@ -1017,7 +1023,11 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
         restSeconds: number | null;
         loadText: string | null;
         notes: string | null;
-        exercise: { id: string; defaultSeriesProtocol: SeriesProtocol };
+        exercise: {
+          id: string;
+          defaultSeriesProtocol: SeriesProtocol;
+          mediaAssets: { id: string; kind: string; url: string | null; title: string | null; isPrimary: boolean }[];
+        };
       }>;
     }>;
 
@@ -1040,7 +1050,7 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
             dayType: day.dayType,
             notes: day.notes,
             prescriptions: day.tasks
-              .filter((task): task is typeof task & { exerciseId: string; exercise: { id: string; defaultSeriesProtocol: SeriesProtocol } } =>
+              .filter((task): task is typeof task & { exerciseId: string; exercise: { id: string; defaultSeriesProtocol: SeriesProtocol; mediaAssets: { id: string; kind: string; url: string | null; title: string | null; isPrimary: boolean }[] } } =>
                 task.exerciseId != null && task.exercise != null,
               )
               .map((task, idx) => {

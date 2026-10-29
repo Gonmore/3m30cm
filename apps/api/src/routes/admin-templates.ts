@@ -1280,6 +1280,24 @@ adminTemplatesRouter.post(
                 notes: null,
               },
             });
+
+            if (task.videoUrl && task.exerciseId) {
+              const existingAsset = await tx.exerciseMediaAsset.findFirst({
+                where: { exerciseId: task.exerciseId, url: task.videoUrl },
+              });
+              if (!existingAsset) {
+                await tx.exerciseMediaAsset.create({
+                  data: {
+                    exerciseId: task.exerciseId,
+                    kind: MediaKind.VIDEO,
+                    bucket: "external",
+                    objectKey: "",
+                    url: task.videoUrl,
+                    isPrimary: true,
+                  },
+                });
+              }
+            }
           }
         }
 

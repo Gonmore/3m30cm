@@ -14,6 +14,7 @@ function AppShell() {
     if (Platform.OS === "android") {
       void NavigationBar.setPositionAsync("absolute");
       void NavigationBar.setBackgroundColorAsync("#00000000");
+      void NavigationBar.setVisibilityAsync("hidden");
       void NavigationBar.setBehaviorAsync("overlay-swipe");
       void NavigationBar.setButtonStyleAsync(mode === "dark" ? "light" : "dark");
     }

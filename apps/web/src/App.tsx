@@ -381,6 +381,12 @@ interface WizardTemplateFormState {
   firstPhaseNotes: string;
 }
 
+interface CompletoTemplateFormState {
+  code: string;
+  name: string;
+  description: string;
+}
+
 interface NutritionArticleRecord {
   id: string;
   title: string;
@@ -1050,6 +1056,176 @@ const emptyWizardTemplateForm = (): WizardTemplateFormState => ({
   firstPhaseMasterBlockDays: "14",
   firstPhaseNotes: "",
 });
+
+const emptyCompletoTemplateForm = (): CompletoTemplateFormState => ({
+  code: "",
+  name: "",
+  description: "",
+});
+
+function csvQuote(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+function mapCsvZoneToValid(zoneText: string): "LOWER" | "UPPER" | "CORE" | "FULL" {
+  const normalized = zoneText.toLowerCase();
+  if (normalized.includes("pierna") || normalized.includes("cuádriceps") || normalized.includes("cuadri") || normalized.includes("glúteo") || normalized.includes("glute") || normalized.includes("isquiotibial") || normalized.includes("cadera") || normalized.includes("pantorrilla") || normalized.includes("tobillo")) {
+    return "LOWER";
+  }
+  if (normalized.includes("tren superior") || normalized.includes("espalda") || normalized.includes("bíceps") || normalized.includes("dorsal") || normalized.includes("pecho") || normalized.includes("tríceps") || normalized.includes("trapecio")) {
+    return "UPPER";
+  }
+  if (normalized.includes("core") || normalized.includes("zona media") || normalized.includes("tronco") || normalized.includes("mente") || normalized.includes("recuperación")) {
+    return "CORE";
+  }
+  return "FULL";
+}
+
+function isRestDayRow(nombre: string, series: string, repsTiempo: string): boolean {
+  const normalizedName = nombre.toLowerCase().trim();
+  return normalizedName.includes("descanso") || (!series.trim() && !repsTiempo.trim());
+}
+
+interface ParsedCompletoPhase {
+  month: number;
+  phaseName: string;
+  csv: string;
+  durationDays: number;
+}
+
+interface ParseCompletoCsvResult {
+  phases: ParsedCompletoPhase[];
+  totalDays: number;
+}
+
+function parseCompletoCsv(content: string): ParseCompletoCsvResult {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (!lines.length) {
+    return { phases: [], totalDays: 0 };
+  }
+
+  const firstLine = lines[0]!;
+  const delimiter = firstLine.includes(";") ? ";" : firstLine.includes("\t") ? "\t" : ",";
+  const rawHeaders = firstLine.split(delimiter).map((h) =>
+    h.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""),
+  );
+
+  const outputHeaders = ["Dia", "Nombre", "Titulo", "Series", "Reps/Tiempo", "Descripcion", "Peso(Y/N)", "Unilateral(Y/N)", "Evolucion", "Zona", "VideoURL"];
+
+  const monthGroups = new Map<number, Array<{ line: string; columns: string[]; row: Record<string, string> }>>();
+  const monthNotes = new Map<number, string>();
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    const columns = line.split(delimiter);
+    const row: Record<string, string> = {};
+    rawHeaders.forEach((header, columnIndex) => {
+      row[header] = columns[columnIndex] ?? "";
+    });
+
+    const dia = (row["dia"] ?? "").trim();
+    const nombre = (row["nombre"] ?? "").trim();
+    if (!dia || !nombre) {
+      continue;
+    }
+
+    const monthMatch = dia.match(/^M(\d+)/);
+    if (!monthMatch) {
+      continue;
+    }
+    const month = Number.parseInt(monthMatch[1] ?? "1", 10);
+
+    if (!monthGroups.has(month)) {
+      monthGroups.set(month, []);
+    }
+    monthGroups.get(month)!.push({ line, columns, row });
+
+    const evolucion = (row["evolucion"] ?? "").trim();
+    if (evolucion && !monthNotes.has(month)) {
+      monthNotes.set(month, evolucion);
+    }
+  }
+
+  const phases: ParsedCompletoPhase[] = [];
+  let totalDays = 0;
+
+  const sortedMonths = Array.from(monthGroups.keys()).sort((a, b) => a - b);
+
+  for (const month of sortedMonths) {
+    const rows = monthGroups.get(month)!;
+    const outputLines = [outputHeaders.join(",")];
+    const dayNumberMap = new Map<string, number>();
+    let monthDayNumber = 0;
+
+    for (const { row } of rows) {
+      const dia = (row["dia"] ?? "").trim();
+      const nombre = (row["nombre"] ?? "").trim();
+      const series = (row["series"] ?? "").trim();
+      const repsTiempo = (row["reps/tiempo"] ?? row["reptiempo"] ?? row["reps"] ?? "").trim();
+      const descripcion = (row["descripcion"] ?? "").trim();
+      const peso = (row["peso(y/n)"] ?? row["peso"] ?? "").trim();
+      const unilateral = (row["unilateral(y/n)"] ?? row["unilateral"] ?? "").trim();
+      const zona = (row["zona"] ?? "").trim();
+      const videourl = (row["videourl"] ?? row["urlvideo"] ?? row["video"] ?? "").trim();
+
+      if (!dayNumberMap.has(dia)) {
+        monthDayNumber += 1;
+        dayNumberMap.set(dia, monthDayNumber);
+      }
+      const dayNumber = dayNumberMap.get(dia)!;
+
+      const restDay = isRestDayRow(nombre, series, repsTiempo);
+
+      if (restDay) {
+        outputLines.push([
+          csvQuote(String(dayNumber)),
+          csvQuote(nombre),
+          csvQuote(nombre),
+          "",
+          "",
+          csvQuote(descripcion || ""),
+          csvQuote(peso || "N"),
+          csvQuote(unilateral || "N"),
+          "TIME",
+          mapCsvZoneToValid(zona || "completo"),
+          csvQuote(videourl || ""),
+        ].join(","));
+      } else {
+        outputLines.push([
+          csvQuote(String(dayNumber)),
+          csvQuote(nombre),
+          "",
+          csvQuote(series || ""),
+          csvQuote(repsTiempo || ""),
+          csvQuote(descripcion || ""),
+          csvQuote(peso || "N"),
+          csvQuote(unilateral || "N"),
+          "TIME",
+          zona ? mapCsvZoneToValid(zona) : "FULL",
+          csvQuote(videourl || ""),
+        ].join(","));
+      }
+    }
+
+    phases.push({
+      month,
+          phaseName: monthNotes.get(month) ?? `Mes ${month}`,
+      csv: outputLines.join("\n"),
+      durationDays: monthDayNumber,
+    });
+
+    totalDays += monthDayNumber;
+  }
+
+  return { phases, totalDays };
+}
 
 function mapPhaseToForm(phase: ProgramPhaseRecord): PhaseFormState {
   return {
@@ -2522,10 +2698,15 @@ export default function App() {
   const [phaseImportStrict, setPhaseImportStrict] = useState(true);
   const [phaseImportReplaceExisting, setPhaseImportReplaceExisting] = useState(true);
   const [phaseImportUnresolved, setPhaseImportUnresolved] = useState<Array<{ rowNumber: number; name: string }>>([]);
+  const [phaseImportCsvFile, setPhaseImportCsvFile] = useState<File | null>(null);
   const [templateTypeModalOpen, setTemplateTypeModalOpen] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [wizardTemplateModalOpen, setWizardTemplateModalOpen] = useState(false);
   const [wizardTemplateForm, setWizardTemplateForm] = useState<WizardTemplateFormState>(emptyWizardTemplateForm);
+  const [completoTemplateModalOpen, setCompletoTemplateModalOpen] = useState(false);
+  const [completoTemplateForm, setCompletoTemplateForm] = useState<CompletoTemplateFormState>(emptyCompletoTemplateForm);
+  const [completoCsvFile, setCompletoCsvFile] = useState<File | null>(null);
+  const [completoImporting, setCompletoImporting] = useState(false);
   const [jumpHeightDebugOpen, setJumpHeightDebugOpen] = useState(false);
   const [rimAnnotation, setRimAnnotation] = useState<RimAnnotation | null>(null);
   const [masterReference, setMasterReference] = useState<unknown>(null);
@@ -4503,6 +4684,16 @@ export default function App() {
       return;
     }
 
+    const { phases: parsedPhases } = parseCompletoCsv(phaseImportContent);
+    if (parsedPhases.length > 1) {
+      await handlePhaseImportCsv();
+      return;
+    }
+
+    const firstParsedPhase = parsedPhases[0];
+    const importContent = firstParsedPhase ? firstParsedPhase.csv : phaseImportContent;
+    const importDurationDays = firstParsedPhase ? firstParsedPhase.durationDays : durationDays;
+
     try {
       setLoading(true);
       setError("");
@@ -4512,13 +4703,13 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
-          content: phaseImportContent,
+          content: importContent,
           strict: phaseImportStrict,
           replaceExisting: phaseImportReplaceExisting,
           phaseId: selectedPhaseId || undefined,
           phaseName: phaseForm.name.trim(),
           orderIndex: Number.isInteger(orderIndex) && orderIndex > 0 ? orderIndex : undefined,
-          durationDays,
+          durationDays: importDurationDays,
           masterBlockDays: Number(phaseForm.masterBlockDays),
           notes: phaseForm.notes.trim() || null,
         }),
@@ -4553,6 +4744,104 @@ export default function App() {
       setError(requestError instanceof Error ? requestError.message : "No se pudo importar la fase");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handlePhaseImportCsv() {
+    if (!accessToken || !selectedTemplateCode || !phaseImportCsvFile) {
+      setError("Selecciona un archivo CSV y asegúrate de tener un programa seleccionado.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+      setCompletoImporting(true);
+
+      const csvContent = await phaseImportCsvFile.text();
+      const { phases } = parseCompletoCsv(csvContent);
+
+      if (!phases.length) {
+        setError("El CSV no contiene meses válidos.");
+        return;
+      }
+
+      const allAutoCreated: string[] = [];
+
+      for (const phase of phases) {
+        const phaseResponse = await requestJson<{ phases: ProgramPhaseRecord[] }>(
+          `/api/v1/admin/program-templates/${selectedTemplateCode}/wizard/phases`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name: phase.phaseName,
+              orderIndex: phase.month,
+              durationDays: phase.durationDays,
+              masterBlockDays: phase.durationDays >= 14 ? 14 : 7,
+              notes: `Importado desde CSV. ${phase.durationDays} días.`,
+            }),
+          },
+          accessToken,
+        );
+
+        const createdPhase = phaseResponse.phases.find((p) => p.orderIndex === phase.month) ?? phaseResponse.phases[phaseResponse.phases.length - 1] ?? null;
+
+        if (!createdPhase) {
+          throw new Error(`No se pudo crear la fase para ${phase.phaseName}.`);
+        }
+
+        const importResponse = await fetch(`${apiBaseUrl}/api/v1/admin/program-templates/${selectedTemplateCode}/wizard/phases/import`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({
+            content: phase.csv,
+            strict: false,
+            replaceExisting: true,
+            phaseId: createdPhase.id,
+            phaseName: phase.phaseName,
+            orderIndex: phase.month,
+            durationDays: phase.durationDays,
+            masterBlockDays: phase.durationDays >= 14 ? 14 : 7,
+            notes: null,
+          }),
+        });
+
+        const importData = (await importResponse.json().catch(() => ({}))) as {
+          message?: string;
+          autoCreated?: string[];
+          issues?: Array<{ rowNumber?: number; column?: string; message?: string }>;
+          warnings?: string[];
+        };
+
+        if (!importResponse.ok) {
+          if (Array.isArray(importData.issues) && importData.issues.length > 0) {
+            const summary = importData.issues
+              .map((issue) => `Fila ${issue.rowNumber ?? "?"}, columna "${issue.column ?? "?"}" → ${issue.message ?? "error"}`)
+              .join(" | ");
+            setError(summary);
+            return;
+          }
+          setError(importData.message ?? `No se pudo importar ${phase.phaseName}`);
+          return;
+        }
+
+        if (Array.isArray(importData.autoCreated)) {
+          allAutoCreated.push(...importData.autoCreated);
+        }
+      }
+
+      const createdMsg = allAutoCreated.length > 0
+        ? ` Se crearon ${allAutoCreated.length} ejercicio(s) nuevo(s).`
+        : "";
+
+      setPhaseImportCsvFile(null);
+      await handleTemplateDaysLoad(selectedTemplateCode, accessToken);
+      setMessage(`Programa completo importado en ${phases.length} fase(s). Los días de descanso se detectaron automáticamente.${createdMsg}`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Error al importar el programa completo");
+    } finally {
+      setLoading(false);
+      setCompletoImporting(false);
     }
   }
 
@@ -5055,6 +5344,120 @@ export default function App() {
       setError(requestError instanceof Error ? requestError.message : "Error al crear el programa por fases");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleCompletoSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!accessToken || !completoCsvFile) {
+      setError("Selecciona un archivo CSV.");
+      return;
+    }
+
+    const code = completoTemplateForm.code.trim();
+    const name = completoTemplateForm.name.trim();
+
+    if (!code || !name) {
+      setError("Código y nombre son obligatorios.");
+      return;
+    }
+
+    try {
+      setCompletoImporting(true);
+      setError("");
+
+      const csvContent = await completoCsvFile.text();
+      const { phases, totalDays } = parseCompletoCsv(csvContent);
+
+      if (!phases.length || totalDays === 0) {
+        setError("El CSV no contiene filas válidas.");
+        return;
+      }
+
+      await requestJson(
+        "/api/v1/admin/program-templates",
+        { method: "POST", body: JSON.stringify({ code, name, description: completoTemplateForm.description.trim() || undefined, cycleLengthDays: totalDays }) },
+        accessToken,
+      );
+
+      const allAutoCreated: string[] = [];
+
+      for (const phase of phases) {
+        const phaseResponse = await requestJson<{ phases: ProgramPhaseRecord[] }>(
+          `/api/v1/admin/program-templates/${code}/wizard/phases`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name: phase.phaseName,
+              orderIndex: phase.month,
+              durationDays: phase.durationDays,
+              masterBlockDays: phase.durationDays >= 14 ? 14 : 7,
+              notes: `Importado desde CSV. ${phase.durationDays} días.`,
+            }),
+          },
+          accessToken,
+        );
+
+        const createdPhase = phaseResponse.phases.find((p) => p.orderIndex === phase.month) ?? phaseResponse.phases[phaseResponse.phases.length - 1] ?? null;
+
+        if (!createdPhase) {
+          throw new Error(`No se pudo crear la fase para ${phase.phaseName}.`);
+        }
+
+        const importResponse = await fetch(`${apiBaseUrl}/api/v1/admin/program-templates/${code}/wizard/phases/import`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({
+            content: phase.csv,
+            strict: false,
+            replaceExisting: true,
+            phaseId: createdPhase.id,
+            phaseName: phase.phaseName,
+            orderIndex: phase.month,
+            durationDays: phase.durationDays,
+            masterBlockDays: phase.durationDays >= 14 ? 14 : 7,
+            notes: null,
+          }),
+        });
+
+        const importData = (await importResponse.json().catch(() => ({}))) as {
+          message?: string;
+          autoCreated?: string[];
+          issues?: Array<{ rowNumber?: number; column?: string; message?: string }>;
+          warnings?: string[];
+        };
+
+        if (!importResponse.ok) {
+          if (Array.isArray(importData.issues) && importData.issues.length > 0) {
+            const summary = importData.issues
+              .map((issue) => `Fila ${issue.rowNumber ?? "?"}, columna "${issue.column ?? "?"}" → ${issue.message ?? "error"}`)
+              .join(" | ");
+            setError(summary);
+            return;
+          }
+          setError(importData.message ?? `No se pudo importar ${phase.phaseName}`);
+          return;
+        }
+
+        if (Array.isArray(importData.autoCreated)) {
+          allAutoCreated.push(...importData.autoCreated);
+        }
+      }
+
+      const createdMsg = allAutoCreated.length > 0
+        ? ` Se crearon ${allAutoCreated.length} ejercicio(s) nuevo(s).`
+        : "";
+
+      setCompletoTemplateModalOpen(false);
+      setCompletoTemplateForm(emptyCompletoTemplateForm());
+      setCompletoCsvFile(null);
+      await refreshDashboard(accessToken);
+      setSelectedTemplateCode(code);
+      setMessage(`Programa completo creado (${phases.length} fases, ${totalDays} días). Los días de descanso se detectaron automáticamente.${createdMsg}`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Error al crear el programa completo");
+    } finally {
+      setCompletoImporting(false);
     }
   }
 
@@ -8105,6 +8508,18 @@ export default function App() {
                   >
                     Programa por fases (wizard)
                   </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      setTemplateTypeModalOpen(false);
+                      setCompletoTemplateForm(emptyCompletoTemplateForm());
+                      setCompletoCsvFile(null);
+                      setCompletoTemplateModalOpen(true);
+                    }}
+                  >
+                    Programa completo (CSV)
+                  </button>
                 </div>
               </div>
             </div>
@@ -8195,6 +8610,70 @@ export default function App() {
                   </div>
                   <button className="primary-button" type="submit" disabled={loading}>
                     Crear programa por fases
+                  </button>
+                </form>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Modal: create completo template from CSV */}
+          {completoTemplateModalOpen ? (
+            <div className="modal-overlay" onClick={() => !completoImporting && setCompletoTemplateModalOpen(false)}>
+              <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+                <div className="section-header">
+                  <h3>Nuevo programa completo</h3>
+                  <button type="button" className="ghost-button" disabled={completoImporting} onClick={() => setCompletoTemplateModalOpen(false)}>✕</button>
+                </div>
+                <form className="stack-form" onSubmit={(event) => void handleCompletoSubmit(event)}>
+                  <div className="form-grid">
+                    <label>
+                      Código
+                      <input
+                        value={completoTemplateForm.code}
+                        onChange={(event) => setCompletoTemplateForm((current) => ({ ...current, code: event.target.value }))}
+                        placeholder="ej. JUMP-COMPLETO-2026"
+                        required
+                        disabled={completoImporting}
+                      />
+                    </label>
+                    <label>
+                      Nombre
+                      <input
+                        value={completoTemplateForm.name}
+                        onChange={(event) => setCompletoTemplateForm((current) => ({ ...current, name: event.target.value }))}
+                        placeholder="ej. Programa salto vertical completo"
+                        required
+                        disabled={completoImporting}
+                      />
+                    </label>
+                    <label>
+                      Descripción
+                      <textarea
+                        value={completoTemplateForm.description}
+                        onChange={(event) => setCompletoTemplateForm((current) => ({ ...current, description: event.target.value }))}
+                        rows={2}
+                        disabled={completoImporting}
+                      />
+                    </label>
+                    <label>
+                      Archivo CSV
+                      <input
+                        type="file"
+                        accept=".csv,text/csv"
+                        onChange={(event) => setCompletoCsvFile(event.target.files?.[0] ?? null)}
+                        disabled={completoImporting}
+                      />
+                    </label>
+                  </div>
+                  <div className="workflow-note">
+                    <strong>Formato del CSV</strong>
+                    <p>
+                      El CSV debe tener encabezados: dia, nombre, series, reps/tiempo, Descripcion, peso(Y/N), Unilateral(Y/N), Evolucion, Zona, VideoURL.
+                      Los días de descanso (nombre = "DESCANSO" o sin series/reps) se detectan automáticamente y solo se importan dia y nombre.
+                    </p>
+                  </div>
+                  <button className="primary-button" type="submit" disabled={completoImporting || !completoCsvFile}>
+                    {completoImporting ? "Creando…" : "Crear programa completo"}
                   </button>
                 </form>
               </div>
@@ -8551,6 +9030,31 @@ export default function App() {
                     <button className="primary-button" type="submit" disabled={loading || !phaseImportContent.trim()}>
                       Importar en fase
                     </button>
+                    <div className="workflow-note" style={{ marginTop: 12 }}>
+                      <strong>Importar programa completo (CSV)</strong>
+                      <p>
+                        Sube el archivo CSV del programa salto vertical completo. Se crean fases automáticamente por mes y se detectan automáticamente los días de descanso (solo dia y nombre).
+                      </p>
+                    </div>
+                    <div className="chip-row" style={{ marginTop: 8, gap: 8 }}>
+                      <label style={{ flex: 1, minWidth: 200 }}>
+                        Archivo CSV
+                        <input
+                          type="file"
+                          accept=".csv,text/csv"
+                          onChange={(event) => setPhaseImportCsvFile(event.target.files?.[0] ?? null)}
+                          disabled={loading}
+                        />
+                      </label>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={loading || !phaseImportCsvFile}
+                        onClick={() => void handlePhaseImportCsv()}
+                      >
+                        Importar programa completo
+                      </button>
+                    </div>
                   </form>
                 </div>
               ) : null}

@@ -1,5 +1,6 @@
 import { ActivityIndicator, Alert, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useEffect, useRef, useState } from "react";
+import * as KeepAwake from "expo-keep-awake";
 import * as Speech from "expo-speech";
 import * as WebBrowser from "expo-web-browser";
 import { Audio, ResizeMode, Video } from "expo-av";
@@ -266,6 +267,18 @@ function ExerciseTimer({ workSeconds, restSeconds, totalSets, perLeg, isMuted = 
     }
     Speech.speak(text, { language: "es-ES", rate: 1.1 });
   }
+
+  useEffect(() => {
+    if (phase === "idle" || phase === "done") {
+      void KeepAwake.deactivateKeepAwake("exercise-timer");
+      return;
+    }
+
+    void KeepAwake.activateKeepAwakeAsync("exercise-timer").catch(() => {});
+    return () => {
+      void KeepAwake.deactivateKeepAwake("exercise-timer");
+    };
+  }, [phase]);
 
   function start() {
     clearTimer();

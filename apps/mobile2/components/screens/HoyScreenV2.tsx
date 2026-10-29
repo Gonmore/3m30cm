@@ -197,7 +197,7 @@ function buildWeekDays(sessions: Array<{ scheduledDate: string; status: string; 
     // Ghost X: this date is the original date of a now-rescheduled session, with no active session
     const isOriginalDate = !match && originalDateSet.has(iso);
 
-    return { date, iso, label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, isPast, isFuture, status, phaseLabel, dayLabel, isOriginalDate, fullTitle, exerciseCount, estimatedDurationMin };
+    return { date, iso, label: ["L", "M", "X", "J", "V", "S", "D"][i], weekdayIndex: i, isToday, isPast, isFuture, status, phaseLabel, dayLabel, isOriginalDate, fullTitle, exerciseCount, estimatedDurationMin };
   });
 }
 
@@ -350,10 +350,59 @@ function ProgressRing({ pct, streak, label }: { pct: number; streak: number; lab
 type WeekSession = { scheduledDate: string; status: string; title: string; originalScheduledDate?: string | null; exerciseCount?: number; sequenceOrder?: number | null; phase?: string | null };
 type WeekDay = ReturnType<typeof buildWeekDays>[number];
 
-function WeekTimeline({ sessions, colors, styles }: { sessions: WeekSession[]; colors: ReturnType<typeof useTheme>["C"]; styles: ReturnType<typeof makeStyles> }) {
+function WeekTimeline({
+  sessions,
+  colors,
+  styles,
+  athleteSetup,
+  onSetAthleteSetup,
+  onSaveCompetitionDays,
+}: {
+  sessions: WeekSession[];
+  colors: ReturnType<typeof useTheme>["C"];
+  styles: ReturnType<typeof makeStyles>;
+  athleteSetup: AthleteSetupState;
+  onSetAthleteSetup: (updater: (prev: AthleteSetupState) => AthleteSetupState) => void;
+  onSaveCompetitionDays: () => void;
+}) {
   const [rowWidth, setRowWidth] = useState(0);
   const [selectedDay, setSelectedDay] = useState<WeekDay | null>(null);
+  const [competitionModalVisible, setCompetitionModalVisible] = useState(false);
+  const [playSaturday, setPlaySaturday] = useState(true);
+  const [playSunday, setPlaySunday] = useState(true);
   const days = buildWeekDays(sessions);
+  const weekendSportDays = parseWeekdayList(athleteSetup.sportTrainingDays).filter((d) => d === 0 || d === 6);
+  const hasWeekendCompetition = athleteSetup.trainsSport && (
+    weekendSportDays.length > 0
+    || athleteSetup.weeklyGameCount === "TWO_TO_THREE"
+    || athleteSetup.weeklyGameCount === "FOUR_PLUS"
+  );
+
+  function openCompetitionModal() {
+    const currentTeamDays = parseWeekdayList(athleteSetup.teamTrainingDays || athleteSetup.sportTrainingDays);
+    const hasExplicitWeekend = currentTeamDays.includes(6) || currentTeamDays.includes(0);
+    setPlaySaturday(hasExplicitWeekend ? currentTeamDays.includes(6) : true);
+    setPlaySunday(hasExplicitWeekend ? currentTeamDays.includes(0) : true);
+    setCompetitionModalVisible(true);
+  }
+
+  function saveCompetitionDays() {
+    onSetAthleteSetup((prev) => {
+      const currentSport = parseWeekdayList(prev.sportTrainingDays).filter((d) => d !== 0 && d !== 6);
+      const currentTeam = parseWeekdayList(prev.teamTrainingDays || prev.sportTrainingDays).filter((d) => d !== 0 && d !== 6);
+      const weekendDays = [
+        ...(playSunday ? [0] : []),
+        ...(playSaturday ? [6] : []),
+      ];
+      return {
+        ...prev,
+        sportTrainingDays: serializeWeekdays([...currentSport, ...weekendDays]),
+        teamTrainingDays: serializeWeekdays([...currentTeam, ...weekendDays]),
+      };
+    });
+    onSaveCompetitionDays();
+    setCompetitionModalVisible(false);
+  }
 
   // Build rescheduled pairs (fromIdx → toIdx) for SVG arrows
   const rescheduledPairs: Array<{ fromIdx: number; toIdx: number }> = [];
@@ -405,12 +454,19 @@ function WeekTimeline({ sessions, colors, styles }: { sessions: WeekSession[]; c
           const isCompleted   = day.status === "COMPLETED";
           const isSkipped     = day.status === "SKIPPED";
           const isRescheduled = day.status === "RESCHEDULED";
+          const isWeekendCompetitionDay = hasWeekendCompetition && (day.weekdayIndex === 5 || day.weekdayIndex === 6);
 
           return (
             <Pressable
               key={day.iso}
               style={[styles.weekDayCol, day.isFuture && styles.weekDayFuture]}
-              onPress={() => { if (day.status || day.isOriginalDate) setSelectedDay(day); }}
+              onPress={() => {
+                if (isWeekendCompetitionDay) {
+                  openCompetitionModal();
+                  return;
+                }
+                if (day.status || day.isOriginalDate) setSelectedDay(day);
+              }}
               hitSlop={4}
             >
               <Text style={[styles.weekDayLabel, day.isToday && styles.weekDayLabelToday]}>
@@ -430,7 +486,9 @@ function WeekTimeline({ sessions, colors, styles }: { sessions: WeekSession[]; c
                   isRescheduled  && styles.weekDayCircleRescheduled,
                   isTrainingDay && !day.isToday && !isCompleted && !isSkipped && !isRescheduled && styles.weekDayCircleTraining,
                 ]}>
-                  {isCompleted ? (
+                  {isWeekendCompetitionDay ? (
+                    <Text style={styles.weekDayCompetitionEmoji}>🧑‍⚖️</Text>
+                  ) : isCompleted ? (
                     <Text style={styles.weekDayCheck}>✓</Text>
                   ) : isSkipped ? (
                     <Text style={styles.weekDayCheck}>✗</Text>
@@ -449,6 +507,30 @@ function WeekTimeline({ sessions, colors, styles }: { sessions: WeekSession[]; c
           );
         })}
       </View>
+
+      <Modal
+        visible={competitionModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCompetitionModalVisible(false)}
+      >
+        <Pressable style={styles.dayDetailOverlay} onPress={() => setCompetitionModalVisible(false)}>
+          <Pressable style={styles.dayDetailCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.dayDetailDate}>Días de competencia</Text>
+            <Text style={styles.dayDetailTitle}>Este día tienes partidos</Text>
+            <Text style={styles.competitionQuestion}>¿Juegas ambos días?</Text>
+
+            <View style={styles.competitionChecksWrap}>
+              <CheckRow label="Sábado" value={playSaturday} onChange={setPlaySaturday} />
+              <CheckRow label="Domingo" value={playSunday} onChange={setPlaySunday} />
+            </View>
+
+            <Pressable style={styles.competitionSaveBtn} onPress={saveCompetitionDays}>
+              <Text style={styles.competitionSaveBtnText}>Guardar</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Day detail modal */}
       <Modal
@@ -1295,6 +1377,9 @@ export default function HoyScreenV2({
             }))}
             colors={C}
             styles={styles}
+            athleteSetup={athleteSetup}
+            onSetAthleteSetup={onSetAthleteSetup}
+            onSaveCompetitionDays={onSaveOnboarding}
           />
         </View>
       </Animated.View>
@@ -1894,6 +1979,7 @@ return StyleSheet.create({
   weekDaySessionLabel: { color: C.amber, fontSize: 9, fontWeight: "800", letterSpacing: -0.5 },
   weekDaySessionLabelRescheduled: { color: C.amber },
   weekDayCheck:    { fontSize: 13, fontWeight: "800", color: C.text },
+  weekDayCompetitionEmoji: { fontSize: 14 },
   weekDayTodayDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.amber },
   weekDayDot:      { width: 7, height: 7, borderRadius: 3.5 },
   weekDayNum:      { color: C.textMuted, fontSize: 11 },
@@ -1904,6 +1990,18 @@ return StyleSheet.create({
   weekDayPhaseLabel:  { color: C.textMuted, fontSize: 7, fontWeight: "700", lineHeight: 8, letterSpacing: -0.3 },
   weekDayDayLabel:    { color: C.amber, fontSize: 9, fontWeight: "900", lineHeight: 10, letterSpacing: -0.5 },
   weekDayFdRescheduled: { color: C.amber },
+  competitionQuestion: { color: C.textSub, fontSize: 14, fontWeight: "700", marginTop: 2 },
+  competitionChecksWrap: { gap: S.sm, marginTop: 6 },
+  competitionSaveBtn: {
+    marginTop: 6,
+    backgroundColor: C.amber,
+    borderRadius: R.full,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: C.amberBorder,
+  },
+  competitionSaveBtnText: { color: C.bg, fontWeight: "800", fontSize: 14 },
 
   // ── Share modal ───────────────────────────────────────────────
   shareOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
