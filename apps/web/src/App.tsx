@@ -501,7 +501,7 @@ interface AdminSessionRecord {
       id: string;
       name: string;
       category: string;
-    };
+    } | null;
   }>;
   logs: Array<{
     id: string;
@@ -8136,8 +8136,8 @@ export default function App() {
                   <div className="detail-list">
                     {selectedProgramSession.sessionExercises.map((exercise) => (
                       <article key={exercise.id} className="detail-card">
-                        <strong>{exercise.orderIndex}. {exercise.exercise.name}</strong>
-                        <span>{exercise.exercise.category}</span>
+                        <strong>{exercise.orderIndex}. {exercise.exercise?.name ?? "Sin ejercicio"}</strong>
+                        <span>{exercise.exercise?.category ?? ""}</span>
                         <p>
                           {exercise.sets ? `${exercise.sets} sets` : "Sin sets"}
                           {exercise.repsText ? ` · ${exercise.repsText}` : ""}

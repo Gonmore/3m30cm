@@ -713,29 +713,48 @@ async function normalizeWizardPhaseOrder(
 
 async function buildExerciseLookupMap(candidateNames: string[]) {
   if (!candidateNames.length) {
-    return new Map<string, { id: string; name: string; slug: string }>();
+    return new Map<string, { id: string; name: string; slug: string; videoUrl: string | null }>();
   }
 
   const exerciseCatalog = await prisma.exercise.findMany({
-    select: { id: true, name: true, slug: true },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      mediaAssets: {
+        where: { kind: "VIDEO", isPrimary: true },
+        select: { url: true },
+        take: 1,
+      },
+    },
   });
 
-  const map = new Map<string, { id: string; name: string; slug: string }>();
+  const map = new Map<string, { id: string; name: string; slug: string; videoUrl: string | null }>();
   for (const exercise of exerciseCatalog) {
-    map.set(normalizeExerciseLookup(exercise.name), exercise);
-    map.set(normalizeExerciseLookup(exercise.slug), exercise);
+    const videoAsset = exercise.mediaAssets[0];
+    const entry = {
+      id: exercise.id,
+      name: exercise.name,
+      slug: exercise.slug,
+      videoUrl: videoAsset?.url ?? null,
+    };
+    map.set(normalizeExerciseLookup(exercise.name), entry);
+    map.set(normalizeExerciseLookup(exercise.slug), entry);
   }
 
   return map;
 }
 
 function resolveExerciseMatch(
-  lookupMap: Map<string, { id: string; name: string; slug: string }>,
+  lookupMap: Map<string, { id: string; name: string; slug: string; videoUrl: string | null }>,
   exerciseName: string,
+  videoUrl: string | null = null,
 ) {
-  return lookupMap.get(normalizeExerciseLookup(exerciseName))
-    ?? lookupMap.get(slugifyExerciseLookup(exerciseName))
-    ?? null;
+  const candidate = lookupMap.get(normalizeExerciseLookup(exerciseName))
+    ?? lookupMap.get(slugifyExerciseLookup(exerciseName));
+  if (!candidate) return null;
+  if (videoUrl && candidate.videoUrl && candidate.videoUrl !== videoUrl) return null;
+  return candidate;
 }
 
 export const adminTemplatesRouter = Router();
@@ -995,7 +1014,7 @@ adminTemplatesRouter.post(
       const exerciseByName = await buildExerciseLookupMap(candidateNames);
 
       const mapped = parseResult.tasks.map((task) => {
-        const matchedExercise = resolveExerciseMatch(exerciseByName, task.name);
+        const matchedExercise = resolveExerciseMatch(exerciseByName, task.name, task.videoUrl);
 
         return {
           rowNumber: task.rowNumber,
@@ -1085,35 +1104,56 @@ adminTemplatesRouter.post(
       const exerciseByName = await buildExerciseLookupMap(candidateNames);
 
       // Auto-create exercises that don't exist yet using data from the CSV row.
-      // We create them outside the transaction first to avoid unique-slug races
-      // within a batch, then rebuild the lookup map so the transaction can find them.
-      const namesToCreate = parseResult.tasks
-        .filter((task) => !resolveExerciseMatch(exerciseByName, task.name))
-        .map((task) => task.name.trim())
-        .filter((name, idx, arr) => arr.indexOf(name) === idx); // deduplicate
+      // Uniqueness is determined by name + videoUrl: if an exercise with the same
+      // name and videoUrl already exists, it is reused instead of duplicated.
+      const tasksToCreate = parseResult.tasks.filter((task) => {
+        const matched = resolveExerciseMatch(exerciseByName, task.name, task.videoUrl);
+        return !matched;
+      });
+      const seenCreateKeys = new Set<string>();
+      const uniqueTasksToCreate: typeof tasksToCreate = [];
+      for (const task of tasksToCreate) {
+        const key = `${task.name.trim()}|${task.videoUrl ?? ""}`;
+        if (!seenCreateKeys.has(key)) {
+          seenCreateKeys.add(key);
+          uniqueTasksToCreate.push(task);
+        }
+      }
 
       const autoCreated: string[] = [];
-      for (const name of namesToCreate) {
+      for (const srcTask of uniqueTasksToCreate) {
+        const name = srcTask.name.trim();
         const baseSlug = slugifyExerciseLookup(name);
-        // Ensure slug uniqueness by appending a suffix if needed
         let slug = baseSlug;
         let attempt = 0;
         while (await prisma.exercise.findUnique({ where: { slug }, select: { id: true } })) {
           attempt += 1;
           slug = `${baseSlug}-${attempt}`;
         }
-        // Find the matching task to pick evolution/zone defaults
-        const srcTask = parseResult.tasks.find((t) => t.name.trim() === name);
+        const mediaAssetData = srcTask.videoUrl
+          ? {
+              mediaAssets: {
+                create: [{
+                  kind: MediaKind.VIDEO,
+                  bucket: "external",
+                  objectKey: "",
+                  url: srcTask.videoUrl,
+                  isPrimary: true,
+                }],
+              },
+            }
+          : {};
         await prisma.exercise.create({
           data: {
             slug,
             name,
-            category: srcTask?.zone === "LOWER" || srcTask?.zone === "UPPER" ? "strength" : "mobility",
-            requiresLoad: srcTask?.requiresWeight ?? false,
-            perLeg: srcTask?.isUnilateral ?? false,
-            description: srcTask?.description ?? null,
-            evolution: srcTask?.evolution ?? null,
-            zone: srcTask?.zone ?? null,
+            category: srcTask.zone === "LOWER" || srcTask.zone === "UPPER" ? "strength" : "mobility",
+            requiresLoad: srcTask.requiresWeight ?? false,
+            perLeg: srcTask.isUnilateral ?? false,
+            description: srcTask.description ?? null,
+            evolution: srcTask.evolution ?? null,
+            zone: srcTask.zone ?? null,
+            ...mediaAssetData,
           },
         });
         autoCreated.push(name);
@@ -1122,13 +1162,12 @@ adminTemplatesRouter.post(
       // Update existing exercises with fresh data from CSV.
       // Only fields provided in the CSV are written; mediaAssets are a separate
       // relation and are never touched here.
-      const namesToUpdate = candidateNames.filter((name) => !namesToCreate.includes(name));
+      const namesToUpdate = candidateNames.filter((name) => !autoCreated.includes(name));
       for (const name of namesToUpdate) {
-        const existingExercise = resolveExerciseMatch(exerciseByName, name);
-        if (!existingExercise) continue;
-        // Use the first row that has data for this exercise
         const srcTask = parseResult.tasks.find((t) => t.name.trim() === name);
         if (!srcTask) continue;
+        const existingExercise = resolveExerciseMatch(exerciseByName, name, srcTask.videoUrl);
+        if (!existingExercise) continue;
         await prisma.exercise.update({
           where: { id: existingExercise.id },
           data: {
@@ -1150,7 +1189,7 @@ adminTemplatesRouter.post(
         : exerciseByName;
 
       const mapped = parseResult.tasks.map((task) => {
-        const matchedExercise = resolveExerciseMatch(exerciseByNameFinal, task.name);
+        const matchedExercise = resolveExerciseMatch(exerciseByNameFinal, task.name, task.videoUrl);
         return {
           ...task,
           exerciseId: matchedExercise?.id ?? null,
