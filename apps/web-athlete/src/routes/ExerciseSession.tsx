@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { useApi, handleApiResponse } from "../api/client";
+import { useTheme } from "../contexts/ThemeContext";
 import {
   DAY_TYPE_CONFIG,
   type ExerciseMediaAsset,
@@ -230,13 +231,16 @@ export default function ExerciseSession() {
   const exercises = session.session.sessionExercises ?? [];
   const currentExercise = exerciseIdParam ? exercises.find((e) => e.id === exerciseIdParam) : undefined;
   const allExercisesDone = exercises.every((e) => exercisesDone.has(e.id));
+  const { theme } = useTheme();
+  const bgImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
+  const overlayClass = theme === "dark" ? "bg-black/40" : "bg-white/30";
 
   if (!sessionStarted) {
     return (
       <div className="relative min-h-screen flex flex-col">
         <div className="absolute inset-0 z-0">
           <img
-            src="/Hombre.jpeg"
+            src={bgImage}
             alt=""
             className="w-full h-full object-cover"
             onError={(e) => {
@@ -244,7 +248,7 @@ export default function ExerciseSession() {
               target.style.display = "none";
             }}
           />
-          <div className="fixed inset-0 bg-black/40" />
+          <div className="fixed inset-0 {overlayClass}" />
         </div>
         <div className="relative z-10 flex flex-col px-4 py-4">
           <div className="mx-auto max-w-md">
@@ -309,7 +313,7 @@ export default function ExerciseSession() {
       <div className="relative min-h-screen flex flex-col">
         <div className="absolute inset-0 z-0">
           <img
-            src="/Hombre.jpeg"
+            src={bgImage}
             alt=""
             className="w-full h-full object-cover"
             onError={(e) => {
@@ -317,7 +321,7 @@ export default function ExerciseSession() {
               target.style.display = "none";
             }}
           />
-          <div className="fixed inset-0 bg-black/40" />
+          <div className="fixed inset-0 {overlayClass}" />
         </div>
         <div className="relative z-10 flex flex-col px-4 py-4">
           <div className="mx-auto max-w-md">
@@ -363,7 +367,7 @@ export default function ExerciseSession() {
     <div className="relative min-h-screen flex flex-col">
       <div className="absolute inset-0 z-0">
         <img
-          src="/Hombre.jpeg"
+          src={bgImage}
           alt=""
           className="w-full h-full object-cover"
           onError={(e) => {
@@ -371,7 +375,7 @@ export default function ExerciseSession() {
             target.style.display = "none";
           }}
         />
-        <div className="fixed inset-0 bg-black/40" />
+        <div className="fixed inset-0 {overlayClass}" />
       </div>
       <div className="relative z-10 flex flex-col px-4 py-4">
         <div className="mx-auto max-w-md">

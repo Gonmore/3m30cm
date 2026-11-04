@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useApi, handleApiResponse } from "../api/client";
 import { type AvailableTemplate } from "../types/api";
+import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
 
 const weekdayNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
@@ -73,7 +74,8 @@ export default function HoyScreen() {
   const [adaptationModalOpen, setAdaptationModalOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const backgroundImage = "/Hombre.jpeg";
+  const { theme } = useTheme();
+  const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
 
   const toggleDay = (day: number) => {
     setSportTrainingDays((prev) =>
@@ -518,7 +520,7 @@ export default function HoyScreen() {
       {/* Background image */}
       <div className="fixed inset-0 z-0">
         <img
-          src="/Hombre.jpeg"
+          src={backgroundImage}
           alt=""
           className="w-full h-full object-cover"
           onError={(e) => {
@@ -526,7 +528,7 @@ export default function HoyScreen() {
             target.style.display = "none";
           }}
         />
-        <div className="fixed inset-0 bg-black/40" />
+        <div className={`fixed inset-0 ${theme === "dark" ? "bg-black/40" : "bg-white/30"}`} />
       </div>
 
       {/* Content overlay */}

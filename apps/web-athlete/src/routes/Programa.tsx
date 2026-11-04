@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { useApi, handleApiResponse } from "../api/client";
+import { useTheme } from "../contexts/ThemeContext";
 import {
   DAY_TYPE_CONFIG,
   type DayType,
@@ -58,13 +59,16 @@ export default function ProgramaScreen() {
   );
 
   const today = new Date().toISOString().slice(0, 10);
+  const { theme } = useTheme();
+  const bgImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
+  const overlayClass = theme === "dark" ? "bg-black/40" : "bg-white/30";
 
   return (
     <div className="relative min-h-screen flex flex-col">
       {/* Background image */}
       <div className="fixed inset-0 z-0">
         <img
-          src="/Hombre.jpeg"
+          src={bgImage}
           alt=""
           className="w-full h-full object-cover"
           onError={(e) => {
@@ -72,7 +76,7 @@ export default function ProgramaScreen() {
             target.style.display = "none";
           }}
         />
-        <div className="fixed inset-0 bg-black/40" />
+        <div className={`fixed inset-0 ${overlayClass}`} />
       </div>
 
       {/* Content overlay */}
