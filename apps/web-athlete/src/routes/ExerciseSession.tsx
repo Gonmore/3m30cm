@@ -312,8 +312,8 @@ export default function ExerciseSession() {
                         key={exercise.id}
                         className={`rounded-lg border p-3 transition-colors ${
                           isDone
-                            ? "border-green-900/30 bg-green-900/5"
-                            : "border-surface-700 bg-surface-900/50"
+                            ? 'border-green-900/30 bg-green-900/5'
+                            : 'border-surface-700 bg-surface-900/50'
                         }`}
                       >
                         <button
@@ -401,8 +401,8 @@ export default function ExerciseSession() {
                 <span
                   className={`rounded-full px-2 py-1 text-xs ${
                     currentExercise.completed
-                      ? "bg-green-900/20 text-green-400"
-                      : "bg-blue-900/20 text-blue-400"
+                      ? 'bg-green-900/20 text-green-400'
+                      : 'bg-blue-900/20 text-blue-400'
                   }`}
                 >
                   {currentExercise.completed ? "Completado" : "Pendiente"}
@@ -449,8 +449,8 @@ export default function ExerciseSession() {
                       onClick={() => (timerRunning ? clearTimer() : startTimer(timerSeconds))}
                       className={`rounded-md px-3 py-1 text-xs font-medium text-white transition-colors ${
                         timerRunning
-                          ? "bg-red-900/30 text-red-400 hover:bg-red-800/50"
-                          : "bg-amber-900/30 text-amber-400 hover:bg-amber-800/50"
+                          ? 'bg-red-900/30 text-red-400 hover:bg-red-800/50'
+                          : 'bg-amber-900/30 text-amber-400 hover:bg-amber-800/50'
                       }`}
                     >
                       {timerRunning ? "Pausar" : "Reanudar"}
