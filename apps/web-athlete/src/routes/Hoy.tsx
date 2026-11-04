@@ -73,6 +73,7 @@ export default function HoyScreen() {
   const [planDropdownOpen, setPlanDropdownOpen] = useState(false);
   const [adaptationModalOpen, setAdaptationModalOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showSessionExercises, setShowSessionExercises] = useState(false);
 
   const { theme } = useTheme();
   const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
@@ -509,8 +510,6 @@ export default function HoyScreen() {
     nextSession?.dayType && DAY_TYPE_CONFIG[nextSession.dayType as keyof typeof DAY_TYPE_CONFIG]
       ? DAY_TYPE_CONFIG[nextSession.dayType as keyof typeof DAY_TYPE_CONFIG]
       : DAY_TYPE_CONFIG.OTHER;
-
-  const [showSessionExercises, setShowSessionExercises] = useState(false);
 
   const exerciseCount = nextSession?.sessionExercises?.length ?? 0;
   const estimatedMinutes = exerciseCount > 0 ? 5 + 5 + exerciseCount * 10 + (exerciseCount - 1) * 3 : 0;
