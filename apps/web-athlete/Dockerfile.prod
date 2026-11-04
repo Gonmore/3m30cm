@@ -9,7 +9,7 @@ COPY tsconfig.base.json ./tsconfig.base.json
 COPY apps/web-athlete/package.json ./apps/web-athlete/package.json
 COPY apps/web-athlete/package-lock.json ./apps/web-athlete/package-lock.json
 
-RUN cd apps/web-athlete && npm ci --ignore-scripts
+RUN cd apps/web-athlete && npm install --ignore-scripts --no-audit --no-fund
 
 # Copy web-athlete sources
 COPY apps/web-athlete/ ./apps/web-athlete/
