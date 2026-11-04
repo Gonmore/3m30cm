@@ -214,7 +214,7 @@ export default function ExerciseSession() {
   if (isLoading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
-        <div className="text-surface-400">Cargando…</div>
+        <div className="{textSecondaryColor}">Cargando…</div>
       </div>
     );
   }
@@ -234,6 +234,10 @@ export default function ExerciseSession() {
   const { theme } = useTheme();
   const bgImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
   const overlayClass = theme === "dark" ? "bg-black/40" : "bg-white/30";
+  const textColor = theme === "dark" ? "{textColor}" : "text-surface-900";
+  const textSecondaryColor = theme === "dark" ? "{textSecondaryColor}" : "text-surface-600";
+  const cardBg = theme === "dark" ? "{cardBg}" : "bg-surface-100";
+  const cardBorder = theme === "dark" ? "{cardBorder}" : "border-surface-300";
 
   if (!sessionStarted) {
     return (
@@ -255,11 +259,11 @@ export default function ExerciseSession() {
             <div className="space-y-6">
               <div className="flex items-start justify-between">
                 <div>
-                  <h2 className="flex items-center gap-2 text-xl font-bold text-white">
+                  <h2 className="flex items-center gap-2 text-xl font-bold {textColor}">
                     <span className={dayConfig.color}>{dayConfig.emoji}</span>
                     {session.session.title}
                   </h2>
-                  <p className="mt-1 text-sm text-surface-400">
+                  <p className="mt-1 text-sm {textSecondaryColor}">
                     {new Date(session.session.scheduledDate).toLocaleDateString("es-ES", {
                       weekday: "long",
                       year: "numeric",
@@ -328,11 +332,11 @@ export default function ExerciseSession() {
             <div className="space-y-6">
               <div className="flex items-start justify-between">
                 <div>
-                  <h2 className="flex items-center gap-2 text-xl font-bold text-white">
+                  <h2 className="flex items-center gap-2 text-xl font-bold {textColor}">
                     <span className={dayConfig.color}>{dayConfig.emoji}</span>
                     Ejercicio no encontrado
                   </h2>
-                  <p className="mt-1 text-sm text-surface-400">
+                  <p className="mt-1 text-sm {textSecondaryColor}">
                     {new Date(session.session.scheduledDate).toLocaleDateString("es-ES", {
                       weekday: "long",
                       year: "numeric",
@@ -382,11 +386,11 @@ export default function ExerciseSession() {
           <div className="space-y-6">
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="flex items-center gap-2 text-xl font-bold text-white">
+                <h2 className="flex items-center gap-2 text-xl font-bold {textColor}">
                   <span className={dayConfig.color}>{dayConfig.emoji}</span>
                   Ejercicio de la sesión
                 </h2>
-                <p className="mt-1 text-sm text-surface-400">
+                <p className="mt-1 text-sm {textSecondaryColor}">
                   {new Date(session.session.scheduledDate).toLocaleDateString("es-ES", {
                     weekday: "long",
                     year: "numeric",
@@ -433,7 +437,7 @@ export default function ExerciseSession() {
             )}
 
             <div className="space-y-4">
-              <h3 className="text-lg font-bold text-white">{currentExercise.exercise.name}</h3>
+              <h3 className="text-lg font-bold {textColor}">{currentExercise.exercise.name}</h3>
 
               {isTimedExercise && remainingTime > 0 && (
                 <div className="flex items-center justify-center gap-3">
@@ -450,28 +454,28 @@ export default function ExerciseSession() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div className="flex items-center gap-2 text-surface-400">
+                <div className="flex items-center gap-2 {textSecondaryColor}">
                   <span className="text-lg">🔹</span>
                   <span>{currentExercise.sets ?? 0} series</span>
                 </div>
-                <div className="flex items-center gap-2 text-surface-400">
+                <div className="flex items-center gap-2 {textSecondaryColor}">
                   <span className="text-lg">🔸</span>
                   <span>{currentExercise.repsText ?? "—"}</span>
                 </div>
                 {currentExercise.restSeconds && (
-                  <div className="flex items-center gap-2 text-surface-400">
+                  <div className="flex items-center gap-2 {textSecondaryColor}">
                     <span className="text-lg">☕</span>
                     <span>{currentExercise.restSeconds}s descanso</span>
                   </div>
                 )}
                 {currentExercise.loadText && (
-                  <div className="flex items-center gap-2 text-surface-400">
+                  <div className="flex items-center gap-2 {textSecondaryColor}">
                     <span className="text-lg">⚖️</span>
                     <span>Carga: {currentExercise.loadText}</span>
                   </div>
                 )}
                 {currentExercise.tempoText && (
-                  <div className="flex items-center gap-2 text-surface-400">
+                  <div className="flex items-center gap-2 {textSecondaryColor}">
                     <span className="text-lg">⏱</span>
                     <span>Tempo: {currentExercise.tempoText}</span>
                   </div>

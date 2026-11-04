@@ -45,7 +45,7 @@ export default function ProgramaScreen() {
   if (isLoading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
-        <div className="text-surface-400">Cargando…</div>
+        <div className="{textSecondaryColor}">Cargando…</div>
       </div>
     );
   }
@@ -62,6 +62,10 @@ export default function ProgramaScreen() {
   const { theme } = useTheme();
   const bgImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
   const overlayClass = theme === "dark" ? "bg-black/40" : "bg-white/30";
+  const textColor = theme === "dark" ? "{textColor}" : "text-surface-900";
+  const textSecondaryColor = theme === "dark" ? "{textSecondaryColor}" : "text-surface-600";
+  const cardBg = theme === "dark" ? "{cardBg}" : "bg-surface-100";
+  const cardBorder = theme === "dark" ? "{cardBorder}" : "border-surface-300";
 
   return (
     <div className="relative min-h-screen flex flex-col">
@@ -85,9 +89,9 @@ export default function ProgramaScreen() {
           <div className="space-y-6">
             {/* Program header */}
             <div>
-              <h2 className="text-2xl font-bold text-white">Mi Programa</h2>
+              <h2 className="text-2xl font-bold {textColor}">Mi Programa</h2>
               {progressData?.summary && (
-                <p className="mt-1 text-sm text-surface-400">
+                <p className="mt-1 text-sm {textSecondaryColor}">
                   {progressData.summary.completedSessions}/{progressData.summary.totalSessions} sesiones
                   completadas · {Math.round(progressData.summary.completionRate)}% de avance
                 </p>
@@ -102,7 +106,7 @@ export default function ProgramaScreen() {
                   <span className="text-3xl font-bold text-amber-400">
                     {Math.round(progressData.summary.completionRate)}%
                   </span>
-                  <span className="text-xs text-surface-500">
+                  <span className="text-xs {textSecondaryColor}">
                     Racha actual: {progressData.summary.currentStreak} día(s)
                   </span>
                 </div>
@@ -120,7 +124,7 @@ export default function ProgramaScreen() {
               <h3 className="mb-3 text-sm font-medium text-surface-300">Todas las sesiones</h3>
               {sortedSessions.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-surface-700 bg-surface-900/80 p-6 text-center">
-                  <p className="text-surface-400">No hay sesiones programadas.</p>
+                  <p className="{textSecondaryColor}">No hay sesiones programadas.</p>
                   <Link
                     to="/onboarding"
                     className="mt-2 inline-block rounded-md bg-amber-500 px-3 py-1.5 text-xs font-bold text-black transition-colors hover:bg-amber-400"
@@ -147,7 +151,7 @@ export default function ProgramaScreen() {
                         <span className={`text-xl ${config.color}`}>{config.emoji}</span>
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
-                            <p className={`font-medium ${isCompleted ? "text-surface-400" : "text-white"}`}>
+                            <p className={`font-medium ${isCompleted ? "{textSecondaryColor}" : "{textColor}"}`}>
                               {session.title}
                             </p>
                             {isToday && (
@@ -156,7 +160,7 @@ export default function ProgramaScreen() {
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-surface-500">
+                          <p className="text-xs {textSecondaryColor}">
                             {new Date(session.scheduledDate).toLocaleDateString("es-ES", {
                               weekday: "short",
                               month: "short",
@@ -164,7 +168,7 @@ export default function ProgramaScreen() {
                             })}
                           </p>
                           {session.exerciseCount !== undefined && (
-                            <p className="text-xs text-surface-500">{session.exerciseCount} ejercicios</p>
+                            <p className="text-xs {textSecondaryColor}">{session.exerciseCount} ejercicios</p>
                           )}
                         </div>
                         {isCompleted && <span className="text-lg text-green-400">✓</span>}
