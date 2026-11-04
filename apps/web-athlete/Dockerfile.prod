@@ -7,6 +7,7 @@ COPY tsconfig.base.json ./tsconfig.base.json
 
 # Copy web-athlete manifests
 COPY apps/web-athlete/package.json ./apps/web-athlete/package.json
+COPY apps/web-athlete/package-lock.json ./apps/web-athlete/package-lock.json
 
 RUN cd apps/web-athlete && npm ci --ignore-scripts
 
