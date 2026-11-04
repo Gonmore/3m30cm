@@ -71,6 +71,12 @@ enum ExerciseZone {
   FULL
 }
 
+enum AssignmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum BillingStatus {
   TRIALING
   ACTIVE
@@ -110,8 +116,10 @@ model User {
   updatedAt         DateTime          @updatedAt
   memberships       Membership[]
   athleteProfile    AthleteProfile?
-  coachedAssignments CoachAssignment[] @relation("CoachAssignments")
-  deviceTokens      DeviceToken[]
+   coachedAssignments CoachAssignment[] @relation("CoachAssignments")
+   programAssignments ProgramAssignment[] @relation("CoachProgramAssignments")
+   coachTemplates     ProgramTemplate[] @relation("CoachTemplates")
+   deviceTokens      DeviceToken[]
   auditLogs         AuditLog[]        @relation("AuditActor")
   passwordResetTokens PasswordResetToken[]
 }
@@ -175,9 +183,10 @@ model AthleteProfile {
   updatedAt         DateTime          @updatedAt
   user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   team              Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  coachAssignments  CoachAssignment[] @relation("AthleteAssignments")
-  personalPrograms  PersonalProgram[]
-  sessionLogs       SessionLog[]
+   coachAssignments  CoachAssignment[] @relation("AthleteAssignments")
+   personalPrograms  PersonalProgram[]
+   programAssignments ProgramAssignment[]
+   sessionLogs       SessionLog[]
   techniqueMetrics  AthleteTechniqueMetric[]
   exerciseLoadRecords ExerciseLoadRecord[]
   weeklyCheckIns    WeeklyCheckIn[]
@@ -191,7 +200,28 @@ model CoachAssignment {
   coach            User           @relation("CoachAssignments", fields: [coachId], references: [id], onDelete: Cascade)
   athleteProfile   AthleteProfile @relation("AthleteAssignments", fields: [athleteProfileId], references: [id], onDelete: Cascade)
 
-  @@unique([coachId, athleteProfileId])
+   @@unique([coachId, athleteProfileId])
+}
+
+model ProgramAssignment {
+  id                String            @id @default(cuid())
+  athleteProfileId  String
+  templateId        String
+  coachId           String
+  status            AssignmentStatus  @default(PENDING)
+  requestNotes      String?
+  approvedAt        DateTime?
+  assignedAt        DateTime          @default(now())
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  athleteProfile    AthleteProfile    @relation(fields: [athleteProfileId], references: [id], onDelete: Cascade)
+  template          ProgramTemplate   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  coach             User              @relation("CoachProgramAssignments", fields: [coachId], references: [id], onDelete: Cascade)
+
+  @@unique([athleteProfileId, templateId])
+  @@index([coachId])
+  @@index([status])
 }
 
 model Exercise {
@@ -275,17 +305,21 @@ model ProgramTemplate {
   name            String
   code            String               @unique
   description     String?
-  techniqueTitle  String?
+   techniqueTitle  String?
   techniqueDescription String?
   welcomeVideoUrl String?
   cycleLengthDays Int                  @default(14)
   isEditable      Boolean              @default(true)
+  isPremium       Boolean              @default(false)
+  coachId         String?
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
   team            Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  coach           User?                @relation("CoachTemplates", fields: [coachId], references: [id])
   days            ProgramDayTemplate[]
   phases          ProgramPhaseTemplate[]
   personalPrograms PersonalProgram[]
+  programAssignments ProgramAssignment[]
   techniques      ProgramTemplateTechnique[]
   techniqueMediaAssets ProgramTemplateTechniqueAsset[]
   techniqueMetrics AthleteTechniqueMetric[]
@@ -513,9 +547,10 @@ model ScheduledSession {
   dayType         DayType
   status          SessionStatus    @default(PLANNED)
   sequenceOrder   Int?
-  rescheduleCount Int              @default(0)
-  notes           String?
-  createdAt       DateTime         @default(now())
+   rescheduleCount Int              @default(0)
+   notes           String?
+   coachNotes      String?
+   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   personalProgram PersonalProgram  @relation(fields: [personalProgramId], references: [id], onDelete: Cascade)
   sessionExercises SessionExercise[]

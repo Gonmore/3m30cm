@@ -1,0 +1,27 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /workspace
+
+# Copy root tsconfig base (referenced by apps/web-athlete/tsconfig.json)
+COPY tsconfig.base.json ./tsconfig.base.json
+
+# Copy web-athlete manifests
+COPY apps/web-athlete/package.json ./apps/web-athlete/package.json
+
+RUN cd apps/web-athlete && npm ci --ignore-scripts
+
+# Copy web-athlete sources
+COPY apps/web-athlete/ ./apps/web-athlete/
+
+# Build Vite app
+RUN cd apps/web-athlete && npm run build
+
+FROM nginx:alpine AS runner
+
+# Copy built assets
+COPY --from=builder /workspace/apps/web-athlete/dist /usr/share/nginx/html
+
+# Default nginx config (serves static files on port 80)
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

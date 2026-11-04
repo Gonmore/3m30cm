@@ -26,11 +26,11 @@ services:
     networks:
       - red-desarrollo
 
-  web-3m30cm:
+  web-admin:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    container_name: web-3m30cm-dev
+    container_name: web-admin-dev
     env_file:
       - .env
     environment:
@@ -44,6 +44,27 @@ services:
         condition: service_healthy
     ports:
       - "4173:4173"
+    networks:
+      - red-desarrollo
+
+  web-athlete:
+    build:
+      context: .
+      dockerfile: apps/web-athlete/Dockerfile
+    container_name: web-athlete-dev
+    env_file:
+      - .env
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    command: ["sh", "-lc", "npm run dev -- --host 0.0.0.0 --port 4174"]
+    volumes:
+      - ./apps/web-athlete:/workspace/apps/web-athlete
+      - /workspace/apps/web-athlete/node_modules
+    depends_on:
+      api-3m30cm:
+        condition: service_healthy
+    ports:
+      - "4174:4174"
     networks:
       - red-desarrollo
 

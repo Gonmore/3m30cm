@@ -31,6 +31,18 @@ services:
     networks:
       - red-produccion
 
+  web-athlete:
+    image: gonmore14/web-athlete:${APP_VERSION:-latest}
+    container_name: web-athlete
+    restart: unless-stopped
+    depends_on:
+      api-3m30cm:
+        condition: service_healthy
+    ports:
+      - "4174:80"
+    networks:
+      - red-produccion
+
   # --- Herramientas (solo se ejecutan con --profile tools) ---
   api-migrate:
     image: gonmore14/api-3m30cm:${APP_VERSION:-latest}

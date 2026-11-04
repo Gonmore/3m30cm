@@ -34,6 +34,7 @@ Reglas para que no vuelva a pasar:
 - **App movil oficial**: Expo SDK 54 + React Native 0.81 + Expo Router en `apps/mobile2` (puerto 8082)
 - **App `apps/mobile`**: superficie legacy; no es la app oficial ni el foco actual de producto
 - **Panel web**: React 19 + Vite + TypeScript
+- **Web atleta**: React 19 + Vite + TypeScript + TailwindCSS (mirror de mobile2)
 - **API**: Node.js + Express + Prisma + TypeScript
 - **Base de datos**: PostgreSQL
 - **Media**: MinIO/S3
@@ -44,6 +45,7 @@ Reglas para que no vuelva a pasar:
 
 - `apps/api`: API REST y modelo Prisma
 - `apps/web`: portal web para admin, platform admin y staff
+- `apps/web-athlete`: app web del atleta (React 19 + Vite), mirror de la app movil (`apps/mobile2`) para autogestión de sesiones, programa y técnica
 - `apps/mobile`: app legacy del atleta, mantenida solo por compatibilidad puntual
 - `apps/mobile2`: app oficial del atleta
 - `packages/shared`: constantes y tipos de dominio compartidos
@@ -82,6 +84,7 @@ Reglas para que no vuelva a pasar:
 - Input de estatura en el onboarding de perfil físico tolera notaciones decimales ("1.80", "1,79") y extrae solo los dígitos ("180", "179") automáticamente.
 - La pantalla Hoy muestra el CTA "Iniciar ahora" sin necesidad de scroll (eliminado tip del día y texto motivacional del bloque de sesión).
 - Bug fix: sesiones creadas a midnight UTC ya no se clasifican como "pasadas" durante el mismo día; `nextSession` ahora apunta correctamente a la sesión de hoy.
+- `apps/web-athlete` es una web app React 19 + Vite que replica la experiencia de `apps/mobile2` para autogestión del atleta: login con email/password + Google OAuth, pantalla Hoy con sesión destacada, Programa (lista y ejecución de sesiones con logging), Evolución (métricas de salto y carga), Técnica (métricas biomecánicas), configuración de onboarding y gestión de programas premium.
 
 ## Requisitos previos
 
@@ -166,6 +169,7 @@ Servicios esperados:
 - Catalogo persistido: `http://localhost:4100/api/v1/catalog/exercises`
 - Plantilla persistida: `http://localhost:4100/api/v1/templates/program-templates/JUMP-MANUAL-14D`
 - Web admin: `http://localhost:4173`
+- Web atleta (dev): `http://localhost:4174`
 
 ### Credenciales iniciales sembradas
 

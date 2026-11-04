@@ -26,6 +26,7 @@ apps/mobile/android/local.properties
 apps/mobile2/android/.gradle/
 apps/mobile2/android/build/
 apps/mobile2/android/local.properties
+*.apk
 
 # Web (Vite)
 apps/web/dist/

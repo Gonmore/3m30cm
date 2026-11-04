@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark theme (default). Channels are "R G B" so Tailwind can apply alpha. */
+:root {
+  color-scheme: dark;
+  --surface-50: 250 250 250;
+  --surface-100: 245 245 245;
+  --surface-200: 229 229 229;
+  --surface-300: 212 212 212;
+  --surface-400: 163 163 163;
+  --surface-500: 115 115 115;
+  --surface-600: 64 64 64;
+  --surface-700: 46 46 46;
+  --surface-800: 26 26 26;
+  --surface-900: 18 18 18;
+  --surface-950: 10 10 11;
+}
+
+/* Light theme: the scale is inverted so existing classes keep their meaning
+   (950 = page background, 100 = primary text). */
+:root:not(.dark) {
+  color-scheme: light;
+  --surface-50: 9 9 11;
+  --surface-100: 24 24 27;
+  --surface-200: 39 39 42;
+  --surface-300: 63 63 70;
+  --surface-400: 82 82 91;
+  --surface-500: 113 113 122;
+  --surface-600: 161 161 170;
+  --surface-700: 212 212 216;
+  --surface-800: 228 228 231;
+  --surface-900: 255 255 255;
+  --surface-950: 244 244 245;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: rgb(var(--surface-950));
+  color: rgb(var(--surface-100));
+  transition: background-color 150ms ease, color 150ms ease;
+}

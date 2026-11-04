@@ -1,5 +1,6 @@
 import { DayType, Prisma, ProgramStatus, SeasonPhase, SeriesProtocol, SessionStatus } from "@prisma/client";
 
+import { prisma } from "../config/prisma.js";
 import { resolveSeriesProtocol } from "./exercise-series.js";
 
 export interface AthleteGenerationProfile {
@@ -581,4 +582,162 @@ export async function generatePersonalProgram(input: GeneratePersonalProgramInpu
       },
     },
   });
+}
+
+export async function fetchTemplateForGeneration(
+  templateId: string,
+): Promise<ProgramTemplateWithDays | null> {
+  const template = await prisma.programTemplate.findUnique({
+    where: { id: templateId },
+    include: {
+      days: {
+        orderBy: { dayNumber: "asc" },
+        include: {
+          prescriptions: {
+            orderBy: { orderIndex: "asc" },
+            include: {
+              exercise: {
+                select: {
+                  id: true,
+                  defaultSeriesProtocol: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      phases: {
+        orderBy: { orderIndex: "asc" },
+        include: {
+          days: {
+            orderBy: { dayNumber: "asc" },
+            include: {
+              tasks: {
+                orderBy: { orderIndex: "asc" },
+                where: { exerciseId: { not: null } },
+                include: {
+                  exercise: {
+                    select: {
+                      id: true,
+                      defaultSeriesProtocol: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!template) {
+    return null;
+  }
+
+  const templateDays = template.days as Array<{
+    dayNumber: number;
+    title: string;
+    dayType: DayType;
+    notes: string | null;
+    prescriptions: Array<{
+      exerciseId: string;
+      orderIndex: number;
+      seriesProtocol: SeriesProtocol;
+      sets: number | null;
+      repsText: string | null;
+      durationSeconds: number | null;
+      restSeconds: number | null;
+      loadText: string | null;
+      notes: string | null;
+      exercise: {
+        id: string;
+        defaultSeriesProtocol: SeriesProtocol;
+      };
+    }>;
+  }>;
+
+  if (templateDays.length === 0 && template.phases.length > 0) {
+    let absoluteDay = 0;
+    const expanded = template.phases.flatMap((phase, phaseIndex) => {
+      const blockDays = phase.days;
+      const totalDays = phase.durationDays;
+      const phaseLabel = phase.name
+        ? `Fase ${phaseIndex + 1}: ${phase.name}`
+        : `Fase ${phaseIndex + 1}`;
+      const expandedDays: typeof templateDays = [];
+      for (let i = 0; i < totalDays; i++) {
+        const day = blockDays[i % blockDays.length];
+        if (!day) {
+          continue;
+        }
+        absoluteDay += 1;
+        const dayAbsolute = i + 1;
+        const titleSuffix = day.title ? `: ${day.title}` : "";
+        expandedDays.push({
+          dayNumber: absoluteDay,
+          title: `${phaseLabel}/D\u00eda ${dayAbsolute}${titleSuffix}`,
+          dayType: day.dayType,
+          notes: day.notes,
+          prescriptions: day.tasks
+            .filter(
+              (task): task is typeof task & { exerciseId: string; exercise: { id: string; defaultSeriesProtocol: SeriesProtocol } } =>
+                task.exerciseId != null && task.exercise != null,
+            )
+            .map((task, idx) => {
+              const parsedDuration = parseTimeTextToSeconds(task.repsOrTimeText);
+              return {
+                exerciseId: task.exerciseId,
+                orderIndex: idx + 1,
+                seriesProtocol: SeriesProtocol.NONE,
+                sets: task.sets ?? null,
+                repsText: parsedDuration ? null : (task.repsOrTimeText ?? null),
+                durationSeconds: parsedDuration,
+                restSeconds: null,
+                loadText: null,
+                notes: [task.description, task.notes].filter(Boolean).join(" ") || null,
+                exercise: task.exercise,
+              };
+            }),
+        });
+      }
+      return expandedDays;
+    });
+
+    if (expanded.length === 0) {
+      return null;
+    }
+
+    return {
+      id: template.id,
+      name: template.name,
+      code: template.code,
+      days: expanded,
+    };
+  }
+
+  if (templateDays.length === 0) {
+    return null;
+  }
+
+  return {
+    id: template.id,
+    name: template.name,
+    code: template.code,
+    days: templateDays,
+  };
+}
+
+function parseTimeTextToSeconds(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const t = text.trim().toLowerCase();
+  const secMatch = /^(\d+)\s*(s(ec(s|onds?)?)?|seg(undos?)?)(\s|$)/i.exec(t);
+  if (secMatch?.[1]) return parseInt(secMatch[1], 10);
+  const mmssMatch = /^(\d+):(\d{2})$/.exec(t);
+  if (mmssMatch?.[1] && mmssMatch?.[2]) {
+    return parseInt(mmssMatch[1], 10) * 60 + parseInt(mmssMatch[2], 10);
+  }
+  const minMatch = /^(\d+)\s*(min(utos?|s?)?)(\s|$)/i.exec(t);
+  if (minMatch?.[1]) return parseInt(minMatch[1], 10) * 60;
+  return null;
 }

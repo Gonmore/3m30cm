@@ -13,7 +13,50 @@
 
 ## Registro de trabajo
 
-### 21. Blindaje release Android `mobile2` + correccion de Metro cross-app (2026-05-28)
+### 22. Web App del Atleta + Sistema de Asignación de Programas y Workflow Coach (2026-11-04)
+
+**Objetivo:** Replicar la experiencia de atleta de `apps/mobile2` como aplicación web en `apps/web-athlete/` (React 19 + Vite + Tailwind), implementar el esquema de programas premium, los endpoints de API (atleta, coach, templates, admin) y los flujos de asignación de coach end-to-end.
+
+**Cambios en Schema (Prisma):**
+- Nuevo enum `AssignmentStatus` (PENDING / APPROVED / REJECTED)
+- `ProgramTemplate.isPremium`, `ProgramTemplate.coachId`, relación `ProgramTemplate.coach`, `ProgramTemplate.programAssignments`
+- Nuevo modelo `ProgramAssignment` con constraints únicos e índices
+- Relaciones `AthleteProfile`/`User` → `programAssignments`
+- `ScheduledSession.coachNotes`
+- Migración `20261030_add_program_assignment_and_premium_flag` creada y aplicada
+
+**Cambios en API (`apps/api/src/`):**
+- `athlete.ts`: endpoints `GET /programs/available`, `POST /programs/request`, `GET /assignments`, `GET /assignments/:templateId`, helper `resolveCoachIdFromQuery` (SUPERADMIN override), schema `programRequestSchema`
+- `athlete-programs.ts`: helper compartido `fetchTemplateForGeneration()`, `generatePersonalProgram()`, `AthleteGenerationProfile`
+- `coach.ts`: endpoints `GET /programs`, `GET /programs/:templateId/requests`, `POST /assignments/:id/approve` (genera PersonalProgram + ajustes de competición), `POST /assignments/:id/reject`, `GET /athletes`, `GET /athletes/:athleteId/progress`, `GET /sessions` (filtrables), `POST /sessions/:sessionId/notes`
+- `templates.ts`: `isPremium`, `coachId`, `coach` en listado y detalle
+- `admin-templates.ts`: `isPremium` y `coachId` en schemas de create/update
+- `includePreparationPhase` ahora defaults a `false` (no agrega fase de adecuación automáticamente)
+
+**Nueva App Web Athlete (`apps/web-athlete/`):**
+- React 19 + Vite + TypeScript + TailwindCSS + react-router-dom v6
+- Puerto 4174 (dev), proxy `/api` → `http://localhost:4100`
+- `ThemeContext`: dark/light con localStorage, sincronización entre pestañas, aplicación antes del primer paint
+- `AuthContext`: JWT decode, carga de perfil desde `/athlete/me`, `updateAvatar` (PATCH `/athlete/me/avatar`), `resolveAssetUrl`
+- `Layout.tsx`: header con hamburguesa, nav desktop, avatar con dropdown (Cambiar foto, Apariencia, Cerrar sesión en rojo)
+- `Sidebar.tsx`: navegación colapsable, sin logout (logout está en el dropdown del avatar)
+- `Footer.tsx`: logo por tema (blanco en oscuro, azul en claro), "by" en círculo
+- `Hoy.tsx`: onboarding gráfico en una sola pantalla (fondo Hombre/Mujer.jpeg, sliders altura/peso, selector deporte, dropdown de planes, botón "Generar hoy"), dashboard con sesión de hoy y métricas
+- `Programa.tsx`: lista de sesiones con fondo de imagen
+- `ExerciseSession.tsx`: vista de un ejercicio a la vez con media (video/imagen), contador regresivo para ejercicios por tiempo, completar ejercicio y pasar al siguiente
+- `Settings.tsx`: reescrito para usar `templateCode` y respuesta `/athlete/programs/available`
+
+**Docker y Despliegue:**
+- `docker-compose.local.yml`: servicios `api-3m30cm` (4100), `web-admin` (4173), `web-athlete` (4174), todos con volúmenes para hot reload
+- `apps/web-athlete/Dockerfile` y `Dockerfile.prod`: build multi-stage (Vite + nginx)
+- `docker-compose.prod.yml`: agregado servicio `web-athlete` (puerto 4174)
+- `deploy.sh`: agregado build & push de imagen `web-athlete`
+
+**Validación:**
+- `npx tsc --noEmit` en `apps/api` ✓ (0 errores)
+- `npx tsc --noEmit` en `apps/web-athlete` ✓ (0 errores)
+- `npx vite build` en `apps/web-athlete` ✓
+- Contenedores Docker levantados y funcionando
 
 **Objetivo:** cerrar definitivamente el crash de la APK release `vjump` y dejar documentado como evitar que reaparezca.
 

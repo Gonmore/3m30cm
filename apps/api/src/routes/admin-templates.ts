@@ -35,6 +35,8 @@ const createTemplateSchema = z.object({
   code: z.string().trim().min(2).regex(/^[A-Z0-9-]+$/, "Code must be uppercase letters, digits and hyphens"),
   description: z.string().trim().optional(),
   cycleLengthDays: z.number().int().min(1).max(365).default(14),
+  isPremium: z.boolean().default(false),
+  coachId: z.string().nullable().optional(),
 });
 
 const updateTemplateSchema = z.object({
@@ -44,6 +46,8 @@ const updateTemplateSchema = z.object({
   techniqueDescription: z.string().trim().nullable().optional(),
   welcomeVideoUrl: z.string().url().nullable().optional(),
   cycleLengthDays: z.number().int().min(1).max(365).optional(),
+  isPremium: z.boolean().optional(),
+  coachId: z.string().nullable().optional(),
 });
 
 const techniquePoseLandmarkSchema = z.object({
@@ -1719,6 +1723,8 @@ adminTemplatesRouter.post("/program-templates", async (req: Request, res: Respon
         techniqueDescription: null,
         cycleLengthDays: payload.cycleLengthDays,
         isEditable: true,
+        isPremium: payload.isPremium ?? false,
+        coachId: payload.coachId ?? null,
         techniques: {
           create: {
             title: `${payload.name} · Técnica 1`,
@@ -1760,6 +1766,8 @@ adminTemplatesRouter.put("/program-templates/:code", async (req: Request, res: R
         ...(payload.techniqueDescription !== undefined && { techniqueDescription: payload.techniqueDescription }),
         ...(payload.welcomeVideoUrl !== undefined && { welcomeVideoUrl: payload.welcomeVideoUrl }),
         ...(payload.cycleLengthDays !== undefined && { cycleLengthDays: payload.cycleLengthDays }),
+        ...(payload.isPremium !== undefined && { isPremium: payload.isPremium }),
+        ...(payload.coachId !== undefined && { coachId: payload.coachId }),
       },
       include: {
         _count: { select: { days: true, personalPrograms: true } },

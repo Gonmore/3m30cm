@@ -67,6 +67,22 @@ The 3m30cm platform is a monorepo containing a REST API backend, a React admin w
 │   │   ├── nginx.conf             # production nginx config
 │   │   └── package.json
 │   │
+│   ├── web-athlete/               # Web Athlete App  — package @jump/web-athlete
+│   │   ├── src/
+│   │   │   ├── routes/            # Hoy, Programa, ExerciseSession, Evolucion, Tecnica, Settings, Onboarding
+│   │   │   ├── contexts/          # AuthContext, ThemeContext
+│   │   │   ├── components/        # Avatar, Layout, Sidebar, Footer
+│   │   │   ├── api/               # API client
+│   │   │   ├── types/             # API response types
+│   │   │   ├── App.tsx            # route structure
+│   │   │   └── main.tsx           # entry point
+│   │   ├── index.html
+│   │   ├── vite.config.ts         # proxy /api → api-3m30cm:4100, port 4174
+│   │   ├── Dockerfile             # dev (vite dev on 4174)
+│   │   ├── Dockerfile.prod        # prod multi-stage (vite build + nginx)
+│   │   ├── public/                # Logo_Blanco.png, Logo_Azul.png, Hombre.jpeg, Mujer.jpeg
+│   │   └── package.json
+│   │
 │   ├── mobile/                    # Legacy Expo app — shared components/tokens for mobile2
 │   │   ├── components/tokens.ts
 │   │   ├── components/ThemeContext.tsx
@@ -107,8 +123,8 @@ Google OAuth: clients verify Google ID token on-device, call `/api/v1/auth/googl
 | Route prefix        | Module                  | Key endpoints |
 |---------------------|-------------------------|---------------|
 | `/auth`             | `auth.ts`               | `POST /login`, `POST /register/athlete`, `POST /google`, `POST /forgot-password`, `POST /reset-password`, `GET /me` |
-| `/athlete`          | `athlete.ts`            | `/dashboard`, `/me`, `/programs`, `/sessions`, `/progress`, `/technique`, `/sessions/auto-rollover`, `/sessions/:id/exercise-load-hints`, `/exercise-loads`, `/onboarding`, `/programs/generate`, `/technique/metrics`, `/program-templates/:code/techniques/:id/biomechanics/analyze`, `/weekly-checkin`, `/weekly-checkin/weekend-games` |
-| `/coach`            | `coach.ts`              | `GET /dashboard` (requires COACH or SUPERADMIN) |
+| `/athlete`          | `athlete.ts`            | `/dashboard`, `/me`, `/programs`, `/sessions`, `/progress`, `/technique`, `/sessions/auto-rollover`, `/sessions/:id/exercise-load-hints`, `/exercise-loads`, `/onboarding`, `/programs/generate`, `/technique/metrics`, `/program-templates/:code/techniques/:id/biomechanics/analyze`, `/programs/available`, `/programs/request`, `/assignments`, `/assignments/:templateId`, `/weekly-checkin`, `/weekly-checkin/weekend-games` |
+| `/coach`            | `coach.ts`              | `GET /dashboard`, `GET /programs`, `GET /programs/:templateId/requests`, `POST /assignments/:id/approve`, `POST /assignments/:id/reject`, `GET /athletes`, `GET /athletes/:athleteId/progress`, `GET /sessions`, `POST /sessions/:sessionId/notes` |
 | `/admin`            | `admin.ts`              | `GET /summary` + sub-routers (see below) |
 | `/admin/exercises`  | `admin-exercises.ts`    | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /populate-gifs/search`, `POST /populate-gifs/translate`, `POST /populate-gifs/apply` |
 | `/admin/program-templates` | `admin-templates.ts` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` |
@@ -163,7 +179,7 @@ Google OAuth: clients verify Google ID token on-device, call `/api/v1/auth/googl
 
 **Endpoints consumed:**
 - `/api/v1/auth/login`, `/api/v1/auth/google`, `/api/v1/auth/register/athlete`, `/api/v1/auth/forgot-password`, `/api/v1/auth/reset-password` — authentication
-- `/api/v1/athlete/me`, `/api/v1/athlete/programs`, `/api/v1/athlete/sessions`, `/api/v1/athlete/progress`, `/api/v1/athlete/technique` — athlete dashboard/home screen
+- `/api/v1/athlete/me`, `/api/v1/athlete/programs`, `/api/v1/athlete/programs/available`, `/api/v1/athlete/programs/request`, `/api/v1/athlete/assignments`, `/api/v1/athlete/sessions`, `/api/v1/athlete/progress`, `/api/v1/athlete/technique` — athlete dashboard/home screen
 - `/api/v1/athlete/sessions/auto-rollover` — session rollover
 - `/api/v1/athlete/sessions/:id/exercise-load-hints`, `/api/v1/athlete/exercise-loads` — load hints
 - `/api/v1/athlete/onboarding` — onboarding flow
@@ -183,6 +199,7 @@ Google OAuth: clients verify Google ID token on-device, call `/api/v1/auth/googl
 |--------------|-----------------|-------|------------------------------------------------|------------|
 | api-3m30cm   | api-3m30cm-dev  | 4100  | npm install, prisma:generate, db:ensure, push, db:seed, dev | —          |
 | web-3m30cm   | web-3m30cm-dev  | 4173  | npm run dev -- --host 0.0.0.0 --port 4173      | api (healthcheck) |
+| web-athlete  | web-athlete-dev | 4174  | npm run dev -- --host 0.0.0.0 --port 4174      | api (healthcheck) |
 
 - Network: `red-desarrollo` (external Docker network)
 - Healthcheck: `wget -q --spider http://127.0.0.1:4100/api/v1/health`
@@ -207,6 +224,7 @@ Alternative dev scripts (root `package.json`):
 
 - **API:** `Dockerfile.prod` — multi-stage (build + runtime). Listens on `PORT`.
 - **Web:** `Dockerfile.prod` builds static assets; `nginx.conf` serves on port 80/443 behind a reverse proxy.
+- **Web Athlete:** `Dockerfile.prod` builds Vite static assets; served by nginx on port 80 (mapped to 4174 in local compose).
 - **Mobile2:** EAS build (`eas.json`); APK build via `npm run apk:vjump` (see README for stability constraints).
 - **Mobile (legacy):** Maintained alongside mobile2; provides shared component library via `@mobile/*` aliases.
 - **Database/Migrations:** `prisma:push` for dev, standard Prisma migrations for prod.

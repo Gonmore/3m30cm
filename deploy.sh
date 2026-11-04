@@ -47,6 +47,11 @@ STEP_STARTED=$SECONDS
 build_and_push_image "$USER_DOCKER/web-3m30cm" "apps/web/Dockerfile.prod"
 echo "⏱️  Build+push Web: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
 
+# Build & Push Web Athlete
+STEP_STARTED=$SECONDS
+build_and_push_image "$USER_DOCKER/web-athlete" "apps/web-athlete/Dockerfile.prod"
+echo "⏱️  Build+push Web Athlete: $(format_elapsed "$((SECONDS - STEP_STARTED))")"
+
 echo "🚀 2. Actualizando servidor remoto..."
 
 STEP_STARTED=$SECONDS

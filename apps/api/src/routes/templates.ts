@@ -18,6 +18,16 @@ templatesRouter.get("/program-templates", async (_req: Request, res: Response) =
         techniqueTitle: true,
         techniqueDescription: true,
         cycleLengthDays: true,
+        isPremium: true,
+        coachId: true,
+        coach: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
         phases: {
           orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
           select: {
@@ -100,11 +110,19 @@ templatesRouter.get("/program-templates/:code", async (req: Request, res: Respon
       return;
     }
 
-    await ensureTemplateTechniqueStructure(prisma, templateRef.id);
+     await ensureTemplateTechniqueStructure(prisma, templateRef.id);
 
-    const template = await prisma.programTemplate.findUnique({
+     const template = await prisma.programTemplate.findUnique({
       where: { id: templateRef.id },
       include: {
+        coach: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
         techniqueMediaAssets: {
           orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
         },

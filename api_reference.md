@@ -155,7 +155,7 @@ Notas:
 - la app `mobile2` usa esta respuesta para decidir si debe forzar el onboarding fisico antes de dejar navegar al resto de pantallas.
 
 ### PUT `/athlete/onboarding`
-Guarda el onboarding deportivo del atleta autenticado.
+Guarda el onboarding deportivo del atleta autenticado. Usa `upsert`: si el `AthleteProfile` no existe, lo crea automáticamente.
 
 Body relevante:
 - `displayName` opcional
@@ -168,8 +168,36 @@ Genera o regenera el programa activo del atleta.
 
 Notas:
 - reutiliza el mismo payload base del onboarding deportivo
-- `heightCm` y `weightKg` tambien son requeridos
-- si ya existia un programa activo, el backend deja solo uno vigente y archiva logicamente los anteriores
+- `heightCm` y `weightKg` también son requeridos
+- `includePreparationPhase` (boolean, default: `false`) — si `true`, agrega una fase de adecuación de 2 semanas al inicio del programa
+- si ya existía un programa activo, el backend deja solo uno vigente y archiva lógicamente los anteriores
+
+### GET `/athlete/programs/available`
+Lista las plantillas de programa disponibles para el atleta, con su estado de asignación (`assignmentStatus`: `PENDING` / `APPROVED` / `REJECTED`) y si ya tiene un programa activo.
+
+Respuesta 200:
+```json
+{
+  "templates": [{ "id", "code", "name", "isPremium", "coachId", ... }],
+  "hasActiveProgram": boolean
+}
+```
+
+### POST `/athlete/programs/request`
+Solicita un programa al coach (crea una `ProgramAssignment` en estado `PENDING`).
+
+Body:
+```json
+{
+  "templateCode": "string (required)"
+}
+```
+
+### GET `/athlete/assignments`
+Lista las asignaciones de programas del atleta autenticado.
+
+### GET `/athlete/assignments/:templateId`
+Detalle de una asignación específica por código de plantilla.
 
 ### GET `/athlete/sessions`
 Lista las sesiones programadas del atleta.
@@ -239,14 +267,35 @@ Notas:
 ### GET `/coach/dashboard`
 Dashboard del coach: datos de coach, atletas asignados con sus últimos programas y sesiones.
 
+### GET `/coach/programs`
+Lista las plantillas de programa del coach (incluye `isPremium` y `coachId`).
+
+### GET `/coach/programs/:templateId/requests`
+Lista las solicitudes de programa (asignaciones pendientes) para una plantilla del coach.
+
+### POST `/coach/assignments/:id/approve`
+Aprueba una asignación de programa: genera el `PersonalProgram` y aplica ajustes de competición.
+
+### POST `/coach/assignments/:id/reject`
+Rechaza una asignación de programa.
+
 ### GET `/coach/athletes`
 Lista atletas asignados al coach.
 
 ### GET `/coach/athletes/:athleteId`
 Detalle de un atleta con perfil, equipo y programas.
 
+### GET `/coach/athletes/:athleteId/progress`
+Progreso de un atleta específico (resumen, próxima sesión, récords personales, feedback).
+
 ### GET `/coach/athletes/:athleteId/sessions`
 Sesiones de un atleta específico.
+
+### GET `/coach/sessions`
+Lista sesiones programadas (filtrables por atleta y fecha).
+
+### POST `/coach/sessions/:sessionId/notes`
+Agrega notas de coach a una sesión.
 
 ---
 

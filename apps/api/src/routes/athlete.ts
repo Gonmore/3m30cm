@@ -1,4 +1,4 @@
-import { CheckInFatigue, DayType, Prisma, ProgramStatus, SeasonPhase, SeriesProtocol, SessionStatus, TeamTrainingIntensity, WeeklyGameCount } from "@prisma/client";
+import { AssignmentStatus, CheckInFatigue, DayType, Prisma, ProgramStatus, Role, SeasonPhase, SeriesProtocol, SessionStatus, TeamTrainingIntensity, WeeklyGameCount } from "@prisma/client";
 import { type Response, Router } from "express";
 import multer from "multer";
 import { z } from "zod";
@@ -734,6 +734,30 @@ function getUserId(req: AuthenticatedRequest) {
   return req.auth?.sub;
 }
 
+function getStringParam(value: string | string[] | undefined) {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+
+  return value;
+}
+
+function getQueryParam(value: unknown) {
+  if (Array.isArray(value)) {
+    return typeof value[0] === "string" ? value[0] : undefined;
+  }
+
+  return typeof value === "string" ? value : undefined;
+}
+
+function resolveCoachIdFromQuery(req: AuthenticatedRequest) {
+  if (req.auth?.platformRole === Role.SUPERADMIN) {
+    return getQueryParam(req.query.coachUserId) ?? req.auth.sub;
+  }
+
+  return req.auth?.sub;
+}
+
 export const athleteRouter = Router();
 
 athleteRouter.use(requireAuth);
@@ -861,9 +885,25 @@ athleteRouter.put("/onboarding", async (req: AuthenticatedRequest, res: Response
 
     const payload = athletePlanningSchema.parse(req.body);
     const seasonPhase = deduceSeasonPhase(payload.weeklyGameCount, payload.teamTrainingIntensity);
-    const athleteProfile = await prisma.athleteProfile.update({
+    const athleteProfile = await prisma.athleteProfile.upsert({
       where: { userId },
-      data: {
+      update: {
+        ...(payload.displayName !== undefined ? { displayName: payload.displayName } : {}),
+        heightCm: payload.heightCm,
+        weightKg: payload.weightKg,
+        sport: payload.sport ?? null,
+        trainsSport: payload.trainsSport,
+        weeklyGameCount: payload.weeklyGameCount ?? null,
+        teamTrainingIntensity: payload.teamTrainingIntensity ?? null,
+        seasonPhase,
+        weeklyAvailability: buildWeekdaysJson(payload.availableWeekdays),
+        sportTrainingDays: buildTrainingDaysJson(payload.trainsSport ? payload.sportTrainingDays : undefined),
+        programPreferences: buildAthleteProgramPreferencesJson(payload.programPreferences),
+        notes: payload.notes ?? null,
+        onboardingCompletedAt: new Date(),
+      },
+      create: {
+        userId,
         ...(payload.displayName !== undefined ? { displayName: payload.displayName } : {}),
         heightCm: payload.heightCm,
         weightKg: payload.weightKg,
@@ -1085,7 +1125,7 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
     const programPreferences = payload.programPreferences ?? parseAthleteProgramPreferences(currentAthleteProfile.programPreferences);
     const deducedSeasonPhase = deduceSeasonPhase(payload.weeklyGameCount, payload.teamTrainingIntensity);
     const phase = payload.phase ?? deducedSeasonPhase;
-    const includePreparationPhase = payload.includePreparationPhase ?? !programPreferences.skipPhase1;
+    const includePreparationPhase = payload.includePreparationPhase ?? false;
 
     const program = await prisma.$transaction(async (transaction) => {
       const updatedAthleteProfile = await transaction.athleteProfile.update({
@@ -1219,6 +1259,334 @@ athleteRouter.get("/programs", async (req: AuthenticatedRequest, res: Response) 
   } catch (error) {
     console.error("Failed to fetch athlete programs", error);
     res.status(500).json({ message: "Failed to fetch athlete programs" });
+  }
+});
+
+// ── Available program templates (free + premium) ─────────────────────────────
+
+const programRequestSchema = z.object({
+  templateCode: z.string().min(1),
+  requestNotes: z.string().trim().optional(),
+});
+
+athleteRouter.get("/programs/available", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const athleteProfile = await prisma.athleteProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Current user is not an athlete" });
+      return;
+    }
+
+    const [templates, activeProgram, assignments] = await Promise.all([
+      prisma.programTemplate.findMany({
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          description: true,
+          welcomeVideoUrl: true,
+          cycleLengthDays: true,
+          isPremium: true,
+          coachId: true,
+          coach: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          techniqueMediaAssets: {
+            orderBy: [{ isPrimary: "desc" }, { orderIndex: "asc" }, { createdAt: "asc" }],
+            select: {
+              id: true,
+              kind: true,
+              url: true,
+              title: true,
+              isPrimary: true,
+            },
+          },
+          techniques: {
+            orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+            take: 1,
+            select: {
+              id: true,
+              title: true,
+              description: true,
+            },
+          },
+        },
+      }),
+      prisma.personalProgram.findFirst({
+        where: { athleteProfileId: athleteProfile.id, status: ProgramStatus.ACTIVE },
+        select: { id: true, templateId: true },
+      }),
+      prisma.programAssignment.findMany({
+        where: { athleteProfileId: athleteProfile.id },
+        select: { templateId: true, status: true },
+      }),
+    ]);
+
+    const activeTemplateId = activeProgram?.templateId ?? null;
+    const assignmentByTemplate = new Map(assignments.map((assignment) => [assignment.templateId, assignment.status]));
+
+    const availableTemplates = templates.map((template) => ({
+      ...template,
+      hasActiveProgram: template.id === activeTemplateId,
+      assignmentStatus: assignmentByTemplate.get(template.id) ?? null,
+    }));
+
+    res.json({
+      templates: availableTemplates,
+      hasActiveProgram: Boolean(activeProgram),
+    });
+  } catch (error) {
+    console.error("Failed to fetch available programs", error);
+    res.status(500).json({ message: "Failed to fetch available programs" });
+  }
+});
+
+athleteRouter.post("/programs/request", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const payload = programRequestSchema.parse(req.body);
+
+    const athleteProfile = await prisma.athleteProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Current user is not an athlete" });
+      return;
+    }
+
+    const activeProgram = await prisma.personalProgram.findFirst({
+      where: { athleteProfileId: athleteProfile.id, status: ProgramStatus.ACTIVE },
+      select: { id: true },
+    });
+
+    if (activeProgram) {
+      res.status(409).json({
+        message: "Ya tienes un programa activo. Completa o archiva tu programa actual antes de solicitar uno nuevo.",
+      });
+      return;
+    }
+
+    const template = await prisma.programTemplate.findUnique({
+      where: { code: payload.templateCode },
+      select: { id: true, code: true, name: true, isPremium: true, coachId: true },
+    });
+
+    if (!template) {
+      res.status(404).json({ message: "Program template not found" });
+      return;
+    }
+
+    if (!template.isPremium) {
+      res.status(400).json({
+        message: "Este programa es gratuito y no requiere solicitud. Puedes crearlo directamente desde generar programa.",
+      });
+      return;
+    }
+
+    const isSuperAdmin = req.auth?.platformRole === Role.SUPERADMIN;
+    const coachIdOverride = isSuperAdmin ? getQueryParam(req.query.coachUserId) : null;
+    const resolvedCoachId = coachIdOverride ?? template.coachId ?? null;
+
+    if (!resolvedCoachId) {
+      res.status(400).json({
+        message: "Este programa no tiene un coach asignado. Contacta al administrador.",
+      });
+      return;
+    }
+
+    const existingAssignment = await prisma.programAssignment.findFirst({
+      where: {
+        athleteProfileId: athleteProfile.id,
+        templateId: template.id,
+        status: { in: [AssignmentStatus.PENDING, AssignmentStatus.APPROVED] },
+      },
+      select: { id: true, status: true },
+    });
+
+    if (existingAssignment) {
+      res.status(409).json({
+        message: "Ya tienes una solicitud pendiente o aprobada para este programa",
+        assignmentId: existingAssignment.id,
+        status: existingAssignment.status,
+      });
+      return;
+    }
+
+    const assignment = await prisma.programAssignment.create({
+      data: {
+        athleteProfileId: athleteProfile.id,
+        templateId: template.id,
+        coachId: resolvedCoachId,
+        requestNotes: payload.requestNotes ?? null,
+        status: AssignmentStatus.PENDING,
+      },
+      include: {
+        template: {
+          select: { id: true, code: true, name: true, isPremium: true, cycleLengthDays: true },
+        },
+        coach: {
+          select: { id: true, email: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    res.status(201).json({ assignment });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: "Invalid request payload", issues: error.issues });
+      return;
+    }
+
+    console.error("Failed to request premium program", error);
+    res.status(500).json({ message: "Failed to request premium program" });
+  }
+});
+
+athleteRouter.get("/assignments", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const athleteProfile = await prisma.athleteProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Current user is not an athlete" });
+      return;
+    }
+
+    const assignments = await prisma.programAssignment.findMany({
+      where: { athleteProfileId: athleteProfile.id },
+      orderBy: { assignedAt: "desc" },
+      include: {
+        template: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isPremium: true,
+            cycleLengthDays: true,
+            welcomeVideoUrl: true,
+          },
+        },
+        coach: {
+          select: { id: true, email: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    res.json({ assignments });
+  } catch (error) {
+    console.error("Failed to fetch athlete assignments", error);
+    res.status(500).json({ message: "Failed to fetch athlete assignments" });
+  }
+});
+
+athleteRouter.get("/assignments/:templateId", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const templateId = getStringParam(req.params.templateId);
+
+    if (!userId) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    if (!templateId) {
+      res.status(400).json({ message: "Template id is required" });
+      return;
+    }
+
+    const athleteProfile = await prisma.athleteProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    if (!athleteProfile) {
+      res.status(403).json({ message: "Current user is not an athlete" });
+      return;
+    }
+
+    const template = await prisma.programTemplate.findFirst({
+      where: { OR: [{ id: templateId }, { code: templateId }] },
+      select: { id: true },
+    });
+
+    if (!template) {
+      res.status(404).json({ message: "Program template not found" });
+      return;
+    }
+
+    const assignment = await prisma.programAssignment.findFirst({
+      where: {
+        athleteProfileId: athleteProfile.id,
+        templateId: template.id,
+      },
+      orderBy: { assignedAt: "desc" },
+      include: {
+        template: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isPremium: true,
+            cycleLengthDays: true,
+            welcomeVideoUrl: true,
+          },
+        },
+        coach: {
+          select: { id: true, email: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    if (!assignment) {
+      res.status(404).json({ message: "Assignment not found" });
+      return;
+    }
+
+    const personalProgram = assignment.status === "APPROVED"
+      ? await prisma.personalProgram.findFirst({
+          where: { athleteProfileId: athleteProfile.id, templateId: template.id },
+          select: { id: true, name: true, status: true, startDate: true },
+        })
+      : null;
+
+    res.json({ assignment, personalProgram });
+  } catch (error) {
+    console.error("Failed to fetch athlete assignment detail", error);
+    res.status(500).json({ message: "Failed to fetch athlete assignment detail" });
   }
 });
 
