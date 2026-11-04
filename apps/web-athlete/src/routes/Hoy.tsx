@@ -508,6 +508,11 @@ export default function HoyScreen() {
       ? DAY_TYPE_CONFIG[nextSession.dayType as keyof typeof DAY_TYPE_CONFIG]
       : DAY_TYPE_CONFIG.OTHER;
 
+  const [showSessionExercises, setShowSessionExercises] = useState(false);
+
+  const exerciseCount = nextSession?.sessionExercises?.length ?? 0;
+  const estimatedMinutes = exerciseCount > 0 ? 5 + 5 + exerciseCount * 10 + (exerciseCount - 1) * 3 : 0;
+
   return (
     <div className="relative min-h-screen flex flex-col">
       {/* Background image */}
@@ -544,7 +549,16 @@ export default function HoyScreen() {
               <div className="rounded-xl border border-surface-700 bg-surface-900/80 p-5">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-bold text-white">{nextSession.title}</h3>
+                    <h3 className="text-lg font-bold text-white">
+                      {nextSession.title.split("/").length > 1 ? (
+                        <>
+                          {nextSession.title.split("/").slice(0, -1).join("/")}{" "}
+                          <span className={dayConfig?.color ?? "text-surface-400"}>{nextSession.title.split("/").pop()}</span>
+                        </>
+                      ) : (
+                        nextSession.title
+                      )}
+                    </h3>
                     <p className="mt-1 text-sm text-surface-400">
                       {new Date(nextSession.scheduledDate).toLocaleDateString("es-ES", {
                         weekday: "long",
@@ -557,20 +571,51 @@ export default function HoyScreen() {
                   <span className={`text-2xl ${dayConfig?.color ?? "text-surface-400"}`}>{dayConfig?.emoji ?? "◉"}</span>
                 </div>
 
+                {/* Bloque de resumen de ejercicios (clickeable) */}
                 {nextSession.sessionExercises && nextSession.sessionExercises.length > 0 && (
-                  <div className="mt-4 space-y-1">
-                    {nextSession.sessionExercises.slice(0, 4).map((exercise) => (
-                      <div key={exercise.id} className="text-sm text-surface-300">
-                        • {exercise.exercise?.name}
-                        {exercise.sets && ` · ${exercise.sets} series`}
-                        {exercise.repsText && ` · ${exercise.repsText}`}
-                        {exercise.durationSeconds && ` · ${exercise.durationSeconds}s`}
+                  <div
+                    onClick={() => setShowSessionExercises(!showSessionExercises)}
+                    className={`mt-4 rounded-lg border p-4 cursor-pointer transition-colors ${
+                      showSessionExercises
+                        ? "bg-surface-800/30 border-surface-600"
+                        : "bg-surface-800/50 border-surface-700 hover:bg-surface-800/30"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <p className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+                          Resumen de la sesión
+                        </p>
+                        <p className="text-sm text-white">
+                          {nextSession.sessionExercises.length} ejercicio{
+                            nextSession.sessionExercises.length !== 1 ? "s" : ""
+                          } programados
+                        </p>
                       </div>
-                    ))}
-                    {nextSession.sessionExercises.length > 4 && (
-                      <p className="text-xs text-surface-500">
-                        +{nextSession.sessionExercises.length - 4} ejercicios más
-                      </p>
+                      <span className="text-xs text-surface-400">
+                        ~{estimatedMinutes} min
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-xs text-surface-500">
+                        5 min calentar + 5 min estirar + 10 min por ejercicio
+                      </span>
+                      <span className={`text-xs ${showSessionExercises ? "text-amber-400" : "text-surface-500"}`}>
+                        {showSessionExercises ? "▲" : "▼"}
+                      </span>
+                    </div>
+
+                    {showSessionExercises && (
+                      <div className="mt-3 space-y-1">
+                        {nextSession.sessionExercises.map((exercise) => (
+                          <div key={exercise.id} className="text-xs text-surface-300">
+                            • {exercise.exercise?.name}
+                            {exercise.sets && ` · ${exercise.sets} series`}
+                            {exercise.repsText && ` · ${exercise.repsText}`}
+                            {exercise.durationSeconds && ` · ${exercise.durationSeconds}s`}
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 )}
