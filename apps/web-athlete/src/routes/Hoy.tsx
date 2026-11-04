@@ -49,7 +49,7 @@ const DAY_TYPE_CONFIG: Record<string, { emoji: string; color: string }> = {
   MOBILITY: { emoji: "🤸", color: "text-green-400" },
   RECOVERY: { emoji: "🧘", color: "text-indigo-400" },
   TEST: { emoji: "📏", color: "text-pink-400" },
-  OTHER: { emoji: "◉", color: "text-surface-400" },
+  OTHER: { emoji: "◉", color: "{textSecondaryColor}" },
 };
 
 export default function HoyScreen() {
@@ -77,6 +77,10 @@ export default function HoyScreen() {
 
   const { theme } = useTheme();
   const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
+  const textColor = theme === "dark" ? "{textColor}" : "text-surface-900";
+  const textSecondaryColor = theme === "dark" ? "{textSecondaryColor}" : "text-surface-600";
+  const cardBg = theme === "dark" ? "{cardBg}" : "bg-surface-100/80";
+  const cardBorder = theme === "dark" ? "{cardBorder}" : "border-surface-300";
 
   const toggleDay = (day: number) => {
     setSportTrainingDays((prev) =>
@@ -230,7 +234,7 @@ export default function HoyScreen() {
     if (isLoading) {
       return (
         <div className="flex min-h-[400px] items-center justify-center">
-          <div className="text-surface-400">Cargando…</div>
+          <div className="{textSecondaryColor}">Cargando…</div>
         </div>
       );
     }
@@ -265,7 +269,7 @@ export default function HoyScreen() {
         <div className="relative z-10 flex flex-col min-h-screen px-4 py-6">
           {/* Header */}
           <div className="mb-8 flex items-center justify-between">
-            <h2 className="text-2xl font-bold text-white">Hola, {displayName}</h2>
+            <h2 className="text-2xl font-bold {textColor}">Hola, {displayName}</h2>
           </div>
 
           {/* Main content: two columns on desktop, stacked on mobile */}
@@ -317,7 +321,7 @@ export default function HoyScreen() {
                     className="w-full h-2 bg-surface-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
                   />
                 </div>
-                <div className="flex w-full justify-between mt-0.5 text-xs text-white/90">
+                <div className="flex w-full justify-between mt-0.5 text-xs ${textColor}/90">
                   <span>40 kg</span>
                   <span>80 kg</span>
                   <span>120 kg</span>
@@ -404,7 +408,7 @@ export default function HoyScreen() {
                       templates.find((t) => t.code === selectedTemplateCode)?.isPremium &&
                       " · Premium"}
                   </span>
-                  <span className="text-white">{planDropdownOpen ? "▲" : "▼"}</span>
+                  <span className="{textColor}">{planDropdownOpen ? "▲" : "▼"}</span>
                 </button>
 
                 {planDropdownOpen && (
@@ -492,7 +496,7 @@ export default function HoyScreen() {
   if (!progressData) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
-        <div className="text-surface-400">Cargando…</div>
+        <div className="{textSecondaryColor}">Cargando…</div>
       </div>
     );
   }
@@ -535,7 +539,7 @@ export default function HoyScreen() {
         <div className="mx-auto max-w-5xl">
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-bold text-white">¡Hola, {displayName}!</h2>
+              <h2 className="text-2xl font-bold {textColor}">¡Hola, {displayName}!</h2>
               {meData.activeProgram && (
                 <div className="mt-2 flex items-center gap-1 px-3 py-1.5 rounded bg-green-900/30 border border-green-500/30">
                   <span className="text-green-400 font-mono text-sm">&gt;</span>
@@ -550,17 +554,17 @@ export default function HoyScreen() {
               <div className="rounded-xl border border-surface-700 bg-surface-900/80 p-5">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-bold text-white">
+                    <h3 className="text-lg font-bold {textColor}">
                       {nextSession.title.split("/").length > 1 ? (
                         <>
                           {nextSession.title.split("/").slice(0, -1).join("/")}{" "}
-                          <span className={dayConfig?.color ?? "text-surface-400"}>{nextSession.title.split("/").pop()}</span>
+                          <span className={dayConfig?.color ?? "{textSecondaryColor}"}>{nextSession.title.split("/").pop()}</span>
                         </>
                       ) : (
                         nextSession.title
                       )}
                     </h3>
-                    <p className="mt-1 text-sm text-surface-400">
+                    <p className="mt-1 text-sm {textSecondaryColor}">
                       {new Date(nextSession.scheduledDate).toLocaleDateString("es-ES", {
                         weekday: "long",
                         year: "numeric",
@@ -569,7 +573,7 @@ export default function HoyScreen() {
                       })}
                     </p>
                   </div>
-                  <span className={`text-2xl ${dayConfig?.color ?? "text-surface-400"}`}>{dayConfig?.emoji ?? "◉"}</span>
+                  <span className={`text-2xl ${dayConfig?.color ?? "{textSecondaryColor}"}`}>{dayConfig?.emoji ?? "◉"}</span>
                 </div>
 
                 {/* Bloque de resumen de ejercicios (clickeable) */}
@@ -587,21 +591,21 @@ export default function HoyScreen() {
                         <p className="text-xs font-bold text-amber-400 uppercase tracking-wider">
                           Resumen de la sesión
                         </p>
-                        <p className="text-sm text-white">
+                        <p className="text-sm {textColor}">
                           {nextSession.sessionExercises.length} ejercicio{
                             nextSession.sessionExercises.length !== 1 ? "s" : ""
                           } programados
                         </p>
                       </div>
-                      <span className="text-xs text-surface-400">
+                      <span className="text-xs {textSecondaryColor}">
                         ~{estimatedMinutes} min
                       </span>
                     </div>
                     <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs text-surface-500">
+                      <span className="text-xs {textSecondaryColor}">
                         5 min calentar + 5 min estirar + 10 min por ejercicio
                       </span>
-                      <span className={`text-xs ${showSessionExercises ? "text-amber-400" : "text-surface-500"}`}>
+                      <span className={`text-xs ${showSessionExercises ? "text-amber-400" : "{textSecondaryColor}"}`}>
                         {showSessionExercises ? "▲" : "▼"}
                       </span>
                     </div>
@@ -630,7 +634,7 @@ export default function HoyScreen() {
               </div>
             ) : (
               <div className="rounded-xl border border-surface-700 bg-surface-900/80 p-5 text-center">
-                <p className="text-surface-400">No hay próximas sesiones programadas.</p>
+                <p className="{textSecondaryColor}">No hay próximas sesiones programadas.</p>
               </div>
             )}
 
@@ -640,18 +644,18 @@ export default function HoyScreen() {
               </p>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <div className="text-2xl font-bold text-white">{summary?.completedSessions ?? 0}</div>
-                  <div className="mt-1 text-xs text-surface-400">Completadas</div>
+                  <div className="text-2xl font-bold {textColor}">{summary?.completedSessions ?? 0}</div>
+                  <div className="mt-1 text-xs {textSecondaryColor}">Completadas</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-white">{summary?.totalSessions ?? 0}</div>
-                  <div className="mt-1 text-xs text-surface-400">Total</div>
+                  <div className="text-2xl font-bold {textColor}">{summary?.totalSessions ?? 0}</div>
+                  <div className="mt-1 text-xs {textSecondaryColor}">Total</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold text-amber-400">
                     {Math.round(summary?.completionRate ?? 0)}%
                   </div>
-                  <div className="mt-1 text-xs text-surface-400">Progreso</div>
+                  <div className="mt-1 text-xs {textSecondaryColor}">Progreso</div>
                 </div>
               </div>
             </div>
