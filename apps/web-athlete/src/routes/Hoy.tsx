@@ -87,12 +87,13 @@ export default function HoyScreen() {
   }>>([]);
 
   const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
+
+  // Theme-aware colors
   const textColor = theme === "dark" ? "text-white" : "text-surface-900";
-  const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
-  const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-100";
-  const cardBorder = theme === "dark" ? "border-surface-700" : "border-surface-300";
-  const exerciseBoxBg = theme === "dark" ? "bg-surface-800/50 border-surface-700" : "bg-surface-100 border-surface-300";
-  const exerciseBoxHover = theme === "dark" ? "hover:bg-surface-800/30" : "hover:bg-surface-200";
+  const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-500";
+  const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-50";
+  const cardBorder = theme === "dark" ? "border-surface-700" : "border-surface-200";
+  const exerciseBoxBg = theme === "dark" ? "bg-surface-800/50 border-surface-700" : "bg-white border-surface-300";
 
   const toggleDay = (day: number) => {
     setSportTrainingDays((prev) =>
@@ -541,9 +542,9 @@ export default function HoyScreen() {
               {meData.activeProgram && (
                 <div className="mt-2 flex items-center gap-1 px-3 py-1.5 rounded bg-green-900/30 border border-green-500/30">
                   <span className="text-green-400 font-mono text-sm">&gt;</span>
-                  <span className="text-green-400 font-mono text-sm">PROGRAMA</span>
-                  <span className="text-green-400 font-mono text-xs">:</span>
-                  <span className="text-white font-mono text-sm">{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, '')}</span>
+                  <span className={`text-green-900 font-mono text-sm`}>PROGRAMA</span>
+                  <span className="text-green-900 font-mono text-xs">:</span>
+                  <span className="text-surface-900 font-mono text-sm">{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, '')}</span>
                 </div>
               )}
             </div>
