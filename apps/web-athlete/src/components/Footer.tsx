@@ -5,7 +5,7 @@ export default function Footer() {
   const logoSrc = theme === "dark" ? "/Logo_Blanco.png" : "/Logo_Azul.png";
 
   return (
-    <footer className={`border-t px-4 py-4 ${theme === "dark" ? "border-surface-800 bg-surface-950" : "border-gray-300 bg-gray-50"}`}>
+    <footer className={`border-t px-4 py-4 ${theme === "dark" ? "border-surface-800 bg-black" : "border-gray-300 bg-white"}`}>
       <div className="mx-auto flex max-w-5xl items-center justify-center gap-2">
         <span className={`text-xs font-medium tracking-widest uppercase ${theme === "dark" ? "text-surface-400" : "text-gray-700"}`}>
           Powered
