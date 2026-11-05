@@ -66,7 +66,6 @@ export default function HoyScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Onboarding form state
   const [heightCm, setHeightCm] = useState(170);
   const [weightKg, setWeightKg] = useState(70);
   const [trainsSport, setTrainsSport] = useState(false);
@@ -88,7 +87,6 @@ export default function HoyScreen() {
 
   const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
 
-  // Theme-aware colors - completely separate dark and light themes
   const textColor = theme === "dark" ? "text-white" : "text-black";
   const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
   const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-100";
@@ -219,13 +217,11 @@ export default function HoyScreen() {
         setProgressData(progress);
         setTemplates(available.templates ?? []);
 
-        // Find today's session exercise count from /athlete/sessions
         const today = new Date().toISOString().slice(0, 10);
         const todaySession = sessionsData.sessions?.find((s) => s.scheduledDate.slice(0, 10) === today);
         setTodaySession(todaySession ?? null);
         setSessionExerciseCount(todaySession?.exerciseCount ?? 0);
 
-        // Fetch detailed session exercises for today's session
         if (todaySession) {
           try {
             const sessionDetailRes = await api(`/athlete/sessions/${todaySession.id}`);
@@ -267,12 +263,11 @@ export default function HoyScreen() {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [planDropdownOpen]);
 
-  // Onboarding not yet completed: show graphical onboarding form
   if (!meData?.athleteProfile?.onboardingCompletedAt) {
     if (isLoading) {
       return (
         <div className="flex min-h-[400px] items-center justify-center">
-          <div className="{textSecondaryColor}">Cargando…</div>
+          <div className={`text-xs ${textSecondaryColor}`}>Cargando…</div>
         </div>
       );
     }
@@ -289,7 +284,6 @@ export default function HoyScreen() {
 
     return (
       <div className="relative flex flex-col">
-        {/* Background image */}
         <div className="absolute inset-0 z-0">
           <img
             src={backgroundImage}
@@ -303,24 +297,18 @@ export default function HoyScreen() {
           <div className="absolute inset-0 bg-black/10" />
         </div>
 
-        {/* Content overlay */}
         <div className="relative z-10 flex flex-col min-h-screen px-4 py-6">
-          {/* Header */}
           <div className="mb-8 flex items-center justify-between">
             <h2 className={`text-2xl font-bold ${textColor}`}>Hola, {displayName}</h2>
           </div>
 
-          {/* Main content: two columns on desktop, stacked on mobile */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-            {/* Left column: sliders */}
             <div className="flex flex-col gap-8 items-start w-full">
               <div className="flex flex-col items-start gap-2 w-full">
                 <label className="mb-0 block text-xs font-medium text-white uppercase tracking-wider">
                   Altura (cm)
                 </label>
-                <div className="text-xl font-bold text-amber-400">
-                  {heightCm} cm
-                </div>
+                <div className="text-xl font-bold text-amber-400">{heightCm} cm</div>
                 <div className="relative h-48 w-full mt-1 flex items-end justify-start pl-2">
                   <input
                     type="range"
@@ -330,11 +318,7 @@ export default function HoyScreen() {
                     onChange={(e) => setHeightCm(parseInt(e.target.value, 10))}
                     onTouchStart={(e) => e.stopPropagation()}
                     onTouchMove={(e) => e.stopPropagation()}
-                    style={{
-                      transform: "rotate(-90deg)",
-                      transformOrigin: "left bottom",
-                      width: "200px",
-                    }}
+                    style={{ transform: "rotate(-90deg)", transformOrigin: "left bottom", width: "200px" }}
                     className="accent-amber-500"
                   />
                 </div>
@@ -344,9 +328,7 @@ export default function HoyScreen() {
                 <label className="mb-0 block text-xs font-medium text-white uppercase tracking-wider">
                   Peso (kg)
                 </label>
-                <div className="text-xl font-bold text-amber-400">
-                  {weightKg} kg
-                </div>
+                <div className="text-xl font-bold text-amber-400">{weightKg} kg</div>
                 <div className="relative mt-1 w-full">
                   <input
                     type="range"
@@ -360,14 +342,11 @@ export default function HoyScreen() {
                   />
                 </div>
                 <div className="flex w-full justify-between mt-0.5 text-xs text-white/90">
-                  <span>40 kg</span>
-                  <span>80 kg</span>
-                  <span>120 kg</span>
+                  <span>40 kg</span><span>80 kg</span><span>120 kg</span>
                 </div>
               </div>
             </div>
 
-            {/* Right column: sport selector */}
             <div className="flex flex-col gap-6">
               <div className="relative">
                 <label className="mb-3 block text-xs font-medium text-white uppercase tracking-wider">
@@ -377,9 +356,7 @@ export default function HoyScreen() {
                   <button
                     onClick={() => setTrainsSport(true)}
                     className={`flex-1 py-3 rounded-lg text-sm font-medium transition-all ${
-                      trainsSport
-                        ? "bg-amber-500 text-black"
-                        : "bg-white/10 border border-white/30 text-white hover:bg-white/20"
+                      trainsSport ? "bg-amber-500 text-black" : "bg-white/10 border border-white/30 text-white hover:bg-white/20"
                     }`}
                   >
                     Sí
@@ -390,9 +367,7 @@ export default function HoyScreen() {
                       setSportTrainingDays([]);
                     }}
                     className={`flex-1 py-3 rounded-lg text-sm font-medium transition-all ${
-                      !trainsSport
-                        ? "bg-amber-500 text-black"
-                        : "bg-white/10 border border-white/30 text-white hover:bg-white/20"
+                      !trainsSport ? "bg-amber-500 text-black" : "bg-white/10 border border-white/30 text-white hover:bg-white/20"
                     }`}
                   >
                     No
@@ -413,9 +388,7 @@ export default function HoyScreen() {
                           key={name}
                           onClick={() => toggleDay(i)}
                           className={`h-10 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${
-                            isSelected
-                              ? "bg-amber-500 text-black"
-                              : "bg-white/10 border border-white/30 text-white hover:bg-white/20"
+                            isSelected ? "bg-amber-500 text-black" : "bg-white/10 border border-white/30 text-white hover:bg-white/20"
                           }`}
                         >
                           {name}
@@ -428,7 +401,6 @@ export default function HoyScreen() {
             </div>
           </div>
 
-          {/* Bottom: plan dropdown + generate button */}
           <div className="relative pt-6 border-t border-white/20 flex flex-col gap-4">
             <div>
               <label className="mb-2 block text-xs font-medium text-white uppercase tracking-wider">
@@ -446,7 +418,7 @@ export default function HoyScreen() {
                       templates.find((t) => t.code === selectedTemplateCode)?.isPremium &&
                         " · Premium"}
                   </span>
-                  <span className="{textColor}">{planDropdownOpen ? "▲" : "▼"}</span>
+                  <span className={`${textColor} font-mono`}>{planDropdownOpen ? "▲" : "▼"}</span>
                 </button>
 
                 {planDropdownOpen && (
@@ -491,11 +463,10 @@ export default function HoyScreen() {
     );
   }
 
-  // Onboarding complete: show regular Hoy dashboard with real data
   if (!progressData) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
-        <div className="{textSecondaryColor}">Cargando…</div>
+        <div className={`text-xs ${textSecondaryColor}`}>Cargando…</div>
       </div>
     );
   }
@@ -519,7 +490,6 @@ export default function HoyScreen() {
 
   return (
     <div className="relative flex flex-col">
-      {/* Background image */}
       <div className="fixed inset-0 z-0">
         <img
           src={backgroundImage}
@@ -533,18 +503,17 @@ export default function HoyScreen() {
         <div className={`fixed inset-0 ${theme === "dark" ? "bg-black/40" : "bg-white/30"}`} />
       </div>
 
-      {/* Content overlay */}
       <div className="relative z-10 flex flex-col px-4 py-4">
         <div className="mx-auto max-w-5xl">
           <div className="space-y-6">
             <div>
               <h2 className={`text-2xl font-bold ${textColor}`}>¡Hola, {displayName}!</h2>
               {meData.activeProgram && (
-                <div className={`mt-2 flex items-center gap-1 px-3 py-1.5 rounded ${theme === "dark" ? "bg-green-900/50 border border-green-900/50" : "bg-yellow-50/40 border border-yellow-300/50"}`}>
+                <div className={`mt-2 flex items-center gap-1 px-3 py-1.5 rounded ${theme === "dark" ? "bg-green-900 border border-green-900/50" : "bg-yellow-50/40 border border-yellow-300/50"}`}>
                   <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-sm`}>&gt;</span>
                   <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>PROGRAMA</span>
                   <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-xs`}>,</span>
-                  <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, "")}</span>
+                  <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, '')}</span>
                 </div>
               )}
             </div>
@@ -584,7 +553,7 @@ export default function HoyScreen() {
                           <p className="text-xs font-bold text-amber-400 uppercase tracking-wider">
                             Ejercicios
                           </p>
-                          <span className="text-white">
+                          <span className={`${theme === "dark" ? "text-white" : "text-black"}`}>
                             {exerciseCount} ejercicio{exerciseCount !== 1 ? "s" : ""}
                           </span>
                         </div>
@@ -594,7 +563,7 @@ export default function HoyScreen() {
                       </div>
 
                       {showSessionExercises && todaySessionExercises.length > 0 && (
-                        <div className="mt-3 space-y-1">
+                        <div className={`mt-3 space-y-1 ${theme === "dark" ? "bg-surface-800/50" : "bg-white border-surface-300 rounded-lg p-3"}`}>
                           {todaySessionExercises.map((exercise) => (
                             <div key={exercise.id} className="text-xs text-surface-300">
                               • {exercise.exercise?.name}
@@ -637,9 +606,7 @@ export default function HoyScreen() {
                   <div className="mt-1 text-xs {textSecondaryColor}">Total</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-amber-400">
-                    {Math.round(summary?.completionRate ?? 0)}%
-                  </div>
+                  <div className="text-2xl font-bold text-amber-400">{Math.round(summary?.completionRate ?? 0)}%</div>
                   <div className="mt-1 text-xs {textSecondaryColor}">Progreso</div>
                 </div>
               </div>
