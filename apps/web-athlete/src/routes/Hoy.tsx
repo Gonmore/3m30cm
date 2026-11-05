@@ -78,12 +78,21 @@ export default function HoyScreen() {
   const [showSessionExercises, setShowSessionExercises] = useState(false);
   const [sessionExerciseCount, setSessionExerciseCount] = useState<number>(0);
   const [todaySession, setTodaySession] = useState<ProgressResponse["nextSession"] | null>(null);
+  const [todaySessionExercises, setTodaySessionExercises] = useState<Array<{
+    id: string;
+    exercise: { name: string } | null;
+    sets: number | null;
+    repsText: string | null;
+    durationSeconds: number | null;
+  }>>([]);
 
   const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
   const textColor = theme === "dark" ? "text-white" : "text-surface-900";
   const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
   const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-100";
   const cardBorder = theme === "dark" ? "border-surface-700" : "border-surface-300";
+  const exerciseBoxBg = theme === "dark" ? "bg-surface-800/50 border-surface-700" : "bg-surface-100 border-surface-300";
+  const exerciseBoxHover = theme === "dark" ? "hover:bg-surface-800/30" : "hover:bg-surface-200";
 
   const toggleDay = (day: number) => {
     setSportTrainingDays((prev) =>
@@ -214,6 +223,22 @@ export default function HoyScreen() {
         const todaySession = sessionsData.sessions?.find((s) => s.scheduledDate.slice(0, 10) === today);
         setTodaySession(todaySession ?? null);
         setSessionExerciseCount(todaySession?.exerciseCount ?? 0);
+
+        // Fetch detailed session exercises for today's session
+        if (todaySession) {
+          try {
+            const sessionDetailRes = await api(`/athlete/sessions/${todaySession.id}`);
+            const sessionDetail = await handleApiResponse<{
+              session: ProgressResponse["nextSession"];
+              guidance?: any;
+            }>(sessionDetailRes);
+            if (sessionDetail.session?.sessionExercises) {
+              setTodaySessionExercises(sessionDetail.session.sessionExercises);
+            }
+          } catch (err) {
+            console.error("Error fetching session details:", err);
+          }
+        }
 
         if (me.athleteProfile?.onboardingCompletedAt) {
           return;
@@ -567,9 +592,9 @@ export default function HoyScreen() {
                         </span>
                       </div>
 
-                      {showSessionExercises && todaySession?.sessionExercises && todaySession.sessionExercises.length > 0 && (
+                      {showSessionExercises && todaySessionExercises.length > 0 && (
                         <div className="mt-3 space-y-1">
-                          {todaySession.sessionExercises.map((exercise) => (
+                          {todaySessionExercises.map((exercise) => (
                             <div key={exercise.id} className="text-xs text-surface-300">
                               • {exercise.exercise?.name}
                               {exercise.sets && ` · ${exercise.sets} series`}
