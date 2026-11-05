@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useApi, handleApiResponse } from "../api/client";
-import { type AvailableTemplate } from "../types/api";
+import { type AvailableTemplate, type SessionsListResponse } from "../types/api";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -76,6 +76,7 @@ export default function HoyScreen() {
   const [adaptationModalOpen, setAdaptationModalOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSessionExercises, setShowSessionExercises] = useState(false);
+  const [sessionExerciseCount, setSessionExerciseCount] = useState<number>(0);
 
   const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
   const textColor = theme === "dark" ? "text-white" : "text-surface-900";
@@ -192,17 +193,24 @@ export default function HoyScreen() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [meRes, progressRes, availableRes] = await Promise.all([
+        const [meRes, progressRes, availableRes, sessionsRes] = await Promise.all([
           api("/athlete/me"),
           api("/athlete/progress"),
           api("/athlete/programs/available"),
+          api("/athlete/sessions"),
         ]);
         const me = await handleApiResponse<MeResponse>(meRes);
         const progress = await handleApiResponse<ProgressResponse>(progressRes);
         const available = await handleApiResponse<AvailableResponse>(availableRes);
+        const sessionsData = await handleApiResponse<SessionsListResponse>(sessionsRes);
         setMeData(me);
         setProgressData(progress);
         setTemplates(available.templates ?? []);
+
+        // Find today's session exercise count from /athlete/sessions
+        const today = new Date().toISOString().slice(0, 10);
+        const todaySession = sessionsData.sessions?.find((s) => s.scheduledDate.slice(0, 10) === today);
+        setSessionExerciseCount(todaySession?.exerciseCount ?? 0);
 
         if (me.athleteProfile?.onboardingCompletedAt) {
           return;
@@ -516,7 +524,7 @@ export default function HoyScreen() {
       ? DAY_TYPE_CONFIG[nextSession.dayType as keyof typeof DAY_TYPE_CONFIG]
       : DAY_TYPE_CONFIG.OTHER;
 
-  const exerciseCount = nextSession?.exerciseCount ?? nextSession?.sessionExercises?.length ?? 0;
+  const exerciseCount = sessionExerciseCount;
   const estimatedMinutes = exerciseCount > 0 ? 5 + 5 + exerciseCount * 10 + (exerciseCount - 1) * 3 : 0;
 
   return (
