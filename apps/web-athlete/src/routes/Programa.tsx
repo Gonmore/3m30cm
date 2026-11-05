@@ -40,6 +40,7 @@ export default function ProgramaScreen() {
   const [selectedTemplateCode, setSelectedTemplateCode] = useState<string>("");
   const [startDate, setStartDate] = useState<string>("");
   const [availableTemplates, setAvailableTemplates] = useState<AvailableTemplate[]>([]);
+  const [athleteProfile, setAthleteProfile] = useState<AthleteProfileWithFields | null>(null);
 
   const textColor = theme === "dark" ? "text-white" : "text-surface-900";
   const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
@@ -78,8 +79,21 @@ export default function ProgramaScreen() {
   }, [api, location.state, startDate, selectedTemplateCode]);
 
   const handleRegenerateProgram = async () => {
-    const athleteProfile = (progressData as any)?.athleteProfile as AthleteProfileWithFields | null;
-    if (!athleteProfile) {
+    // Obtener perfil del atleta desde /athlete/me si no lo tenemos en caché
+    let profile = athleteProfile;
+    if (!profile) {
+      try {
+        const meRes = await api("/athlete/me");
+        const meData = await handleApiResponse<any>(meRes);
+        profile = meData.athleteProfile as AthleteProfileWithFields;
+        setAthleteProfile(profile);
+      } catch (err) {
+        setError("No se pudo obtener el perfil del atleta");
+        return;
+      }
+    }
+
+    if (!profile) {
       setError("No se pudo obtener el perfil del atleta");
       return;
     }
@@ -96,16 +110,16 @@ export default function ProgramaScreen() {
       await api("/athlete/programs/generate", {
         method: "POST",
         body: JSON.stringify({
-          displayName: athleteProfile.displayName || undefined,
-          heightCm: athleteProfile.heightCm,
-          weightKg: athleteProfile.weightKg,
-          sport: athleteProfile.sport || undefined,
-          trainsSport: athleteProfile.trainsSport,
-          sportTrainingDays: athleteProfile.sportTrainingDays ?? [],
-          weeklyGameCount: athleteProfile.weeklyGameCount || undefined,
-          teamTrainingIntensity: athleteProfile.teamTrainingIntensity || undefined,
-          availableWeekdays: parseWeekdays(athleteProfile.weeklyAvailability),
-          programPreferences: athleteProfile.programPreferences || {
+          displayName: profile.displayName || undefined,
+          heightCm: profile.heightCm,
+          weightKg: profile.weightKg,
+          sport: profile.sport || undefined,
+          trainsSport: profile.trainsSport,
+          sportTrainingDays: profile.sportTrainingDays ?? [],
+          weeklyGameCount: profile.weeklyGameCount || undefined,
+          teamTrainingIntensity: profile.teamTrainingIntensity || undefined,
+          availableWeekdays: parseWeekdays(profile.availableWeekdays),
+          programPreferences: profile.programPreferences || {
             skipPhase1: false,
             teamTrainingDays: [],
             deloadEnabled: false,
@@ -204,7 +218,7 @@ export default function ProgramaScreen() {
                     </p>
                   )}
                 </div>
-                {(progressData as any)?.athleteProfile && (
+                {progressData?.summary && progressData.summary.totalSessions > 0 && (
                   <button
                     onClick={() => setShowRegenerateModal(true)}
                     className="rounded-md border border-surface-700 px-3 py-1.5 text-xs font-medium text-surface-300 hover:bg-surface-800 transition-colors"
