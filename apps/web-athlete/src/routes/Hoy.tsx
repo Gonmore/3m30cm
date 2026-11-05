@@ -541,12 +541,12 @@ export default function HoyScreen() {
           <div className="space-y-6">
             <div>
               <h2 className={`text-2xl font-bold ${textColor}`}>¡Hola, {displayName}!</h2>
-              {meData.activeProgram && (
+                {meData.activeProgram && (
                 <div className="mt-2 flex items-center gap-1 px-3 py-1.5 rounded bg-green-900 border border-green-900/50">
                   <span className="text-green-900 font-mono text-sm">&gt;</span>
-                  <span className="text-green-900 font-mono text-sm">PROGRAMA</span>
-                  <span className="text-green-900 font-mono text-xs">:</span>
-                  <span className="text-green-900 font-mono text-sm">{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, '')}</span>
+                  <span className="text-white font-mono text-sm">PROGRAMA</span>
+                  <span className="text-white font-mono text-xs">:</span>
+                  <span className="text-white font-mono text-sm">{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, '')}</span>
                 </div>
               )}
             </div>
