@@ -49,13 +49,14 @@ const DAY_TYPE_CONFIG: Record<string, { emoji: string; color: string }> = {
   MOBILITY: { emoji: "🤸", color: "text-green-400" },
   RECOVERY: { emoji: "🧘", color: "text-indigo-400" },
   TEST: { emoji: "📏", color: "text-pink-400" },
-  OTHER: { emoji: "◉", color: "{textSecondaryColor}" },
+  OTHER: { emoji: "◉", color: "text-surface-400" },
 };
 
 export default function HoyScreen() {
   const api = useApi();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { theme } = useTheme();
 
   const [meData, setMeData] = useState<MeResponse | null>(null);
   const [progressData, setProgressData] = useState<ProgressResponse | null>(null);
@@ -75,12 +76,11 @@ export default function HoyScreen() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSessionExercises, setShowSessionExercises] = useState(false);
 
-  const { theme } = useTheme();
   const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
-  const textColor = theme === "dark" ? "{textColor}" : "text-surface-900";
-  const textSecondaryColor = theme === "dark" ? "{textSecondaryColor}" : "text-surface-600";
-  const cardBg = theme === "dark" ? "{cardBg}" : "bg-surface-100/80";
-  const cardBorder = theme === "dark" ? "{cardBorder}" : "border-surface-300";
+  const textColor = theme === "dark" ? "text-white" : "text-surface-900";
+  const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
+  const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-100";
+  const cardBorder = theme === "dark" ? "border-surface-700" : "border-surface-300";
 
   const toggleDay = (day: number) => {
     setSportTrainingDays((prev) =>

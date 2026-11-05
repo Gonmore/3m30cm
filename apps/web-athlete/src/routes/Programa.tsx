@@ -15,6 +15,7 @@ import {
 export default function ProgramaScreen() {
   const api = useApi();
   const location = useLocation();
+  const { theme } = useTheme();
   const [sessions, setSessions] = useState<ScheduledSession[]>([]);
   const [progressData, setProgressData] = useState<ProgressResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,13 +60,12 @@ export default function ProgramaScreen() {
   );
 
   const today = new Date().toISOString().slice(0, 10);
-  const { theme } = useTheme();
   const bgImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
   const overlayClass = theme === "dark" ? "bg-black/40" : "bg-white/30";
-  const textColor = theme === "dark" ? "{textColor}" : "text-surface-900";
-  const textSecondaryColor = theme === "dark" ? "{textSecondaryColor}" : "text-surface-600";
-  const cardBg = theme === "dark" ? "{cardBg}" : "bg-surface-100";
-  const cardBorder = theme === "dark" ? "{cardBorder}" : "border-surface-300";
+  const textColor = theme === "dark" ? "text-white" : "text-surface-900";
+  const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
+  const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-100";
+  const cardBorder = theme === "dark" ? "border-surface-700" : "border-surface-300";
 
   return (
     <div className="relative flex flex-col">
