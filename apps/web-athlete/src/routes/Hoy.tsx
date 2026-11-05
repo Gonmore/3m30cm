@@ -581,7 +581,7 @@ export default function HoyScreen() {
                         day: "numeric",
                       })}
                     </p>
-                    <div className={`mt-2 rounded-lg border p-3 cursor-pointer transition-colors ${showSessionExercises
+                    <div className={`mt-2 rounded-lg border p-4 cursor-pointer transition-colors ${showSessionExercises
                       ? theme === "dark"
                         ? "bg-surface-800/30 border-surface-600"
                         : "bg-surface-200 border-surface-400"
@@ -589,67 +589,36 @@ export default function HoyScreen() {
                         ? "bg-surface-800/50 border-surface-700 hover:bg-surface-800/30"
                         : "bg-surface-100 border-surface-300 hover:bg-surface-200"
                     }`} onClick={() => setShowSessionExercises(!showSessionExercises)}>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-surface-400 uppercase tracking-wider text-xs font-bold">Ejercicios</span>
-                        <span className="text-white">{exerciseCount} ejercicio{exerciseCount !== 1 ? "s" : ""}</span>
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <p className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+                            Ejercicios
+                          </p>
+                          <span className="text-white">
+                            {exerciseCount} ejercicio{exerciseCount !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+                        <span className={`text-xs ${showSessionExercises ? "text-amber-400" : `${textSecondaryColor}`}`}>
+                          ⏱ {estimatedMinutes} min
+                        </span>
                       </div>
+
+                      {showSessionExercises && nextSession.sessionExercises && nextSession.sessionExercises.length > 0 && (
+                        <div className="mt-3 space-y-1">
+                          {nextSession.sessionExercises.map((exercise) => (
+                            <div key={exercise.id} className="text-xs text-surface-300">
+                              • {exercise.exercise?.name}
+                              {exercise.sets && ` · ${exercise.sets} series`}
+                              {exercise.repsText && ` · ${exercise.repsText}`}
+                              {exercise.durationSeconds && ` · ${exercise.durationSeconds}s`}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <span className={`text-2xl ${dayConfig?.color ?? `${textSecondaryColor}`}`}>{dayConfig?.emoji ?? "◉"}</span>
                 </div>
-
-                {/* Bloque de resumen de ejercicios (clickeable) */}
-                {nextSession.sessionExercises && nextSession.sessionExercises.length > 0 && (
-                  <div
-                    onClick={() => setShowSessionExercises(!showSessionExercises)}
-                    className={`mt-4 rounded-lg border p-4 cursor-pointer transition-colors ${
-                      showSessionExercises
-                        ? theme === "dark"
-                          ? "bg-surface-800/30 border-surface-600"
-                          : "bg-surface-200 border-surface-400"
-                        : theme === "dark"
-                          ? "bg-surface-800/50 border-surface-700 hover:bg-surface-800/30"
-                          : "bg-surface-100 border-surface-300 hover:bg-surface-200"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <p className="text-xs font-bold text-amber-400 uppercase tracking-wider">
-                          Resumen de la sesión
-                        </p>
-                        <p className="text-sm {textColor}">
-                          {nextSession.sessionExercises.length} ejercicio{
-                            nextSession.sessionExercises.length !== 1 ? "s" : ""
-                          } programados
-                        </p>
-                      </div>
-                      <span className="text-xs {textSecondaryColor}">
-                        ~{estimatedMinutes} min
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs {textSecondaryColor}">
-                        5 min calentar + 5 min estirar + 10 min por ejercicio
-                      </span>
-                      <span className={`text-xs ${showSessionExercises ? "text-amber-400" : `${textSecondaryColor}`}`}>
-                        {showSessionExercises ? "▲" : "▼"}
-                      </span>
-                    </div>
-
-                    {showSessionExercises && (
-                      <div className="mt-3 space-y-1">
-                        {nextSession.sessionExercises.map((exercise) => (
-                          <div key={exercise.id} className="text-xs text-surface-300">
-                            • {exercise.exercise?.name}
-                            {exercise.sets && ` · ${exercise.sets} series`}
-                            {exercise.repsText && ` · ${exercise.repsText}`}
-                            {exercise.durationSeconds && ` · ${exercise.durationSeconds}s`}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 <button
                   onClick={() => navigate(`/programa/sessions/${nextSession.id}`)}
