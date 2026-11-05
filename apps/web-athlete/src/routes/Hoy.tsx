@@ -88,7 +88,7 @@ export default function HoyScreen() {
 
   const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
 
-  // Theme-aware colors - completely independent dark and light themes
+  // Theme-aware colors - completely separate dark and light themes
   const textColor = theme === "dark" ? "text-white" : "text-black";
   const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
   const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-100";
@@ -541,9 +541,9 @@ export default function HoyScreen() {
               <h2 className={`text-2xl font-bold ${textColor}`}>¡Hola, {displayName}!</h2>
               {meData.activeProgram && (
                 <div className={`mt-2 flex items-center gap-1 px-3 py-1.5 rounded ${theme === "dark" ? "bg-green-900 border border-green-900/50" : "bg-yellow-50/40 border border-yellow-300/50"}`}>
-                  <span className={`text-green-900 font-mono text-sm`}>&gt;</span>
+                  <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-sm`}>&gt;</span>
                   <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>PROGRAMA</span>
-                  <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-xs`}>:</span>
+                  <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-xs`}>,</span>
                   <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, "")}</span>
                 </div>
               )}
