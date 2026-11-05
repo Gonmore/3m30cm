@@ -89,13 +89,11 @@ export default function HoyScreen() {
   const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
 
   // Theme-aware colors - completely independent dark and light themes
-  const isDark = theme === "dark";
   const textColor = theme === "dark" ? "text-white" : "text-black";
   const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
   const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-100";
   const cardBorder = theme === "dark" ? "border-surface-700" : "border-surface-300";
   const exerciseBoxBg = theme === "dark" ? "bg-surface-800/50 border-surface-700" : "bg-white border-surface-300";
-  const headerBg = theme === "dark" ? "bg-surface-900" : "bg-surface-50";
 
   const toggleDay = (day: number) => {
     setSportTrainingDays((prev) =>
@@ -541,12 +539,12 @@ export default function HoyScreen() {
           <div className="space-y-6">
             <div>
               <h2 className={`text-2xl font-bold ${textColor}`}>¡Hola, {displayName}!</h2>
-                {meData.activeProgram && (
-                <div className={`mt-2 flex items-center gap-1 px-3 py-1.5 rounded ${theme === "dark" ? "bg-green-900/60 border border-green-900/60" : "bg-yellow-50/40 border border-yellow-300/50"}`}>
-                  <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-sm`}>&gt;</span>
-                  <span className="font-mono text-sm">{theme === "dark" ? "text-white" : "text-green-900"} PROGRAMA</span>
-                  <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-xs`}>`:</span>
-                  <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, '')}</span>
+              {meData.activeProgram && (
+                <div className={`mt-2 flex items-center gap-1 px-3 py-1.5 rounded ${theme === "dark" ? "bg-green-900 border border-green-900/50" : "bg-yellow-50/40 border border-yellow-300/50"}`}>
+                  <span className={`text-green-900 font-mono text-sm`}>&gt;</span>
+                  <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>PROGRAMA</span>
+                  <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-xs`}>:</span>
+                  <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, "")}</span>
                 </div>
               )}
             </div>
