@@ -540,7 +540,7 @@ export default function HoyScreen() {
             <div>
               <h2 className={`text-2xl font-bold ${textColor}`}>¡Hola, {displayName}!</h2>
               {meData.activeProgram && (
-                <div className={`mt-2 flex items-center gap-1 px-3 py-1.5 rounded ${theme === "dark" ? "bg-green-900 border border-green-900/50" : "bg-yellow-50/40 border border-yellow-300/50"}`}>
+                <div className={`mt-2 flex items-center gap-1 px-3 py-1.5 rounded ${theme === "dark" ? "bg-green-900/50 border border-green-900/50" : "bg-yellow-50/40 border border-yellow-300/50"}`}>
                   <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-sm`}>&gt;</span>
                   <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>PROGRAMA</span>
                   <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-xs`}>,</span>
@@ -577,7 +577,7 @@ export default function HoyScreen() {
                         : "bg-surface-200 border-surface-400"
                       : theme === "dark"
                         ? "bg-surface-800/50 border-surface-700 hover:bg-surface-800/30"
-                        : "bg-surface-100 border-surface-300 hover:bg-surface-200"
+                        : "bg-white border-surface-300 hover:bg-surface-200"
                     }`} onClick={() => setShowSessionExercises(!showSessionExercises)}>
                       <div className="flex items-center justify-between mb-3">
                         <div>
