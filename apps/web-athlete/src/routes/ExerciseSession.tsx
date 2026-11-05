@@ -16,6 +16,7 @@ export default function ExerciseSession() {
   const exerciseIdParam = searchParams.get("exercise");
   const api = useApi();
   const navigate = useNavigate();
+  const { theme } = useTheme();
 
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -231,13 +232,12 @@ export default function ExerciseSession() {
   const exercises = session.session.sessionExercises ?? [];
   const currentExercise = exerciseIdParam ? exercises.find((e) => e.id === exerciseIdParam) : undefined;
   const allExercisesDone = exercises.every((e) => exercisesDone.has(e.id));
-  const { theme } = useTheme();
   const bgImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
   const overlayClass = theme === "dark" ? "bg-black/40" : "bg-white/30";
-  const textColor = theme === "dark" ? "{textColor}" : "text-surface-900";
-  const textSecondaryColor = theme === "dark" ? "{textSecondaryColor}" : "text-surface-600";
-  const cardBg = theme === "dark" ? "{cardBg}" : "bg-surface-100";
-  const cardBorder = theme === "dark" ? "{cardBorder}" : "border-surface-300";
+  const textColor = theme === "dark" ? "text-white" : "text-surface-900";
+  const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
+  const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-100";
+  const cardBorder = theme === "dark" ? "border-surface-700" : "border-surface-300";
 
   if (!sessionStarted) {
     return (
