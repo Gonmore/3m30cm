@@ -519,7 +519,7 @@ export default function HoyScreen() {
   const estimatedMinutes = exerciseCount > 0 ? 5 + 5 + exerciseCount * 10 + (exerciseCount - 1) * 3 : 0;
 
   return (
-    <div className="relative min-h-screen flex flex-col">
+    <div className="relative flex flex-col">
       {/* Background image */}
       <div className="fixed inset-0 z-0">
         <img

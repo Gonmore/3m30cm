@@ -68,7 +68,7 @@ export default function ProgramaScreen() {
   const cardBorder = theme === "dark" ? "{cardBorder}" : "border-surface-300";
 
   return (
-    <div className="relative min-h-screen flex flex-col">
+    <div className="relative flex flex-col">
       {/* Background image */}
       <div className="fixed inset-0 z-0">
         <img
