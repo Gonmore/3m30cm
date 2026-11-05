@@ -542,11 +542,11 @@ export default function HoyScreen() {
             <div>
               <h2 className={`text-2xl font-bold ${textColor}`}>¡Hola, {displayName}!</h2>
                 {meData.activeProgram && (
-                <div className="mt-2 flex items-center gap-1 px-3 py-1.5 rounded bg-green-900 border border-green-900/50">
-                  <span className="text-green-900 font-mono text-sm">&gt;</span>
-                  <span className="text-white font-mono text-sm">PROGRAMA</span>
-                  <span className="text-white font-mono text-xs">:</span>
-                  <span className="text-white font-mono text-sm">{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, '')}</span>
+                <div className={`mt-2 flex items-center gap-1 px-3 py-1.5 rounded ${theme === "dark" ? "bg-green-900/60 border border-green-900/60" : "bg-yellow-50/40 border border-yellow-300/50"}`}>
+                  <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-sm`}>&gt;</span>
+                  <span className="font-mono text-sm">{theme === "dark" ? "text-white" : "text-green-900"} PROGRAMA</span>
+                  <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-xs`}>`:</span>
+                  <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, '')}</span>
                 </div>
               )}
             </div>
