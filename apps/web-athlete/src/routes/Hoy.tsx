@@ -558,7 +558,7 @@ export default function HoyScreen() {
                       {nextSession.title.split("/").length > 1 ? (
                         <>
                           {nextSession.title.split("/").slice(0, -1).join("/")}{" "}
-                          <span className={dayConfig?.color ?? "{textSecondaryColor}"}>{nextSession.title.split("/").pop()}</span>
+                          <span className={dayConfig?.color ?? `${textSecondaryColor}`}>{nextSession.title.split("/").pop()}</span>
                         </>
                       ) : (
                         nextSession.title
@@ -573,7 +573,7 @@ export default function HoyScreen() {
                       })}
                     </p>
                   </div>
-                  <span className={`text-2xl ${dayConfig?.color ?? "{textSecondaryColor}"}`}>{dayConfig?.emoji ?? "◉"}</span>
+                  <span className={`text-2xl ${dayConfig?.color ?? `${textSecondaryColor}`}`}>{dayConfig?.emoji ?? "◉"}</span>
                 </div>
 
                 {/* Bloque de resumen de ejercicios (clickeable) */}
@@ -582,8 +582,12 @@ export default function HoyScreen() {
                     onClick={() => setShowSessionExercises(!showSessionExercises)}
                     className={`mt-4 rounded-lg border p-4 cursor-pointer transition-colors ${
                       showSessionExercises
-                        ? "bg-surface-800/30 border-surface-600"
-                        : "bg-surface-800/50 border-surface-700 hover:bg-surface-800/30"
+                        ? theme === "dark"
+                          ? "bg-surface-800/30 border-surface-600"
+                          : "bg-surface-200 border-surface-400"
+                        : theme === "dark"
+                          ? "bg-surface-800/50 border-surface-700 hover:bg-surface-800/30"
+                          : "bg-surface-100 border-surface-300 hover:bg-surface-200"
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -605,7 +609,7 @@ export default function HoyScreen() {
                       <span className="text-xs {textSecondaryColor}">
                         5 min calentar + 5 min estirar + 10 min por ejercicio
                       </span>
-                      <span className={`text-xs ${showSessionExercises ? "text-amber-400" : "{textSecondaryColor}"}`}>
+                      <span className={`text-xs ${showSessionExercises ? "text-amber-400" : `${textSecondaryColor}`}`}>
                         {showSessionExercises ? "▲" : "▼"}
                       </span>
                     </div>
