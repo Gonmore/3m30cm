@@ -5,12 +5,27 @@ import { useApi, handleApiResponse } from "../api/client";
 import { useTheme } from "../contexts/ThemeContext";
 import {
   DAY_TYPE_CONFIG,
+  type AvailableTemplate,
   type DayType,
   type ScheduledSession,
   type SessionsListResponse,
   type ProgressResponse,
-  type ExerciseMediaAsset,
 } from "../types/api";
+
+type AthleteProfileWithFields = {
+  id: string;
+  userId: string;
+  displayName: string | null;
+  heightCm: number | null;
+  weightKg: number | null;
+  sport: string | null;
+  trainsSport: boolean | null;
+  sportTrainingDays: number[] | null;
+  weeklyGameCount: string | null;
+  teamTrainingIntensity: string | null;
+  availableWeekdays: string | null;
+  programPreferences: any;
+};
 
 export default function ProgramaScreen() {
   const api = useApi();
@@ -20,19 +35,38 @@ export default function ProgramaScreen() {
   const [progressData, setProgressData] = useState<ProgressResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showRegenerateModal, setShowRegenerateModal] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [selectedTemplateCode, setSelectedTemplateCode] = useState<string>("");
+  const [startDate, setStartDate] = useState<string>("");
+  const [availableTemplates, setAvailableTemplates] = useState<AvailableTemplate[]>([]);
+
+  const textColor = theme === "dark" ? "text-white" : "text-surface-900";
+  const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
+  const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-100";
+  const cardBorder = theme === "dark" ? "border-surface-700" : "border-surface-300";
 
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        const [sessionsRes, progressRes] = await Promise.all([
+        const [sessionsRes, progressRes, availableRes] = await Promise.all([
           api("/athlete/sessions"),
           api("/athlete/progress"),
+          api("/athlete/programs/available"),
         ]);
         const sessionsData = await handleApiResponse<SessionsListResponse>(sessionsRes);
         const progress = await handleApiResponse<ProgressResponse>(progressRes);
+        const available = await handleApiResponse<{ templates: AvailableTemplate[] }>(availableRes);
         setSessions(sessionsData.sessions ?? []);
         setProgressData(progress);
+        setAvailableTemplates(available.templates ?? []);
+        if (!startDate) {
+          setStartDate(new Date().toISOString().slice(0, 10));
+        }
+        if (!selectedTemplateCode && available.templates?.length > 0) {
+          setSelectedTemplateCode(available.templates[0]?.code ?? "");
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al cargar");
       } finally {
@@ -41,12 +75,87 @@ export default function ProgramaScreen() {
     };
 
     void fetchData();
-  }, [api, location.state]);
+  }, [api, location.state, startDate, selectedTemplateCode]);
+
+  const handleRegenerateProgram = async () => {
+    const athleteProfile = (progressData as any)?.athleteProfile as AthleteProfileWithFields | null;
+    if (!athleteProfile) {
+      setError("No se pudo obtener el perfil del atleta");
+      return;
+    }
+
+    if (!selectedTemplateCode || !startDate) {
+      setError("Selecciona un programa y una fecha de inicio");
+      return;
+    }
+
+    setRegenerating(true);
+    setError("");
+
+    try {
+      await api("/athlete/programs/generate", {
+        method: "POST",
+        body: JSON.stringify({
+          displayName: athleteProfile.displayName || undefined,
+          heightCm: athleteProfile.heightCm,
+          weightKg: athleteProfile.weightKg,
+          sport: athleteProfile.sport || undefined,
+          trainsSport: athleteProfile.trainsSport,
+          sportTrainingDays: athleteProfile.sportTrainingDays ?? [],
+          weeklyGameCount: athleteProfile.weeklyGameCount || undefined,
+          teamTrainingIntensity: athleteProfile.teamTrainingIntensity || undefined,
+          availableWeekdays: parseWeekdays(athleteProfile.weeklyAvailability),
+          programPreferences: athleteProfile.programPreferences || {
+            skipPhase1: false,
+            teamTrainingDays: [],
+            deloadEnabled: false,
+          },
+          templateCode: selectedTemplateCode,
+          startDate,
+          includePreparationPhase: false,
+        }),
+      });
+
+      setShowRegenerateModal(false);
+      setRegenerating(false);
+      setSelectedTemplateCode("");
+      setStartDate("");
+
+      // Refrescar datos
+      const [sessionsRes, progressRes, availableRes] = await Promise.all([
+        api("/athlete/sessions"),
+        api("/athlete/progress"),
+        api("/athlete/programs/available"),
+      ]);
+      const sessionsData = await handleApiResponse<SessionsListResponse>(sessionsRes);
+      const progress = await handleApiResponse<ProgressResponse>(progressRes);
+      const available = await handleApiResponse<{ templates: AvailableTemplate[] }>(availableRes);
+      setSessions(sessionsData.sessions ?? []);
+      setProgressData(progress);
+      setAvailableTemplates(available.templates ?? []);
+      if (available.templates?.length > 0) {
+        setSelectedTemplateCode(available.templates[0]?.code ?? "");
+      }
+    } catch (err) {
+      setRegenerating(false);
+      setError(err instanceof Error ? err.message : "Error al generar programa");
+    }
+  };
+
+  const parseWeekdays = (weeklyAvailability: string | null | undefined): number[] => {
+    if (!weeklyAvailability) return [1, 2, 3, 4, 5];
+    try {
+      const parsed = JSON.parse(weeklyAvailability);
+      return Array.isArray(parsed) ? parsed : [1, 2, 3, 4, 5];
+    } catch {
+      return [1, 2, 3, 4, 5];
+    }
+  };
 
   if (isLoading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
-        <div className="{textSecondaryColor}">Cargando…</div>
+        <div className={textSecondaryColor}>Cargando…</div>
       </div>
     );
   }
@@ -62,10 +171,6 @@ export default function ProgramaScreen() {
   const today = new Date().toISOString().slice(0, 10);
   const bgImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
   const overlayClass = theme === "dark" ? "bg-black/40" : "bg-white/30";
-  const textColor = theme === "dark" ? "text-white" : "text-surface-900";
-  const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";
-  const cardBg = theme === "dark" ? "bg-surface-900" : "bg-surface-100";
-  const cardBorder = theme === "dark" ? "border-surface-700" : "border-surface-300";
 
   return (
     <div className="relative flex flex-col">
@@ -89,13 +194,25 @@ export default function ProgramaScreen() {
           <div className="space-y-6">
             {/* Program header */}
             <div>
-              <h2 className="text-2xl font-bold {textColor}">Mi Programa</h2>
-              {progressData?.summary && (
-                <p className="mt-1 text-sm {textSecondaryColor}">
-                  {progressData.summary.completedSessions}/{progressData.summary.totalSessions} sesiones
-                  completadas · {Math.round(progressData.summary.completionRate)}% de avance
-                </p>
-              )}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={`text-2xl font-bold ${textColor}`}>Mi Programa</h2>
+                  {progressData?.summary && (
+                    <p className={`mt-1 text-sm ${textSecondaryColor}`}>
+                      {progressData.summary.completedSessions}/{progressData.summary.totalSessions} sesiones
+                      completadas · {Math.round(progressData.summary.completionRate)}% de avance
+                    </p>
+                  )}
+                </div>
+                {(progressData as any)?.athleteProfile && (
+                  <button
+                    onClick={() => setShowRegenerateModal(true)}
+                    className="rounded-md border border-surface-700 px-3 py-1.5 text-xs font-medium text-surface-300 hover:bg-surface-800 transition-colors"
+                  >
+                    Regenerar programa
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Completion rate */}
@@ -106,7 +223,7 @@ export default function ProgramaScreen() {
                   <span className="text-3xl font-bold text-amber-400">
                     {Math.round(progressData.summary.completionRate)}%
                   </span>
-                  <span className="text-xs {textSecondaryColor}">
+                  <span className={`text-xs ${textSecondaryColor}`}>
                     Racha actual: {progressData.summary.currentStreak} día(s)
                   </span>
                 </div>
@@ -124,7 +241,7 @@ export default function ProgramaScreen() {
               <h3 className="mb-3 text-sm font-medium text-surface-300">Todas las sesiones</h3>
               {sortedSessions.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-surface-700 bg-surface-900/80 p-6 text-center">
-                  <p className="{textSecondaryColor}">No hay sesiones programadas.</p>
+                  <p className={textSecondaryColor}>No hay sesiones programadas.</p>
                   <Link
                     to="/onboarding"
                     className="mt-2 inline-block rounded-md bg-amber-500 px-3 py-1.5 text-xs font-bold text-black transition-colors hover:bg-amber-400"
@@ -151,7 +268,7 @@ export default function ProgramaScreen() {
                         <span className={`text-xl ${config.color}`}>{config.emoji}</span>
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
-                            <p className={`font-medium ${isCompleted ? "{textSecondaryColor}" : "{textColor}"}`}>
+                            <p className={`font-medium ${isCompleted ? textSecondaryColor : textColor}`}>
                               {session.title}
                             </p>
                             {isToday && (
@@ -160,7 +277,7 @@ export default function ProgramaScreen() {
                               </span>
                             )}
                           </div>
-                          <p className="text-xs {textSecondaryColor}">
+                          <p className={`text-xs ${textSecondaryColor}`}>
                             {new Date(session.scheduledDate).toLocaleDateString("es-ES", {
                               weekday: "short",
                               month: "short",
@@ -168,7 +285,9 @@ export default function ProgramaScreen() {
                             })}
                           </p>
                           {session.exerciseCount !== undefined && (
-                            <p className="text-xs {textSecondaryColor}">{session.exerciseCount} ejercicios</p>
+                            <p className={`text-xs ${textSecondaryColor}`}>
+                              {session.exerciseCount} ejercicios
+                            </p>
                           )}
                         </div>
                         {isCompleted && <span className="text-lg text-green-400">✓</span>}
@@ -181,6 +300,77 @@ export default function ProgramaScreen() {
           </div>
         </div>
       </div>
+
+      {/* Regenerate modal */}
+      {showRegenerateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-surface-900 rounded-xl border border-surface-700 p-6 max-w-md w-full shadow-2xl">
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <h3 className="text-lg font-bold text-white">Regenerar programa</h3>
+                <p className="text-sm text-surface-400 mt-1">
+                  Esto reemplazará tu programa actual con uno nuevo basado en la plantilla seleccionada.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowRegenerateModal(false)}
+                className="rounded-md p-2 text-surface-400 hover:text-white hover:bg-surface-800 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-surface-400 uppercase tracking-wider mb-2">
+                  Plantilla de programa
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedTemplateCode}
+                    onChange={(e) => setSelectedTemplateCode(e.target.value)}
+                    className="w-full rounded-lg border border-surface-700 bg-surface-800 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
+                  >
+                    {availableTemplates.map((t) => (
+                      <option key={t.code} value={t.code}>
+                        {t.name} {t.isPremium ? " · Premium" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-surface-400 uppercase tracking-wider mb-2">
+                  Fecha de inicio
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full rounded-lg border border-surface-700 bg-surface-800 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setShowRegenerateModal(false)}
+                className="flex-1 rounded-lg border border-surface-700 py-2.5 text-sm font-medium text-surface-300 hover:bg-surface-800 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleRegenerateProgram}
+                disabled={regenerating}
+                className="flex-1 rounded-lg bg-amber-500 py-2.5 text-sm font-bold text-black transition-colors hover:bg-amber-400 disabled:opacity-50"
+              >
+                {regenerating ? "Generando…" : "Generar programa"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
