@@ -572,6 +572,19 @@ export default function HoyScreen() {
                         day: "numeric",
                       })}
                     </p>
+                    <div className={`mt-2 rounded-lg border p-3 cursor-pointer transition-colors ${showSessionExercises
+                      ? theme === "dark"
+                        ? "bg-surface-800/30 border-surface-600"
+                        : "bg-surface-200 border-surface-400"
+                      : theme === "dark"
+                        ? "bg-surface-800/50 border-surface-700 hover:bg-surface-800/30"
+                        : "bg-surface-100 border-surface-300 hover:bg-surface-200"
+                    }`} onClick={() => setShowSessionExercises(!showSessionExercises)}>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-surface-400 uppercase tracking-wider text-xs font-bold">Ejercicios</span>
+                        <span className="text-white">{exerciseCount} ejercicio{exerciseCount !== 1 ? "s" : ""}</span>
+                      </div>
+                    </div>
                   </div>
                   <span className={`text-2xl ${dayConfig?.color ?? `${textSecondaryColor}`}`}>{dayConfig?.emoji ?? "◉"}</span>
                 </div>
