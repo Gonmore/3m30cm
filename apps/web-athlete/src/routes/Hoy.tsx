@@ -77,6 +77,7 @@ export default function HoyScreen() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSessionExercises, setShowSessionExercises] = useState(false);
   const [sessionExerciseCount, setSessionExerciseCount] = useState<number>(0);
+  const [todaySession, setTodaySession] = useState<ProgressResponse["nextSession"] | null>(null);
 
   const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
   const textColor = theme === "dark" ? "text-white" : "text-surface-900";
@@ -192,6 +193,7 @@ export default function HoyScreen() {
 
   useEffect(() => {
     const fetchData = async () => {
+      setIsLoading(true);
       try {
         const [meRes, progressRes, availableRes, sessionsRes] = await Promise.all([
           api("/athlete/me"),
@@ -210,6 +212,7 @@ export default function HoyScreen() {
         // Find today's session exercise count from /athlete/sessions
         const today = new Date().toISOString().slice(0, 10);
         const todaySession = sessionsData.sessions?.find((s) => s.scheduledDate.slice(0, 10) === today);
+        setTodaySession(todaySession ?? null);
         setSessionExerciseCount(todaySession?.exerciseCount ?? 0);
 
         if (me.athleteProfile?.onboardingCompletedAt) {
@@ -259,7 +262,7 @@ export default function HoyScreen() {
     const displayName = user?.firstName || user?.email?.split("@")[0] || "Atleta";
 
     return (
-    <div className="relative flex flex-col">
+      <div className="relative flex flex-col">
         {/* Background image */}
         <div className="absolute inset-0 z-0">
           <img
@@ -278,7 +281,7 @@ export default function HoyScreen() {
         <div className="relative z-10 flex flex-col min-h-screen px-4 py-6">
           {/* Header */}
           <div className="mb-8 flex items-center justify-between">
-            <h2 className="text-2xl font-bold {textColor}">Hola, {displayName}</h2>
+            <h2 className={`text-2xl font-bold ${textColor}`}>Hola, {displayName}</h2>
           </div>
 
           {/* Main content: two columns on desktop, stacked on mobile */}
@@ -330,7 +333,7 @@ export default function HoyScreen() {
                     className="w-full h-2 bg-surface-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
                   />
                 </div>
-                <div className="flex w-full justify-between mt-0.5 text-xs ${textColor}/90">
+                <div className="flex w-full justify-between mt-0.5 text-xs text-white/90">
                   <span>40 kg</span>
                   <span>80 kg</span>
                   <span>120 kg</span>
@@ -415,7 +418,7 @@ export default function HoyScreen() {
                       templates.find((t) => t.code === selectedTemplateCode)?.name}
                     {selectedTemplateCode &&
                       templates.find((t) => t.code === selectedTemplateCode)?.isPremium &&
-                      " · Premium"}
+                        " · Premium"}
                   </span>
                   <span className="{textColor}">{planDropdownOpen ? "▲" : "▼"}</span>
                 </button>
@@ -437,64 +440,25 @@ export default function HoyScreen() {
                     ))}
                   </div>
                 )}
+                {templates.length === 0 && (
+                  <p className="mt-1 text-xs text-red-400">No hay programas disponibles</p>
+                )}
               </div>
-              {templates.length === 0 && (
-                <p className="mt-1 text-xs text-red-400">No hay programas disponibles</p>
-              )}
+
+              <button
+                onClick={handleSaveAndGenerate}
+                disabled={isSaving || !selectedTemplateCode}
+                className="w-full rounded-lg bg-amber-500 py-4 text-sm font-bold text-black transition-colors hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? "Guardando…" : "Generar hoy"}
+              </button>
             </div>
 
-            <button
-              onClick={handleSaveAndGenerate}
-              disabled={isSaving || !selectedTemplateCode}
-              className="w-full rounded-lg bg-amber-500 py-4 text-sm font-bold text-black transition-colors hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSaving ? "Guardando…" : "Generar hoy"}
-            </button>
-          </div>
-
-          {error && (
-            <div className="mt-4 rounded-md bg-red-900/30 p-3 text-sm text-red-400 text-center">
-              {error}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  {/* Adaptation phase modal */}
-  if (adaptationModalOpen) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-        <div className="bg-surface-900 rounded-xl border border-surface-700 p-6 max-w-md w-full shadow-2xl">
-          <div className="flex items-start gap-3 mb-4">
-            <span className="text-2xl">⚠️</span>
-            <div>
-              <h3 className="text-lg font-bold text-surface-100 mb-1">
-                Fase de adecuación
-              </h3>
-              <p className="text-sm text-surface-400 leading-relaxed">
-                Si estás retomando el deporte después de mucho tiempo, es buena idea agregar una fase de dos semanas de adecuación. Si ya haces deporte de vez en cuando, esta fase se puede saltar.
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <button
-              onClick={() => handleGenerateProgram(false)}
-              disabled={isGenerating}
-              className="w-full rounded-lg bg-white/10 border border-white/30 px-4 py-3 text-sm font-medium text-white hover:bg-white/20 transition-colors disabled:opacity-50"
-            >
-              Soy deportista — saltar fase de adecuación
-            </button>
-
-            <button
-              onClick={() => handleGenerateProgram(true)}
-              disabled={isGenerating}
-              className="w-full rounded-lg bg-amber-500 px-4 py-3 text-sm font-bold text-black hover:bg-amber-400 transition-colors disabled:opacity-50"
-            >
-              Soy sedentario — agregar fase de adecuación
-            </button>
+            {error && (
+              <div className="mt-4 rounded-md bg-red-900/30 p-3 text-sm text-red-400 text-center">
+                {error}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -548,7 +512,7 @@ export default function HoyScreen() {
         <div className="mx-auto max-w-5xl">
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-bold {textColor}">¡Hola, {displayName}!</h2>
+              <h2 className={`text-2xl font-bold ${textColor}`}>¡Hola, {displayName}!</h2>
               {meData.activeProgram && (
                 <div className="mt-2 flex items-center gap-1 px-3 py-1.5 rounded bg-green-900/30 border border-green-500/30">
                   <span className="text-green-400 font-mono text-sm">&gt;</span>
@@ -560,10 +524,10 @@ export default function HoyScreen() {
             </div>
 
             {nextSession ? (
-              <div className="rounded-xl border border-surface-700 bg-surface-900/80 p-5">
+              <div className={`rounded-xl border p-5 ${theme === "dark" ? "border-surface-700 bg-surface-900/80" : "border-surface-300 bg-surface-100/80"}`}>
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-bold {textColor}">
+                    <h3 className={`text-lg font-bold ${textColor}`}>
                       {nextSession.title.split("/").length > 1 ? (
                         <>
                           {nextSession.title.split("/").slice(0, -1).join("/")}{" "}
@@ -603,9 +567,9 @@ export default function HoyScreen() {
                         </span>
                       </div>
 
-                      {showSessionExercises && nextSession.sessionExercises && nextSession.sessionExercises.length > 0 && (
+                      {showSessionExercises && todaySession?.sessionExercises && todaySession.sessionExercises.length > 0 && (
                         <div className="mt-3 space-y-1">
-                          {nextSession.sessionExercises.map((exercise) => (
+                          {todaySession.sessionExercises.map((exercise) => (
                             <div key={exercise.id} className="text-xs text-surface-300">
                               • {exercise.exercise?.name}
                               {exercise.sets && ` · ${exercise.sets} series`}
@@ -628,12 +592,12 @@ export default function HoyScreen() {
                 </button>
               </div>
             ) : (
-              <div className="rounded-xl border border-surface-700 bg-surface-900/80 p-5 text-center">
+              <div className={`rounded-xl border p-5 text-center ${theme === "dark" ? "border-surface-700 bg-surface-900/80" : "border-surface-300 bg-surface-100/80"}`}>
                 <p className="{textSecondaryColor}">No hay próximas sesiones programadas.</p>
               </div>
             )}
 
-            <div className="rounded-lg bg-surface-900/80 p-4 mb-12 text-center">
+            <div className={`rounded-lg bg-surface-900/80 p-4 mb-12 text-center ${theme === "dark" ? "border-surface-700" : "border-surface-300"}`}>
               <p className="text-xs font-bold text-amber-400 uppercase tracking-wider mb-3">
                 Sesiones
               </p>
