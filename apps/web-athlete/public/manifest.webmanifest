@@ -8,14 +8,14 @@
   "theme_color": "#f59e0b",
   "icons": [
     {
-      "src": "/Logo_Blanco.png",
+      "src": "/pwa.jpg",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/jpeg"
     },
     {
-      "src": "/Logo_Blanco.png",
+      "src": "/pwa.jpg",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/jpeg"
     }
   ]
 }

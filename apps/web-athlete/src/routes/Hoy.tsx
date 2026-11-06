@@ -261,9 +261,8 @@ export default function HoyScreen() {
         }
 
         const freeTemplates = (available.templates ?? []).filter((t) => !t.isPremium);
-        if (freeTemplates.length > 0 && !selectedTemplateCode) {
-          setSelectedTemplateCode(freeTemplates[0]?.code ?? "");
-        }
+        // No default selection: user must choose a plan explicitly.
+        void freeTemplates;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al cargar datos");
       } finally {
@@ -431,8 +430,9 @@ export default function HoyScreen() {
                   className="w-full rounded-lg bg-white/20 border border-white/40 px-3 py-3 text-sm text-white text-left flex items-center justify-between hover:bg-white/30 focus:outline-none focus:border-amber-500"
                 >
                   <span className="flex items-center gap-2">
-                    {selectedTemplateCode &&
-                      templates.find((t) => t.code === selectedTemplateCode)?.name}
+                    {selectedTemplateCode
+                      ? templates.find((t) => t.code === selectedTemplateCode)?.name
+                      : "Seleccioná un programa"}
                     {selectedTemplateCode &&
                       templates.find((t) => t.code === selectedTemplateCode)?.isPremium &&
                         " · Premium"}
@@ -441,7 +441,7 @@ export default function HoyScreen() {
                 </button>
 
                 {planDropdownOpen && (
-                  <div className="absolute z-50 mt-1 w-full rounded-lg border border-white/40 bg-black/70 shadow-xl overflow-hidden backdrop-blur-sm divide-y divide-white/30">
+                  <div className="absolute z-50 bottom-full mb-1 w-full rounded-lg border border-white/40 bg-black/70 shadow-xl overflow-hidden backdrop-blur-sm divide-y divide-white/30 max-h-60 overflow-y-auto">
                     {templates.map((template) => (
                       <button
                         key={template.id}
