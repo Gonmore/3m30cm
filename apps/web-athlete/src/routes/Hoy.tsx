@@ -145,8 +145,9 @@ export default function HoyScreen() {
       });
       await handleApiResponse<unknown>(onboardingRes);
 
+      // Generate program directly
+      await handleGenerateProgram(false);
       setIsSaving(false);
-      setAdaptationModalOpen(true);
     } catch (err) {
       if (err instanceof Error && (err as any).data) {
         const data = (err as any).data;
