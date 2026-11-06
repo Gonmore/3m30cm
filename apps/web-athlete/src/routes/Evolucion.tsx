@@ -17,7 +17,7 @@ export default function EvolucionScreen() {
   const [error, setError] = useState<string | null>(null);
   const [isSharing, setIsSharing] = useState(false);
 
-  const bgImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
+  const bgImage = theme === "dark" ? "/Hombre.jpeg?v=3" : "/Mujer.jpeg?v=3";
   const overlayClass = theme === "dark" ? "bg-black/40" : "bg-white/30";
   const textColor = theme === "dark" ? "text-white" : "text-surface-100";
   const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-500";

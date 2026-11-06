@@ -12,7 +12,7 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const bgImage = "/Login.jpeg";
+  const bgImage = "/Login.jpeg?v=1";
   const overlayClass = theme === "dark" ? "bg-black/50" : "bg-white/40";
   const textColor = theme === "dark" ? "text-white" : "text-surface-100";
   const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-500";

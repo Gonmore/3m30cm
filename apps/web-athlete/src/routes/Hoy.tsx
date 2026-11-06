@@ -85,7 +85,7 @@ export default function HoyScreen() {
     durationSeconds: number | null;
   }>>([]);
 
-  const backgroundImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
+  const backgroundImage = theme === "dark" ? "/Hombre.jpeg?v=3" : "/Mujer.jpeg?v=3";
 
   const textColor = theme === "dark" ? "text-white" : "text-black";
   const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-600";

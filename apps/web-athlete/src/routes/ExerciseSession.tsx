@@ -262,7 +262,7 @@ export default function ExerciseSession() {
   const dayConfig = DAY_TYPE_CONFIG[session.session.dayType] || DAY_TYPE_CONFIG.OTHER;
   const currentExercise = exercises[currentExerciseIndex] ?? exercises[0];
   const allExercisesDone = exercises.every((e) => exercisesDone.has(e.id));
-  const bgImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
+  const bgImage = theme === "dark" ? "/Hombre.jpeg?v=3" : "/Mujer.jpeg?v=3";
   const overlayClass = theme === "dark" ? "bg-black/40" : "bg-white/30";
   const textColor = theme === "dark" ? "text-white" : "text-surface-100";
   const textSecondaryColor = theme === "dark" ? "text-surface-400" : "text-surface-500";

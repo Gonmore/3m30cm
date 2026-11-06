@@ -184,7 +184,7 @@ export default function ProgramaScreen() {
   );
 
   const today = new Date().toISOString().slice(0, 10);
-  const bgImage = theme === "dark" ? "/Hombre.jpeg" : "/Mujer.jpeg";
+  const bgImage = theme === "dark" ? "/Hombre.jpeg?v=3" : "/Mujer.jpeg?v=3";
   const overlayClass = theme === "dark" ? "bg-black/40" : "bg-white/30";
 
   const totalSessionsCount = progressData?.summary?.totalSessions ?? 0;
