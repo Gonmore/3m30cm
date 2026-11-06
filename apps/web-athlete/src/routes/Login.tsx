@@ -111,15 +111,18 @@ export default function Login() {
             </div>
           </div>
 
-          <div className="flex justify-center overflow-hidden rounded-md border border-surface-300">
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={() => setError("Error con la autenticación de Google")}
-              theme="outline"
-              shape="rectangular"
-              size="large"
-              text="signin_with"
-            />
+          <div className="relative mx-auto h-10 w-48">
+            <img src="/4109-google-color.png" alt="Iniciar sesión con Google" className="h-full w-full object-contain" />
+            <div className="absolute inset-0 opacity-0">
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={() => setError("Error con la autenticación de Google")}
+                theme="filled_black"
+                shape="rectangular"
+                size="large"
+                text="signin_with"
+              />
+            </div>
           </div>
         </div>
       </div>
