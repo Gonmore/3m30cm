@@ -1,0 +1,21 @@
+{
+  "name": "3m30cm Atleta",
+  "short_name": "3m30cm",
+  "description": "App de entrenamiento de salto vertical",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0b",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "/Logo_Blanco.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/Logo_Blanco.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

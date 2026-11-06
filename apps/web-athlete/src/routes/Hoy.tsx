@@ -65,6 +65,19 @@ export default function HoyScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [showSuccessGif, setShowSuccessGif] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    if ("Notification" in window && Notification.permission === "granted") {
+      setNotificationsEnabled(true);
+    }
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
   const [error, setError] = useState<string | null>(null);
 
   const [heightCm, setHeightCm] = useState(170);
@@ -512,6 +525,35 @@ export default function HoyScreen() {
       <div className="relative z-10 flex flex-col px-4 py-4">
         <div className="mx-auto max-w-5xl">
           <div className="space-y-6">
+            {(installPrompt || "Notification" in window) && (
+              <div className="flex flex-wrap gap-2">
+                {installPrompt && (
+                  <button
+                    onClick={async () => {
+                      await installPrompt.prompt();
+                      setInstallPrompt(null);
+                    }}
+                    className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-amber-400"
+                  >
+                    Instalar app
+                  </button>
+                )}
+                {"Notification" in window && (
+                  <button
+                    onClick={async () => {
+                      const perm = await Notification.requestPermission();
+                      setNotificationsEnabled(perm === "granted");
+                      if (perm === "granted") {
+                        new Notification("3m30cm", { body: "Notificaciones activadas" });
+                      }
+                    }}
+                    className="rounded-md border border-surface-700 px-3 py-1.5 text-xs font-medium text-surface-300 hover:bg-surface-800"
+                  >
+                    {notificationsEnabled ? "Notificaciones activas" : "Activar notificaciones"}
+                  </button>
+                )}
+              </div>
+            )}
             <div>
               <h2 className={`text-2xl font-bold ${textColor}`}>¡Hola, {displayName}!</h2>
               {meData.activeProgram && (
