@@ -63,6 +63,7 @@ export default function HoyScreen() {
   const [progressData, setProgressData] = useState<ProgressResponse | null>(null);
   const [templates, setTemplates] = useState<AvailableTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showSuccessGif, setShowSuccessGif] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -188,7 +189,11 @@ export default function HoyScreen() {
       });
       await handleApiResponse<unknown>(generateRes);
 
-      navigate("/", { replace: true });
+      setShowSuccessGif(true);
+      setTimeout(() => {
+        setShowSuccessGif(false);
+        navigate("/", { replace: true });
+      }, 2000);
     } catch (err) {
       if (err instanceof Error && (err as any).data) {
         const data = (err as any).data;
@@ -616,6 +621,15 @@ export default function HoyScreen() {
           </div>
         </div>
       </div>
+      {showSuccessGif && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <img
+            src={theme === "dark" ? "/dark_check.gif" : "/check.gif"}
+            alt="Completado"
+            className="h-48 w-48"
+          />
+        </div>
+      )}
     </div>
   );
 }
