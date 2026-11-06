@@ -10,6 +10,9 @@
 !apps/web/
 !apps/web/**
 
+!apps/web-athlete/
+!apps/web-athlete/**
+
 !packages/
 !packages/shared/
 !packages/shared/**
@@ -21,3 +24,6 @@ apps/api/.cache
 apps/web/node_modules
 apps/web/dist
 apps/web/.cache
+apps/web-athlete/node_modules
+apps/web-athlete/dist
+apps/web-athlete/.cache
