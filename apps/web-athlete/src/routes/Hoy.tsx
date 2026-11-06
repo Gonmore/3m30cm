@@ -672,6 +672,15 @@ export default function HoyScreen() {
           />
         </div>
       )}
+      {showSuccessGif && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <img
+            src={theme === "dark" ? "/dark_check.gif" : "/check.gif"}
+            alt="Completado"
+            className="h-48 w-48"
+          />
+        </div>
+      )}
     </div>
   );
 }
