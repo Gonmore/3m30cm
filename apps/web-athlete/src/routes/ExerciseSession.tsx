@@ -29,6 +29,7 @@ export default function ExerciseSession() {
   const [repsInput, setRepsInput] = useState("");
   const [rpeInput, setRpeInput] = useState("");
   const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [showMedia, setShowMedia] = useState(true);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -483,38 +484,50 @@ export default function ExerciseSession() {
           </div>
 
           <div className="grid grid-cols-1 landscape:grid-cols-2 md:grid-cols-2 gap-4">
-            <div className="overflow-hidden rounded-xl bg-surface-800 md:min-h-[60vh] landscape:min-h-[60vh] flex items-center justify-center">
-              {mediaUrl ? (
-                isYouTube(mediaUrl) ? (
-                  <iframe
-                    src={toYouTubeEmbed(mediaUrl)}
-                    title={primaryAsset?.title ?? currentExercise.exercise.name}
-                    className="w-full h-full min-h-[300px]"
-                    allow="autoplay; encrypted-media; picture-in-picture"
-                    allowFullScreen
-                  />
-                ) : primaryAsset?.kind === "VIDEO" ? (
-                  <video
-                    src={mediaUrl}
-                    className="w-full h-full object-cover"
-                    title={primaryAsset?.title ?? currentExercise.exercise.name}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                  />
-                ) : (
-                  <img
-                    src={mediaUrl}
-                    alt={primaryAsset?.title ?? currentExercise.exercise.name}
-                    className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                  />
-                )
-              ) : (
-                <div className={`text-sm ${textSecondaryColor}`}>Sin media</div>
-              )}
-            </div>
+           <div className="flex items-center justify-between">
+             <span className={`text-xs ${textSecondaryColor}`}>Media</span>
+             <button
+               onClick={() => setShowMedia((v) => !v)}
+               className={`rounded-md border ${cardBorder} px-2 py-1 text-xs ${textSecondaryColor} hover:bg-surface-800`}
+             >
+               {showMedia ? "Ocultar video" : "Mostrar video"}
+             </button>
+           </div>
+           {showMedia && (
+             <div className="overflow-hidden rounded-xl bg-surface-800 md:min-h-[60vh] landscape:min-h-[60vh] flex items-center justify-center">
+               {mediaUrl ? (
+                 isYouTube(mediaUrl) ? (
+                   <iframe
+                     src={toYouTubeEmbed(mediaUrl)}
+                     title={primaryAsset?.title ?? currentExercise.exercise.name}
+                     className="w-full h-full min-h-[300px]"
+                     allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                     allowFullScreen
+                   />
+                 ) : primaryAsset?.kind === "VIDEO" ? (
+                   <video
+                     src={mediaUrl}
+                     className="w-full h-full object-cover"
+                     title={primaryAsset?.title ?? currentExercise.exercise.name}
+                     autoPlay
+                     muted
+                     loop
+                     playsInline
+                     controls
+                   />
+                 ) : (
+                   <img
+                     src={mediaUrl}
+                     alt={primaryAsset?.title ?? currentExercise.exercise.name}
+                     className="w-full h-full object-cover"
+                     onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                   />
+                 )
+               ) : (
+                 <div className={`text-sm ${textSecondaryColor}`}>Sin media</div>
+               )}
+             </div>
+           )}
 
             <div className="space-y-4">
               <div className="flex items-start justify-between">
@@ -535,29 +548,31 @@ export default function ExerciseSession() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className={`flex items-center gap-2 ${textSecondaryColor}`}>
-                  <span>🔹</span><span>{currentExercise.sets ?? 0} series</span>
-                </div>
-                <div className={`flex items-center gap-2 ${textSecondaryColor}`}>
-                  <span>🔸</span><span>{currentExercise.repsText ?? "—"}</span>
-                </div>
-                {currentExercise.restSeconds && (
-                  <div className={`flex items-center gap-2 ${textSecondaryColor}`}>
-                    <span>☕</span><span>{currentExercise.restSeconds}s descanso</span>
-                  </div>
-                )}
-                {currentExercise.loadText && (
-                  <div className={`flex items-center gap-2 ${textSecondaryColor}`}>
-                    <span>⚖️</span><span>Carga: {currentExercise.loadText}</span>
-                  </div>
-                )}
-                {currentExercise.tempoText && (
-                  <div className={`flex items-center gap-2 ${textSecondaryColor}`}>
-                    <span>⏱</span><span>Tempo: {currentExercise.tempoText}</span>
-                  </div>
-                )}
-              </div>
+               <div className={`mx-auto max-w-sm rounded-lg border ${cardBorder} bg-surface-900/60 p-3`}>
+                 <div className="grid grid-cols-2 gap-3 text-sm">
+                   <div className={`flex items-center gap-2 ${textSecondaryColor}`}>
+                     <span>🔹</span><span>{currentExercise.sets ?? 0} series</span>
+                   </div>
+                   <div className={`flex items-center gap-2 ${textSecondaryColor}`}>
+                     <span>🔸</span><span>{currentExercise.repsText ?? "—"}</span>
+                   </div>
+                   {currentExercise.restSeconds && (
+                     <div className={`flex items-center gap-2 ${textSecondaryColor}`}>
+                       <span>☕</span><span>{currentExercise.restSeconds}s descanso</span>
+                     </div>
+                   )}
+                   {currentExercise.loadText && (
+                     <div className={`flex items-center gap-2 ${textSecondaryColor}`}>
+                       <span>⚖️</span><span>Carga: {currentExercise.loadText}</span>
+                     </div>
+                   )}
+                   {currentExercise.tempoText && (
+                     <div className={`flex items-center gap-2 ${textSecondaryColor}`}>
+                       <span>⏱</span><span>Tempo: {currentExercise.tempoText}</span>
+                     </div>
+                   )}
+                 </div>
+               </div>
 
               {currentExercise.exercise.description && (
                 <div className="rounded-lg border border-surface-700 bg-surface-900/50 p-3">
@@ -571,28 +586,28 @@ export default function ExerciseSession() {
                 </div>
               )}
 
-              <div className="flex items-center justify-between gap-2 pt-2">
-                <button
-                  onClick={handlePrev}
-                  disabled={currentExerciseIndex === 0}
-                  className={`rounded-md px-4 py-2 text-lg font-bold transition-colors ${currentExerciseIndex === 0 ? "opacity-30 cursor-not-allowed text-surface-500" : "text-amber-400 hover:bg-surface-800"}`}
-                >
-                  ◀
-                </button>
-                <button
-                  onClick={handleCheck}
-                  className="rounded-md bg-amber-500/20 border-2 border-amber-500 px-6 py-2 text-lg font-bold text-amber-400 transition-colors hover:bg-amber-500/40"
-                >
-                  ✔
-                </button>
-                <button
-                  onClick={handleNext}
-                  disabled={currentExerciseIndex === exercises.length - 1}
-                  className={`rounded-md px-4 py-2 text-lg font-bold transition-colors ${currentExerciseIndex === exercises.length - 1 ? "opacity-30 cursor-not-allowed text-surface-500" : "text-amber-400 hover:bg-surface-800"}`}
-                >
-                  ▶
-                </button>
-              </div>
+               <div className={`flex items-center justify-between gap-2 rounded-lg border ${cardBorder} bg-surface-900/60 p-2`}>
+                 <button
+                   onClick={handlePrev}
+                   disabled={currentExerciseIndex === 0}
+                   className={`rounded-md px-4 py-2 text-lg font-bold transition-colors ${currentExerciseIndex === 0 ? "opacity-30 cursor-not-allowed text-surface-500" : "text-amber-400 hover:bg-surface-800"}`}
+                 >
+                   ◀
+                 </button>
+                 <button
+                   onClick={handleCheck}
+                   className="rounded-full bg-green-600 px-6 py-2 text-lg font-bold text-white shadow-lg transition-colors hover:bg-green-500"
+                 >
+                   ✔
+                 </button>
+                 <button
+                   onClick={handleNext}
+                   disabled={currentExerciseIndex === exercises.length - 1}
+                   className={`rounded-md px-4 py-2 text-lg font-bold transition-colors ${currentExerciseIndex === exercises.length - 1 ? "opacity-30 cursor-not-allowed text-surface-500" : "text-amber-400 hover:bg-surface-800"}`}
+                 >
+                   ▶
+                 </button>
+               </div>
             </div>
           </div>
         </div>
