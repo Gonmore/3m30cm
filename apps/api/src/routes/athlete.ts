@@ -2559,28 +2559,7 @@ athleteRouter.post("/sessions/:sessionId/logs", async (req: AuthenticatedRequest
       return;
     }
 
-    // One-session-per-day enforcement (SUPERADMIN exempt)
-    const isSuperAdmin = req.auth?.platformRole === "SUPERADMIN";
-    const incomingStatus = payload.status;
-    if (!isSuperAdmin && (incomingStatus === SessionStatus.COMPLETED || (!incomingStatus && (payload.completedExerciseIds?.length ?? 0) === session.sessionExercises.length && session.sessionExercises.length > 0))) {
-      const todayStart = startOfLocalDay(new Date());
-      const tomorrowStart = new Date(todayStart);
-      tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-      const alreadyCompletedToday = await prisma.scheduledSession.findFirst({
-        where: {
-          id: { not: session.id },
-          personalProgram: { athleteProfileId: athleteProfile.id },
-          status: SessionStatus.COMPLETED,
-          scheduledDate: { gte: todayStart, lt: tomorrowStart },
-        },
-        select: { id: true },
-      });
-      if (alreadyCompletedToday) {
-        res.status(409).json({ message: "Ya completaste una sesión hoy. Solo se permite una sesión por día." });
-        return;
-      }
-    }
-
+    // One-session-per-day enforcement removed to allow multiple sessions per day.
     const completedExerciseIds = new Set(payload.completedExerciseIds ?? []);
     const now = new Date();
     const fallbackStatus = completedExerciseIds.size > 0 && completedExerciseIds.size === session.sessionExercises.length

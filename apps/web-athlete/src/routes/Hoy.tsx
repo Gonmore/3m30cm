@@ -509,17 +509,17 @@ export default function HoyScreen() {
             <div>
               <h2 className={`text-2xl font-bold ${textColor}`}>¡Hola, {displayName}!</h2>
               {meData.activeProgram && (
-                <div className={`mt-2 flex items-center gap-1 px-3 py-1.5 rounded ${theme === "dark" ? "bg-green-900 border border-green-900/50" : "bg-yellow-50/40 border border-yellow-300/50"}`}>
-                  <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-sm`}>&gt;</span>
-                  <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>PROGRAMA</span>
-                  <span className={`${theme === "dark" ? "text-green-900" : "text-green-800"} font-mono text-xs`}>,</span>
-                  <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, '')}</span>
+                  <div className={`mt-2 flex items-center gap-1 px-3 py-1.5 rounded ${theme === "dark" ? "bg-green-500/10 border border-green-400/40" : "bg-yellow-50/40 border border-yellow-300/50"}`}>
+                    <span className={`${theme === "dark" ? "text-green-400" : "text-green-800"} font-mono text-sm`}>&gt;</span>
+                    <span className={`${theme === "dark" ? "text-green-400" : "text-green-900"} font-mono text-sm`}>PROGRAMA</span>
+                    <span className={`${theme === "dark" ? "text-green-400" : "text-green-800"} font-mono text-xs`}>,</span>
+                    <span className={`${theme === "dark" ? "text-white" : "text-green-900"} font-mono text-sm`}>{meData.activeProgram.name.replace(/^[a-zA-Z]+\s*-\s*/, '')}</span>
                 </div>
               )}
             </div>
 
             {nextSession ? (
-              <div className={`rounded-xl border p-5 ${theme === "dark" ? "border-surface-700 bg-surface-900/80" : "border-yellow-300/50 bg-yellow-50/40"}`}>
+                <div className={`rounded-xl border p-5 ${theme === "dark" ? "border-surface-700 bg-surface-700/80" : "border-yellow-300/50 bg-yellow-50/40"}`}>
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className={`text-lg font-bold ${textColor}`}>
@@ -541,12 +541,12 @@ export default function HoyScreen() {
                       })}
                     </p>
                     <div className={`mt-2 rounded-lg border p-4 cursor-pointer transition-colors ${showSessionExercises
-                      ? theme === "dark"
-                        ? "bg-surface-800/30 border-surface-600"
-                        : "bg-surface-200 border-surface-400"
-                      : theme === "dark"
-                        ? "bg-surface-800/50 border-surface-700 hover:bg-surface-800/30"
-                        : "bg-white border-surface-300 hover:bg-surface-200"
+                       ? theme === "dark"
+                         ? "bg-surface-800/30 border-surface-600"
+                         : "bg-white border-surface-400"
+                       : theme === "dark"
+                         ? "bg-surface-800/50 border-surface-700 hover:bg-surface-700/40"
+                         : "bg-white border-surface-300 hover:bg-surface-700"
                     }`} onClick={() => setShowSessionExercises(!showSessionExercises)}>
                       <div className="flex items-center justify-between mb-3">
                         <div>
@@ -557,9 +557,10 @@ export default function HoyScreen() {
                             {exerciseCount} ejercicio{exerciseCount !== 1 ? "s" : ""}
                           </span>
                         </div>
-                        <span className={`text-xs ${showSessionExercises ? "text-amber-400" : `${textSecondaryColor}`}`}>
-                          ⏱ {estimatedMinutes} min
-                        </span>
+                          <span className={`text-xs ${showSessionExercises ? "text-amber-400" : `${textSecondaryColor}`}`}>
+                            ⏱ {estimatedMinutes} min
+                          </span>
+                          <span className={`text-xs ${textSecondaryColor} ml-2`}>{showSessionExercises ? "▲" : "▼"}</span>
                       </div>
 
                       {showSessionExercises && todaySessionExercises.length > 0 && (

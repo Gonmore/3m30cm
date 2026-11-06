@@ -850,3 +850,6 @@ Como contexto rapido:
 - [ ] Endpoint de duplicación de plantillas de programa
 - [ ] Soporte multi-idioma en instrucciones de ejercicios (ya existe campo `locale`)
 - [ ] Endpoint de comparación entre sesiones (atleta vs programa ideal)
+## Nota reciente (2026-11-06)
+
+- POST /api/v1/athlete/sessions/:id/logs ya no aplica la restriccion de una sola sesion completada por dia; permite multiples sesiones por dia.

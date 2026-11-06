@@ -1693,3 +1693,15 @@ La validacion paso despues del refactor del cliente.
 **Branch:** `bio`. Commits: `ce97725`, `ffedafa`, `eab1117`, `(sparkline fix)`.  
 **APK:** v2.1.5 generada a partir de estos cambios.
 
+### 23. Web Athlete UX, sesiones multiples por dia y vistas actualizadas (2026-11-06)
+
+**Cambios aplicados:**
+- pps/web-athlete/src/routes/Hoy.tsx: bloque EJERCICIOS con fondo blanco estable en claro, bloque Programa transparente en oscuro, bloque de sesion marengo, footer visible sobre background.
+- pps/web-athlete/src/routes/ExerciseSession.tsx: vista ejercicio por ejercicio en split screen (media izquierda, instrucciones/timer derecha), navegacion con emojis, barra de progreso, sonido en timer, modal de completion con proteina y navegacion a Evolucion.
+- pps/web-athlete/src/routes/Programa.tsx: fases colapsables, progreso general/semanal/racha, porcentaje corregido, boton regenerar con advertencia.
+- pps/web-athlete/src/routes/Evolucion.tsx: fondo por tema, sesiones totales, meta semanal y boton compartir imagen (avatar, programa, tiempo estimado, check).
+- pps/api/src/routes/athlete.ts: eliminada restriccion de una sola sesion por dia en POST /athlete/sessions/:id/logs.
+
+**Validacion:**
+- npx tsc --noEmit (api y web-athlete) OK
+- npx vite build (web-athlete) OK

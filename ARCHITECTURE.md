@@ -235,3 +235,7 @@ Alternative dev scripts (root `package.json`):
 - `api_reference.md` — detailed API endpoint reference with auth flows and example payloads
 - `bitacora.md` — historical decisions log
 - `README.md` — project overview and development setup
+## Notas recientes (2026-11-06)
+
+- Web Athlete: ExerciseSession ahora es split-screen con media y timer; Programa agrupa sesiones por fase colapsable; Evolucion incluye compartir imagen.
+- API: se elimino la restriccion de una sola sesion completada por dia en POST /api/v1/athlete/sessions/:id/logs.
