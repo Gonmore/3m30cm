@@ -535,7 +535,7 @@ export default function HoyScreen() {
                     }}
                     className="flex items-center gap-2 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-amber-400"
                   >
-                    <img src="/pwa.jpg" alt="Instalar" className="h-6 w-6 rounded" />
+                    <img src="/pwa-192.png" alt="Instalar" className="h-6 w-6 rounded" />
                     Instalar app
                   </button>
                 )}
