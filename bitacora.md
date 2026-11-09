@@ -1705,3 +1705,12 @@ La validacion paso despues del refactor del cliente.
 **Validacion:**
 - npx tsc --noEmit (api y web-athlete) OK
 - npx vite build (web-athlete) OK
+
+### 2026-11-09 — Coach mode en `web-athlete` (plan `.kilo/plans/1794233487103-web-athlete-coach-mode-plan.md`)
+- **API/schema**: `ProgramTemplate` agrega `objective`, `displayPriceCents`, `currency` (ARS), `usesPhases`. Migración `20261109_add_template_commercial_fields`. `athlete` templates/assignments/request exponen campos comerciales.
+- **Admin/SUPERADMIN**: `admin-users.ts` (`GET /admin/users`, `PATCH /admin/users/:userId/role`) montado en `admin.ts`; audit log y confirmación anti auto-democión.
+- **Coach API**: `coach.ts` corrige scope SUPERADMIN global (sin `?coachUserId=`) en `/programs`, `/requests`, approve/reject, `/athletes`, progreso; `/programs` devuelve conteo aprobado e ingreso esperado display-only (`APPROVED × displayPriceCents`).
+- **Editor coach ownership**: nuevo `coach-templates.ts` en `/coach` (CRUD plantillas, fases/días/tareas/variantes wizard, parse/import, welcome video, media por tarea, picker read-only ejercicios). Coherce ownership server-side en IDs anidados.
+- **Web-athlete**: `ViewModeContext` (athlete|coach, persistido por user), shell/sidebar/rutas actualizadas (`/coach/programas`, `/nuevo`, `/:id`, `/coach/atletas`, `/coach/solicitudes`, `/coach/entrenadores` SUPERADMIN). Pantallas coach reescritas para contratos reales; editor MVP con campos comerciales + estructura fases/tareas/URL media.
+- **Validación**: `apps/api` `tsc --noEmit` OK, `apps/web-athlete` `tsc --noEmit` OK. Migración creada pero **no aplicada** automáticamente en este entorno.
+- **Pendiente/seguimiento**: ejecutar migración Prisma en entorno objetivo; smoke ownership/roles/SUPERADMIN; retiro real de `apps/web` es paso separado; ampliar editor (uploads S3 UI, variantes avanzadas, reorder drag) según necesidad.

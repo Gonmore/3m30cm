@@ -2,7 +2,7 @@ export type SessionStatus = "PLANNED" | "COMPLETED" | "SKIPPED" | "RESCHEDULED";
 export type DayType = "EXPLOSIVE" | "STRENGTH" | "RECOVERY" | "REST" | "UPPER_CORE" | "OTHER";
 export type SeasonPhase = "PRESEASON" | "IN_SEASON" | "COMPETITION" | "OFF_SEASON";
 export type AssignmentStatus = "PENDING" | "APPROVED" | "REJECTED";
-export type ProgramStatus = "DRAFT" | "ACTIVE" | "COMPLETED" | "ARCHIVED";
+export type ProgramStatus = "DRAFT" | "ACTIVE" | "COMPLETED" | "ARCHIVED" | "PAUSED";
 
 export interface DayTypeConfig {
   label: string;
@@ -18,6 +18,144 @@ export const DAY_TYPE_CONFIG: Record<DayType, DayTypeConfig> = {
   UPPER_CORE: { label: "Tren Superior/Core", emoji: "🏋️", color: "text-yellow-400" },
   OTHER: { label: "Otro", emoji: "📅", color: "text-surface-400" },
 };
+
+export interface CoachUserSummary {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+}
+
+export interface TemplateCommercialFields {
+  objective?: string | null;
+  isPremium?: boolean;
+  displayPriceCents?: number | null;
+  currency?: string | null;
+  usesPhases?: boolean;
+  approvedAssignmentCount?: number;
+  expectedRevenueCents?: number;
+}
+
+export interface AvailableTemplate extends TemplateCommercialFields {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  welcomeVideoUrl: string | null;
+  cycleLengthDays: number;
+  isEditable?: boolean;
+  coachId: string | null;
+  coach: CoachUserSummary | null;
+  techniqueMediaAssets: ExerciseMediaAsset[];
+  techniques: Array<{ id: string; title: string; description: string | null }>;
+  hasActiveProgram?: boolean;
+  assignmentStatus: AssignmentStatus | null;
+}
+
+export interface CoachTemplateSummary extends TemplateCommercialFields {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  welcomeVideoUrl: string | null;
+  cycleLengthDays: number;
+  isEditable: boolean;
+  coachId: string | null;
+  coach?: CoachUserSummary | null;
+  createdAt?: string;
+  updatedAt?: string;
+  _count?: { days?: number; phases?: number; personalPrograms?: number; programAssignments?: number };
+}
+
+export interface ExerciseTaskVariant {
+  id: string;
+  weekNumber: number;
+  exerciseId: string | null;
+  name: string | null;
+  sets: number | null;
+  repsOrTimeText: string | null;
+  notes: string | null;
+  exercise?: { id: string; name: string; slug: string } | null;
+}
+
+export interface ExerciseTaskTemplate {
+  id: string;
+  phaseDayTemplateId?: string;
+  exerciseId: string | null;
+  orderIndex: number;
+  name: string;
+  sets: number | null;
+  repsOrTimeText: string | null;
+  description: string | null;
+  requiresWeight: boolean;
+  isUnilateral: boolean;
+  evolution: string;
+  zone: string;
+  videoUrl: string | null;
+  notes: string | null;
+  exercise?: { id: string; name: string; slug: string } | null;
+  variants?: ExerciseTaskVariant[];
+}
+
+export interface ProgramPhaseDayTemplate {
+  id: string;
+  dayNumber: number;
+  title: string | null;
+  dayType: DayType;
+  notes: string | null;
+  tasks: ExerciseTaskTemplate[];
+}
+
+export interface ProgramPhaseTemplate {
+  id: string;
+  name: string;
+  orderIndex: number;
+  durationDays: number;
+  masterBlockDays: number;
+  notes: string | null;
+  days: ProgramPhaseDayTemplate[];
+}
+
+export interface CoachTemplateDetail extends CoachTemplateSummary {
+  phases?: ProgramPhaseTemplate[];
+  programAssignments?: CoachProgramAssignment[];
+}
+
+export interface CoachProgramAssignment {
+  id: string;
+  status: AssignmentStatus;
+  requestNotes?: string | null;
+  assignedAt: string;
+  approvedAt?: string | null;
+  athleteProfile?: {
+    id: string;
+    displayName?: string | null;
+    user?: CoachUserSummary;
+  };
+  template?: CoachTemplateSummary;
+  coach?: CoachUserSummary | null;
+}
+
+export interface CoachAthleteSummary {
+  id: string;
+  displayName?: string | null;
+  user?: CoachUserSummary;
+  team?: { id: string; name: string; slug: string } | null;
+  personalPrograms?: Array<{ id: string; name: string; phase: string; startDate: string; status: string }>;
+  programAssignments?: Array<{ id: string; status: AssignmentStatus; assignedAt: string; template: { id: string; code: string; name: string } }>;
+}
+
+export interface AdminUserSummary {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  platformRole: string | null;
+  createdAt: string;
+  memberships?: Array<{ role: string; team: { id: string; name: string; slug: string } }>;
+  athleteProfile?: { id: string; displayName: string | null } | null;
+  _count?: { coachTemplates: number; programAssignments: number };
+}
 
 export interface ExerciseMediaAsset {
   id: string;
@@ -222,30 +360,41 @@ export interface AvailableTemplate {
   code: string;
   name: string;
   description: string | null;
+  objective?: string | null;
   welcomeVideoUrl: string | null;
   cycleLengthDays: number;
   isPremium: boolean;
+  displayPriceCents?: number | null;
+  currency?: string | null;
+  usesPhases?: boolean;
   isEditable?: boolean;
   coachId: string | null;
   coach: { id: string; email: string; firstName: string | null; lastName: string | null } | null;
   techniqueMediaAssets: ExerciseMediaAsset[];
   techniques: Array<{ id: string; title: string; description: string | null }>;
-  hasActiveProgram: boolean;
+  hasActiveProgram?: boolean;
   assignmentStatus: AssignmentStatus | null;
 }
 
 export interface ProgramAssignment {
   id: string;
-  athleteProfileId: string;
-  templateId: string;
+  athleteProfileId?: string;
+  templateId?: string;
   status: AssignmentStatus;
   assignedAt: string;
+  approvedAt?: string | null;
+  requestNotes?: string | null;
   coach: { id: string; email: string; firstName: string | null; lastName: string | null } | null;
+  athleteProfile?: { id: string; displayName?: string | null; user?: CoachUserSummary };
   template: {
     id: string;
     code: string;
     name: string;
+    objective?: string | null;
     isPremium: boolean;
+    displayPriceCents?: number | null;
+    currency?: string | null;
+    usesPhases?: boolean;
     cycleLengthDays: number;
     welcomeVideoUrl: string | null;
   };

@@ -1296,9 +1296,13 @@ athleteRouter.get("/programs/available", async (req: AuthenticatedRequest, res: 
           code: true,
           name: true,
           description: true,
+          objective: true,
           welcomeVideoUrl: true,
           cycleLengthDays: true,
           isPremium: true,
+          displayPriceCents: true,
+          currency: true,
+          usesPhases: true,
           coachId: true,
           coach: {
             select: {
@@ -1393,7 +1397,7 @@ athleteRouter.post("/programs/request", async (req: AuthenticatedRequest, res: R
 
     const template = await prisma.programTemplate.findUnique({
       where: { code: payload.templateCode },
-      select: { id: true, code: true, name: true, isPremium: true, coachId: true },
+      select: { id: true, code: true, name: true, isPremium: true, coachId: true, displayPriceCents: true, currency: true, objective: true },
     });
 
     if (!template) {
@@ -1447,7 +1451,7 @@ athleteRouter.post("/programs/request", async (req: AuthenticatedRequest, res: R
       },
       include: {
         template: {
-          select: { id: true, code: true, name: true, isPremium: true, cycleLengthDays: true },
+          select: { id: true, code: true, name: true, isPremium: true, cycleLengthDays: true, displayPriceCents: true, currency: true, objective: true },
         },
         coach: {
           select: { id: true, email: true, firstName: true, lastName: true },
@@ -1498,6 +1502,10 @@ athleteRouter.get("/assignments", async (req: AuthenticatedRequest, res: Respons
             isPremium: true,
             cycleLengthDays: true,
             welcomeVideoUrl: true,
+            objective: true,
+            displayPriceCents: true,
+            currency: true,
+            usesPhases: true,
           },
         },
         coach: {
@@ -1563,6 +1571,10 @@ athleteRouter.get("/assignments/:templateId", async (req: AuthenticatedRequest, 
             isPremium: true,
             cycleLengthDays: true,
             welcomeVideoUrl: true,
+            objective: true,
+            displayPriceCents: true,
+            currency: true,
+            usesPhases: true,
           },
         },
         coach: {

@@ -248,36 +248,69 @@ coachRouter.get("/sessions/:sessionId", async (req: AuthenticatedRequest, res: R
 coachRouter.get("/programs", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const coachId = resolveCoachId(req);
+    if (!coachId) { res.status(401).json({ message: "Authentication required" }); return; }
 
-    if (!coachId) {
-      res.status(401).json({ message: "Authentication required" });
-      return;
-    }
-
+    const isSuperAdmin = req.auth?.platformRole === Role.SUPERADMIN && !getQueryParam(req.query.coachUserId);
+    const where: Prisma.ProgramTemplateWhereInput = isSuperAdmin ? {} : { coachId };
     const templates = await prisma.programTemplate.findMany({
-      where: { coachId },
+      where,
       orderBy: { createdAt: "desc" },
       select: {
-        id: true,
-        code: true,
-        name: true,
-        description: true,
-        cycleLengthDays: true,
-        isPremium: true,
-        _count: {
-          select: {
-            programAssignments: {
-              where: { status: { in: [AssignmentStatus.PENDING, AssignmentStatus.APPROVED] } },
-            },
-          },
-        },
+        id: true, code: true, name: true, description: true, objective: true,
+        cycleLengthDays: true, isPremium: true, displayPriceCents: true, currency: true, usesPhases: true, coachId: true,
+        coach: { select: { id: true, email: true, firstName: true, lastName: true } },
+        _count: { select: { programAssignments: true } },
       },
     });
 
-    res.json({ templates });
+    const approvedCounts = await prisma.programAssignment.groupBy({
+      by: ["templateId"],
+      where: { templateId: { in: templates.map((t) => t.id) }, status: AssignmentStatus.APPROVED },
+      _count: { templateId: true },
+    });
+    const approvedById = new Map(approvedCounts.map((r) => [r.templateId, r._count.templateId]));
+
+    res.json({
+      templates: templates.map((t) => {
+        const approvedAssignmentCount = approvedById.get(t.id) ?? 0;
+        return { ...t, approvedAssignmentCount, expectedRevenueCents: approvedAssignmentCount * (t.displayPriceCents ?? 0) };
+      }),
+    });
   } catch (error) {
     console.error("Failed to fetch coach programs", error);
     res.status(500).json({ message: "Failed to fetch coach programs" });
+  }
+});
+
+coachRouter.get("/requests", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const coachId = resolveCoachId(req);
+    if (!coachId) { res.status(401).json({ message: "Authentication required" }); return; }
+    const isGlobal = req.auth?.platformRole === Role.SUPERADMIN && !getQueryParam(req.query.coachUserId);
+    const statusParam = getQueryParam(req.query.status);
+    const status = statusParam && Object.values(AssignmentStatus).includes(statusParam as AssignmentStatus)
+      ? (statusParam as AssignmentStatus)
+      : AssignmentStatus.PENDING;
+    const templateId = getQueryParam(req.query.templateId);
+    const assignments = await prisma.programAssignment.findMany({
+      where: {
+        status,
+        ...(isGlobal ? {} : { coachId }),
+        ...(templateId ? { templateId } : {}),
+      },
+      orderBy: { assignedAt: "desc" },
+      include: {
+        template: {
+          select: { id: true, code: true, name: true, objective: true, isPremium: true, displayPriceCents: true, currency: true, coachId: true, coach: { select: { id: true, email: true, firstName: true, lastName: true } } },
+        },
+        athleteProfile: { include: { user: { select: coachUserSelect } } },
+        coach: { select: coachUserSelect },
+      },
+    });
+    res.json({ assignments });
+  } catch (error) {
+    console.error("Failed to fetch coach requests", error);
+    res.status(500).json({ message: "Failed to fetch coach requests" });
   }
 });
 
@@ -303,7 +336,8 @@ coachRouter.get("/programs/:templateId/requests", async (req: AuthenticatedReque
       select: { id: true, name: true, code: true, coachId: true },
     });
 
-    if (!template || template.coachId !== coachId) {
+    const isGlobal = req.auth?.platformRole === Role.SUPERADMIN && !getQueryParam(req.query.coachUserId);
+    if (!template || (!isGlobal && template.coachId !== coachId)) {
       res.status(404).json({ message: "Program template not found" });
       return;
     }
@@ -587,56 +621,32 @@ coachRouter.post("/assignments/:assignmentId/reject", async (req: AuthenticatedR
 coachRouter.get("/athletes", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const coachId = resolveCoachId(req);
-
-    if (!coachId) {
-      res.status(401).json({ message: "Authentication required" });
-      return;
-    }
-
+    if (!coachId) { res.status(401).json({ message: "Authentication required" }); return; }
+    const isGlobal = req.auth?.platformRole === Role.SUPERADMIN && !getQueryParam(req.query.coachUserId);
+    const where: Prisma.AthleteProfileWhereInput = isGlobal
+      ? {}
+      : {
+          OR: [
+            { coachAssignments: { some: { coachId } } },
+            { programAssignments: { some: { coachId } } },
+            { personalPrograms: { some: { template: { coachId } } } },
+          ],
+        };
     const athletes = await prisma.athleteProfile.findMany({
-      where: {
-        coachAssignments: {
-          some: {
-            coachId,
-          },
-        },
-      },
-      orderBy: {
-        updatedAt: "desc",
-      },
+      where,
+      orderBy: { updatedAt: "desc" },
       include: {
-        user: {
-          select: coachUserSelect,
-        },
-        team: {
-          select: { id: true, name: true, slug: true },
-        },
-        personalPrograms: {
-          orderBy: { startDate: "desc" },
-          take: 1,
-          select: {
-            id: true,
-            name: true,
-            phase: true,
-            startDate: true,
-            status: true,
-          },
-        },
+        user: { select: coachUserSelect },
+        team: { select: { id: true, name: true, slug: true } },
+        personalPrograms: { orderBy: { startDate: "desc" }, take: 1, select: { id: true, name: true, phase: true, startDate: true, status: true } },
         programAssignments: {
+          ...(isGlobal ? {} : { where: { coachId } }),
           orderBy: { assignedAt: "desc" },
           take: 5,
-          select: {
-            id: true,
-            status: true,
-            assignedAt: true,
-            template: {
-              select: { id: true, code: true, name: true },
-            },
-          },
+          select: { id: true, status: true, assignedAt: true, template: { select: { id: true, code: true, name: true } } },
         },
       },
     });
-
     res.json({ athletes });
   } catch (error) {
     console.error("Failed to fetch coach athletes", error);
@@ -659,22 +669,23 @@ coachRouter.get("/athletes/:athleteId/progress", async (req: AuthenticatedReques
       return;
     }
 
+    const isGlobalAthlete = req.auth?.platformRole === Role.SUPERADMIN && !getQueryParam(req.query.coachUserId);
     const athleteProfile = await prisma.athleteProfile.findFirst({
       where: {
         id: athleteProfileId,
-        coachAssignments: {
-          some: {
-            coachId,
-          },
-        },
+        ...(isGlobalAthlete
+          ? {}
+          : {
+              OR: [
+                { coachAssignments: { some: { coachId } } },
+                { programAssignments: { some: { coachId } } },
+                { personalPrograms: { some: { template: { coachId } } } },
+              ],
+            }),
       },
       include: {
-        user: {
-          select: coachUserSelect,
-        },
-        team: {
-          select: { id: true, name: true, slug: true },
-        },
+        user: { select: coachUserSelect },
+        team: { select: { id: true, name: true, slug: true } },
       },
     });
 

@@ -853,3 +853,13 @@ Como contexto rapido:
 ## Nota reciente (2026-11-06)
 
 - POST /api/v1/athlete/sessions/:id/logs ya no aplica la restriccion de una sola sesion completada por dia; permite multiples sesiones por dia.
+
+### Editor plantillas coach (`/coach/program-templates/*`, ownership)
+- `GET/POST /program-templates`, `GET/PUT /program-templates/:id`
+- `POST /program-templates/:id/welcome-video` (multipart `video`)
+- CRUD wizard: `GET/POST /phases`, `PUT/DELETE /phases/:phaseId`, days/tasks/variants bajo ownership, parse/import, `POST /tasks/:taskId/media` (multipart `file`)
+- `GET /coach/exercises?q=` (read-only catálogo global)
+
+## Admin users (`/admin`, SUPERADMIN)
+- `GET /admin/users?q=&role=&page=&pageSize=`
+- `PATCH /admin/users/:userId/role` `{ platformRole, confirmSelfDemotion? }` (audita; cambio JWT requiere re-login)

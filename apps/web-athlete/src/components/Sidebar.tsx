@@ -1,9 +1,10 @@
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../contexts/AuthContext";
+import { useViewMode } from "../contexts/ViewModeContext";
 import Avatar from "./Avatar";
 
-const menuItems: Array<{ id: string; icon: string; label: string; path: string }> = [
+const athleteItems = [
   { id: "hoy", icon: "◉", label: "Hoy", path: "/" },
   { id: "programa", icon: "▤", label: "Programa", path: "/programa" },
   { id: "tecnica", icon: "🎯", label: "Técnica", path: "/tecnica" },
@@ -11,18 +12,19 @@ const menuItems: Array<{ id: string; icon: string; label: string; path: string }
   { id: "settings", icon: "⚙️", label: "Ajustes", path: "/settings" },
 ];
 
-export default function Sidebar({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+const coachItems = [
+  { id: "coach-home", icon: "🏠", label: "Inicio", path: "/coach" },
+  { id: "coach-programas", icon: "▤", label: "Programas", path: "/coach/programas" },
+  { id: "coach-atletas", icon: "👥", label: "Atletas", path: "/coach/atletas" },
+  { id: "coach-solicitudes", icon: "📩", label: "Solicitudes", path: "/coach/solicitudes" },
+];
+
+export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user } = useAuth();
+  const { viewMode, setViewMode, canCoachMode, isSuperAdmin } = useViewMode();
   const location = useLocation();
   const navigate = useNavigate();
 
-  const isCoach = user?.platformRole === "COACH" || user?.platformRole === "SUPERADMIN";
   const displayName =
     user?.firstName || user?.lastName
       ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim()
@@ -33,25 +35,16 @@ export default function Sidebar({
     onClose();
   };
 
+  const items = viewMode === "coach" ? coachItems : athleteItems;
+
   return (
     <>
-      {/* Overlay - only visible when open */}
-      {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50"
-          onClick={onClose}
-        />
-      )}
-
-      {/* Sidebar panel */}
+      {open && <div className="fixed inset-0 z-40 bg-black/50" onClick={onClose} />}
       <nav
-        className={`fixed left-0 top-0 bottom-0 z-50 flex flex-col border-r border-surface-800 bg-surface-900 transform transition-transform duration-200 ease-out ${
-          open ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed left-0 top-0 bottom-0 z-50 flex flex-col border-r border-surface-800 bg-surface-900 transform transition-transform duration-200 ease-out ${open ? "translate-x-0" : "-translate-x-full"}`}
         style={{ width: 280 }}
       >
         <div className="flex-1 overflow-y-auto py-6">
-          {/* Profile header */}
           <div className="mb-6 flex items-center gap-3 px-6">
             <Avatar user={user} sizeClass="h-11 w-11" textClass="text-lg" />
             <div>
@@ -60,40 +53,36 @@ export default function Sidebar({
             </div>
           </div>
 
-          <div className="mb-4 border-b border-surface-800" />
+          {canCoachMode && (
+            <div className="mb-4 px-4">
+              <div className="grid grid-cols-2 gap-1 rounded-lg bg-surface-800 p-1 text-xs">
+                <button onClick={() => { setViewMode("athlete"); handleNavigate("/"); }} className={`rounded-md px-2 py-2 ${viewMode === "athlete" ? "bg-surface-700 text-surface-100" : "text-surface-400"}`}>Atleta</button>
+                <button onClick={() => { setViewMode("coach"); handleNavigate("/coach"); }} className={`rounded-md px-2 py-2 ${viewMode === "coach" ? "bg-surface-700 text-surface-100" : "text-surface-400"}`}>Coach</button>
+              </div>
+            </div>
+          )}
 
-          {/* Menu items */}
+          <div className="mb-4 border-b border-surface-800" />
           <div className="space-y-1 px-3">
-            {menuItems.map((item) => {
-              const isActive = location.pathname === item.path;
+            {items.map((item) => {
+              const isActive = item.path === "/" ? location.pathname === "/" : location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
               return (
-                <button
-                  key={item.id}
-                  onClick={() => handleNavigate(item.path)}
-                  className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-amber-900/20 text-amber-400"
-                      : "text-surface-300 hover:bg-surface-800 hover:text-surface-100"
-                  }`}
-                >
+                <button key={item.id} onClick={() => handleNavigate(item.path)} className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${isActive ? "bg-amber-900/20 text-amber-400" : "text-surface-300 hover:bg-surface-800 hover:text-surface-100"}`}>
                   <span className="text-lg">{item.icon}</span>
                   <span>{item.label}</span>
-                  {isActive && <div className="ml-auto w-1.5 rounded-r-full bg-amber-400" />}
                 </button>
               );
             })}
-
-            {isCoach && (
-              <button
-                onClick={() => handleNavigate("/coach")}
-                className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                  location.pathname.startsWith("/coach")
-                    ? "bg-amber-900/20 text-amber-400"
-                    : "text-surface-300 hover:bg-surface-800 hover:text-surface-100"
-                }`}
-              >
-                <span>🏋️</span>
-                <span>Dashboard Coach</span>
+            {viewMode === "coach" && isSuperAdmin && (
+              <button onClick={() => handleNavigate("/coach/entrenadores")} className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${location.pathname.startsWith("/coach/entrenadores") ? "bg-amber-900/20 text-amber-400" : "text-surface-300 hover:bg-surface-800 hover:text-surface-100"}`}>
+                <span>🧑‍🏫</span>
+                <span>Entrenadores</span>
+              </button>
+            )}
+            {viewMode === "coach" && (
+              <button onClick={() => handleNavigate("/settings")} className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-surface-300 hover:bg-surface-800 hover:text-surface-100">
+                <span>⚙️</span>
+                <span>Ajustes</span>
               </button>
             )}
           </div>

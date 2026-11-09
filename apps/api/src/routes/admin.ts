@@ -4,20 +4,22 @@ import { type Response, Router } from "express";
 import { prisma } from "../config/prisma.js";
 import { adminAppConfigRouter } from "./app-config.js";
 import { adminExercisesRouter } from "./admin-exercises.js";
+import { adminNutritionRouter } from "./admin-nutrition.js";
 import { adminProgramsRouter } from "./admin-programs.js";
 import { adminTeamsRouter } from "./admin-teams.js";
 import { adminTemplatesRouter } from "./admin-templates.js";
-import { adminNutritionRouter } from "./admin-nutrition.js";
+import { adminUsersRouter } from "./admin-users.js";
 import { requireAuth, requireRole, type AuthenticatedRequest } from "../middleware/auth.js";
 
 export const adminRouter = Router();
 
 adminRouter.use(adminAppConfigRouter);
 adminRouter.use(adminExercisesRouter);
+adminRouter.use(adminNutritionRouter);
 adminRouter.use(adminProgramsRouter);
 adminRouter.use(adminTeamsRouter);
 adminRouter.use(adminTemplatesRouter);
-adminRouter.use(adminNutritionRouter);
+adminRouter.use(adminUsersRouter);
 
 adminRouter.get(
   "/summary",
