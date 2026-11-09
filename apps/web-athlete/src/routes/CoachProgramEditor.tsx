@@ -43,11 +43,14 @@ function TaskEditorModal(props: {
   task: ExerciseTaskTemplate; allDays: Array<{ phaseId: string; phaseName: string; dayId: string; label: string; tasks: ExerciseTaskTemplate[] }>; exerciseResults: ExercisePick[]; onSearch: (q: string) => void;
   onClose: () => void; onSave: (patch: Partial<ExerciseTaskTemplate>) => void; onPickExercise: (ex: ExercisePick) => void; onCopyFrom: (source: ExerciseTaskTemplate) => void;
 }) {
-  const [t, setT] = useState<ExerciseTaskTemplate>({ ...props.task, evolutionGoals: toGoals(props.task) });
+  const [t, setT] = useState<ExerciseTaskTemplate>({ ...props.task, evolutionGoals: toGoals(props.task), blockItems: Array.isArray(props.task.blockItems) ? props.task.blockItems : (props.task.blockItems ? [] : []) });
   const [q, setQ] = useState(""); const [pickMode, setPickMode] = useState<"new" | "program">("new");
   useEffect(() => { const id = setTimeout(() => props.onSearch(q), 250); return () => clearTimeout(id); }, [q]); // eslint-disable-line
   const set = <K extends keyof ExerciseTaskTemplate>(k: K, v: ExerciseTaskTemplate[K]) => setT((p) => ({ ...p, [k]: v }));
   const toggleGoal = (g: string) => setT((p) => { const cur = new Set(p.evolutionGoals ?? []); if (cur.has(g)) cur.delete(g); else cur.add(g); const arr = Array.from(cur); return { ...p, evolutionGoals: arr, evolution: (arr[0] as ExerciseTaskTemplate["evolution"]) || "WEIGHT" }; });
+  type BlockItem = { name: string; sets?: number | null; repsText?: string | null; notes?: string | null };
+  const blockItems = (Array.isArray(t.blockItems) ? t.blockItems : []) as BlockItem[];
+  const setBlockItem = (i: number, patch: Partial<BlockItem>) => set("blockItems", blockItems.map((it, idx) => idx === i ? { ...it, ...patch } : it));
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={props.onClose}>
       <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-xl bg-surface-900 p-4 sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
@@ -67,6 +70,7 @@ function TaskEditorModal(props: {
           <label className="flex items-center gap-1"><input type="checkbox" checked={t.isUnilateral} onChange={(e) => set("isUnilateral", e.target.checked)} /> Unilateral</label>
           <label className="flex items-center gap-1"><input type="checkbox" checked={Boolean(t.isBlock)} onChange={(e) => set("isBlock", e.target.checked)} /> Bloque (agrupación)</label>
         </div>
+        {t.isBlock ? <div className="mt-2 rounded border border-surface-800 p-2"><p className="text-xs text-surface-400">Ítems del bloque (MVP, guardados en plantilla)</p>{blockItems.map((it, i) => <div key={i} className="mt-1 grid gap-1 sm:grid-cols-4"><input value={it.name ?? ""} onChange={(e) => setBlockItem(i, { name: e.target.value })} placeholder="Nombre" className="rounded border border-surface-700 bg-surface-950 px-2 py-1 text-xs text-surface-100 sm:col-span-2" /><input type="number" value={it.sets ?? ""} onChange={(e) => setBlockItem(i, { sets: e.target.value ? Number(e.target.value) : null })} placeholder="sets" className="rounded border border-surface-700 bg-surface-950 px-2 py-1 text-xs text-surface-100" /><div className="flex gap-1"><input value={it.repsText ?? ""} onChange={(e) => setBlockItem(i, { repsText: e.target.value || null })} placeholder="reps" className="min-w-0 flex-1 rounded border border-surface-700 bg-surface-950 px-2 py-1 text-xs text-surface-100" /><button type="button" onClick={() => set("blockItems", blockItems.filter((_, idx) => idx !== i))} className="text-red-400">×</button></div></div>)}<button type="button" onClick={() => set("blockItems", [...blockItems, { name: "" }])} className="mt-2 text-xs text-primary-400">+ Ítem</button></div> : null}
         <div className="mt-2"><p className="text-xs text-surface-400">Evolución / objetivo de progresión (prescripción del programa)</p><div className="mt-1 flex flex-wrap gap-2">{EVOLUTION_GOALS.map((g) => <label key={g.value} className="flex items-center gap-1 text-xs text-surface-300"><input type="checkbox" checked={(t.evolutionGoals ?? []).includes(g.value)} onChange={() => toggleGoal(g.value)} />{g.label}</label>)}</div></div>
         <div className="mt-3 rounded border border-surface-800 p-2">
           <p className="text-xs text-surface-400">Vincular ejercicio global (opcional, necesario para carga/historial)</p>
