@@ -622,19 +622,31 @@ function serializeSessionDetail<T extends Awaited<ReturnType<typeof getOwnedSess
       const repsText = durationSeconds && !sessionExercise.durationSeconds ? null : sessionExercise.repsText;
       return {
         ...sessionExercise,
+        exerciseId: sessionExercise.exerciseId ?? null,
+        name: sessionExercise.exercise?.name ?? sessionExercise.name ?? "Ejercicio",
+        description: sessionExercise.exercise?.description ?? sessionExercise.description ?? null,
+        equipment: sessionExercise.exercise?.equipment ?? sessionExercise.equipment ?? null,
+        category: sessionExercise.exercise?.category ?? sessionExercise.category ?? null,
+        requiresWeight: sessionExercise.exercise?.requiresLoad ?? sessionExercise.requiresWeight ?? false,
+        perLeg: sessionExercise.exercise?.perLeg ?? sessionExercise.perLeg ?? false,
+        videoUrl: sessionExercise.videoUrl ?? null,
+        evolutionGoals: sessionExercise.evolutionGoals ?? [],
+        zone: sessionExercise.exercise?.zone ?? sessionExercise.zone ?? null,
+        isBlock: sessionExercise.isBlock ?? sessionExercise.exercise?.isBlock ?? false,
+        blockItems: sessionExercise.blockItems ?? null,
         durationSeconds,
         repsText,
         guidance: buildExerciseGuidance({
           sessionDayType: session.dayType,
           sessionStatus: session.status,
           exercise: {
-            name: sessionExercise.exercise.name,
-            category: sessionExercise.exercise.category,
-            description: sessionExercise.exercise.description ?? null,
-            equipment: sessionExercise.exercise.equipment ?? null,
-            requiresLoad: sessionExercise.exercise.requiresLoad,
-            perLeg: sessionExercise.exercise.perLeg,
-            defaultSeriesProtocol: sessionExercise.exercise.defaultSeriesProtocol,
+            name: sessionExercise.exercise?.name ?? sessionExercise.name ?? "Ejercicio",
+            category: sessionExercise.exercise?.category ?? sessionExercise.category ?? "general",
+            description: sessionExercise.exercise?.description ?? sessionExercise.description ?? null,
+            equipment: sessionExercise.exercise?.equipment ?? sessionExercise.equipment ?? null,
+            requiresLoad: sessionExercise.exercise?.requiresLoad ?? sessionExercise.requiresWeight ?? false,
+            perLeg: sessionExercise.exercise?.perLeg ?? sessionExercise.perLeg ?? false,
+            defaultSeriesProtocol: sessionExercise.exercise?.defaultSeriesProtocol ?? "NONE",
           },
           seriesProtocol: sessionExercise.seriesProtocol,
           sets: sessionExercise.sets,
@@ -2031,16 +2043,16 @@ athleteRouter.get("/sessions/:sessionId/exercise-load-hints", async (req: Authen
     if (!session) { res.status(404).json({ message: "Session not found" }); return; }
 
     const trackedExercises = session.sessionExercises.filter(
-      (se) => se.exercise.requiresLoad ||
-        ["WEIGHT", "TIME", "VELOCITY", "HYBRID"].includes(se.exercise.evolution ?? ""),
+      (se) => (se.exercise?.requiresLoad ?? se.requiresWeight) ||
+        ["WEIGHT", "TIME", "VELOCITY", "HYBRID"].includes(se.exercise?.evolution ?? ""),
     );
 
     if (trackedExercises.length === 0) { res.json([]); return; }
 
-    const trackedIds = trackedExercises.map((se) => se.exerciseId);
+    const trackedIds = trackedExercises.map((se) => se.exerciseId).filter((id): id is string => Boolean(id));
 
     // Get the most recent load record for each exercise (excluding current session)
-    const lastRecords = await prisma.exerciseLoadRecord.findMany({
+    const lastRecords = trackedIds.length ? await prisma.exerciseLoadRecord.findMany({
       where: {
         athleteProfileId: athleteProfile.id,
         exerciseId: { in: trackedIds },
@@ -2048,12 +2060,12 @@ athleteRouter.get("/sessions/:sessionId/exercise-load-hints", async (req: Authen
       },
       orderBy: { performedAt: "desc" },
       select: { exerciseId: true, loadKg: true, execTimeSeconds: true, performedAt: true },
-    });
+    }) : [];
 
     // De-duplicate: keep only the most recent per exercise
     const latestByExercise = new Map<string, { loadKg: number | null; execTimeSeconds: number | null; performedAt: Date }>();
     for (const r of lastRecords) {
-      if (!latestByExercise.has(r.exerciseId)) {
+      if (r.exerciseId && !latestByExercise.has(r.exerciseId)) {
         latestByExercise.set(r.exerciseId, { loadKg: r.loadKg, execTimeSeconds: r.execTimeSeconds, performedAt: r.performedAt });
       }
     }
@@ -2068,14 +2080,16 @@ athleteRouter.get("/sessions/:sessionId/exercise-load-hints", async (req: Authen
     }
 
     const hints = trackedExercises.map((se) => {
-      const exerciseId = se.exerciseId;
-      const evolutionType = se.exercise.evolution ?? null;
-      const last = latestByExercise.get(exerciseId);
+      const exerciseId = se.exerciseId ?? se.id;
+      const evolutionType = se.exercise?.evolution ?? null;
+      const last = se.exerciseId ? latestByExercise.get(se.exerciseId) : undefined;
       if (!last) {
-        return { exerciseId, evolutionType, lastLoadKg: null, suggestedLoadKg: null, lastExecTimeSeconds: null, suggestedExecTimeSeconds: null, lastPerformedAt: null };
+        return { exerciseId, sessionExerciseId: se.id, canTrackLoad: Boolean(se.exerciseId), evolutionType, lastLoadKg: null, suggestedLoadKg: null, lastExecTimeSeconds: null, suggestedExecTimeSeconds: null, lastPerformedAt: null };
       }
       return {
         exerciseId,
+        sessionExerciseId: se.id,
+        canTrackLoad: Boolean(se.exerciseId),
         evolutionType,
         lastLoadKg: last.loadKg,
         suggestedLoadKg: last.loadKg != null ? suggestNextLoad(last.loadKg) : null,
@@ -2122,10 +2136,11 @@ athleteRouter.get("/progress/load-trend", async (req: AuthenticatedRequest, res:
     }>();
 
     for (const r of records) {
-      if (!byExercise.has(r.exerciseId)) {
-        byExercise.set(r.exerciseId, { exerciseId: r.exerciseId, exerciseName: r.exercise.name, records: [] });
+      const eid = r.exerciseId ?? "unknown";
+      if (!byExercise.has(eid)) {
+        byExercise.set(eid, { exerciseId: eid, exerciseName: r.exercise?.name ?? "Ejercicio", records: [] });
       }
-      byExercise.get(r.exerciseId)!.records.push({
+      byExercise.get(eid)!.records.push({
         date: r.performedAt.toISOString().slice(0, 10),
         loadKg: r.loadKg,
         repsPerformed: r.repsPerformed,
@@ -2239,7 +2254,7 @@ athleteRouter.get("/progress/power-path", async (req: AuthenticatedRequest, res:
       // Calculate power score from LOWER zone exercises
       let sessionPower = 0;
       for (const se of session.sessionExercises) {
-        if (se.exercise.zone !== "LOWER") continue;
+        if (se.exercise?.zone !== "LOWER") continue;
         const sets = se.sets ?? 3;
         // Estimate reps from repsText (e.g. "8", "8-10", "8x3") — default 8
         const repsMatch = se.repsText?.match(/\d+/);

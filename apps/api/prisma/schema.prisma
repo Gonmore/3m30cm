@@ -116,10 +116,11 @@ model User {
   updatedAt         DateTime          @updatedAt
   memberships       Membership[]
   athleteProfile    AthleteProfile?
-   coachedAssignments CoachAssignment[] @relation("CoachAssignments")
-   programAssignments ProgramAssignment[] @relation("CoachProgramAssignments")
-   coachTemplates     ProgramTemplate[] @relation("CoachTemplates")
-   deviceTokens      DeviceToken[]
+  coachedAssignments CoachAssignment[] @relation("CoachAssignments")
+  programAssignments ProgramAssignment[] @relation("CoachProgramAssignments")
+  coachTemplates     ProgramTemplate[] @relation("CoachTemplates")
+  createdExercises   Exercise[]        @relation("CoachCreatedExercises")
+  deviceTokens      DeviceToken[]
   auditLogs         AuditLog[]        @relation("AuditActor")
   passwordResetTokens PasswordResetToken[]
 }
@@ -237,8 +238,10 @@ model Exercise {
   defaultSeriesProtocol SeriesProtocol         @default(NONE)
   evolution      ExerciseEvolution?
   zone           ExerciseZone?
+  createdByUserId String?
   createdAt      DateTime                      @default(now())
   updatedAt      DateTime                      @updatedAt
+  createdBy      User?                         @relation("CoachCreatedExercises", fields: [createdByUserId], references: [id], onDelete: SetNull)
   instructions   ExerciseInstruction[]
   mediaAssets    ExerciseMediaAsset[]
   prescriptions  ExercisePrescriptionTemplate[]
@@ -248,6 +251,8 @@ model Exercise {
   asBlock        ExerciseBlock?
   inBlocks       ExerciseBlockItem[]           @relation("BlockItemExercise")
   loadRecords    ExerciseLoadRecord[]
+
+  @@index([createdByUserId])
 }
 
 model ExerciseBlock {
@@ -573,7 +578,11 @@ model ScheduledSession {
 model SessionExercise {
   id               String           @id @default(cuid())
   scheduledSessionId String
-  exerciseId       String
+  exerciseId       String?
+  name             String?
+  description      String?
+  equipment        String?
+  category         String?
   orderIndex       Int
   seriesProtocol   SeriesProtocol   @default(NONE)
   sets             Int?
@@ -582,11 +591,18 @@ model SessionExercise {
   restSeconds      Int?
   loadText         String?
   notes            String?
+  requiresWeight   Boolean          @default(false)
+  perLeg           Boolean          @default(false)
+  evolutionGoals   String[]         @default([])
+  zone             String?
+  isBlock          Boolean          @default(false)
+  blockItems       Json?
+  videoUrl         String?
   completedAt      DateTime?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
   scheduledSession ScheduledSession @relation(fields: [scheduledSessionId], references: [id], onDelete: Cascade)
-  exercise         Exercise         @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  exercise         Exercise?        @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
 
   @@unique([scheduledSessionId, orderIndex])
 }
@@ -607,7 +623,8 @@ model SessionLog {
 model ExerciseLoadRecord {
   id                 String           @id @default(cuid())
   athleteProfileId   String
-  exerciseId         String
+  exerciseId         String?
+  sessionExerciseId  String?
   scheduledSessionId String
   loadKg             Float?
   execTimeSeconds    Float?
@@ -615,11 +632,12 @@ model ExerciseLoadRecord {
   performedAt        DateTime
   createdAt          DateTime         @default(now())
   athleteProfile     AthleteProfile   @relation(fields: [athleteProfileId], references: [id], onDelete: Cascade)
-  exercise           Exercise         @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  exercise           Exercise?        @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
   scheduledSession   ScheduledSession @relation(fields: [scheduledSessionId], references: [id], onDelete: Cascade)
 
   @@index([athleteProfileId, exerciseId])
   @@index([scheduledSessionId])
+  @@index([sessionExerciseId])
 }
 
 model DeviceToken {

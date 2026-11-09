@@ -211,6 +211,18 @@ export interface Exercise {
 
 export interface SessionExercise {
   id: string;
+  exerciseId?: string | null;
+  name?: string | null;
+  description?: string | null;
+  equipment?: string | null;
+  category?: string | null;
+  requiresWeight?: boolean;
+  perLeg?: boolean;
+  evolutionGoals?: string[];
+  zone?: string | null;
+  isBlock?: boolean;
+  blockItems?: unknown;
+  videoUrl?: string | null;
   orderIndex: number;
   sets: number | null;
   repsText: string | null;
@@ -227,7 +239,7 @@ export interface SessionExercise {
     executionNotes: string | null;
     loadNotes: string | null;
   } | null;
-  exercise: Exercise;
+  exercise: Exercise | null;
 }
 
 export interface ExerciseLog {

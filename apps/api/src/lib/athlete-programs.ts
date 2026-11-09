@@ -30,7 +30,18 @@ export interface ProgramTemplateWithDays {
     dayType: DayType;
     notes: string | null;
     prescriptions: Array<{
-      exerciseId: string;
+      exerciseId: string | null;
+      name?: string | null;
+      description?: string | null;
+      equipment?: string | null;
+      category?: string | null;
+      requiresWeight?: boolean;
+      perLeg?: boolean;
+      evolutionGoals?: string[];
+      zone?: string | null;
+      isBlock?: boolean;
+      blockItems?: unknown;
+      videoUrl?: string | null;
       orderIndex: number;
       seriesProtocol: SeriesProtocol;
       sets: number | null;
@@ -39,10 +50,7 @@ export interface ProgramTemplateWithDays {
       restSeconds: number | null;
       loadText: string | null;
       notes: string | null;
-      exercise: {
-        id: string;
-        defaultSeriesProtocol: SeriesProtocol;
-      };
+      exercise: { id: string; name?: string; category?: string | null; description?: string | null; equipment?: string | null; requiresLoad?: boolean; perLeg?: boolean; defaultSeriesProtocol: SeriesProtocol } | null;
     }>;
   }>;
 }
@@ -448,26 +456,27 @@ export async function generatePersonalProgram(input: GeneratePersonalProgramInpu
           title: sessionBlueprint.title,
           dayType: sessionBlueprint.dayType,
           notes: [sessionBlueprint.notes, sharedDayNote].filter(Boolean).join(" ") || null,
-          sessionExercises: {
-            create: sessionBlueprint.exercises.map((exercise, exerciseIndex) => {
-              const exerciseId = exerciseIdByName.get(exercise.exerciseName);
+            sessionExercises: {
+              create: sessionBlueprint.exercises.map((exercise, exerciseIndex) => {
+                const exerciseId = exerciseIdByName.get(exercise.exerciseName);
 
-              if (!exerciseId) {
-                throw new Error(`Missing preparation exercise: ${exercise.exerciseName}`);
-              }
+                if (!exerciseId) {
+                  throw new Error(`Missing preparation exercise: ${exercise.exerciseName}`);
+                }
 
-              return {
-                exerciseId,
-                orderIndex: exerciseIndex + 1,
-                sets: exercise.sets ?? null,
-                repsText: exercise.repsText ?? null,
-                durationSeconds: exercise.durationSeconds ?? null,
-                restSeconds: exercise.restSeconds ?? null,
-                loadText: exercise.loadText ?? null,
-                notes: exercise.notes ?? null,
-              };
-            }),
-          },
+                return {
+                  exerciseId,
+                  name: exercise.exerciseName,
+                  orderIndex: exerciseIndex + 1,
+                  sets: exercise.sets ?? null,
+                  repsText: exercise.repsText ?? null,
+                  durationSeconds: exercise.durationSeconds ?? null,
+                  restSeconds: exercise.restSeconds ?? null,
+                  loadText: exercise.loadText ?? null,
+                  notes: exercise.notes ?? null,
+                };
+              }),
+            },
         },
       });
 
@@ -502,38 +511,49 @@ export async function generatePersonalProgram(input: GeneratePersonalProgramInpu
           : `Day ${dayTemplate.dayNumber}: ${dayTemplate.title}`,
         dayType: dayTemplate.dayType,
         notes: [dayTemplate.notes, sharedDayNote].filter(Boolean).join(" ") || null,
-        sessionExercises: {
-          create: dayTemplate.prescriptions
-            .filter((prescription) => !excludedExerciseIds.has(prescription.exerciseId))
-            .map((prescription, filteredIndex) => {
-            const resolved = resolveSeriesProtocol({
-              exercise: {
-                defaultSeriesProtocol: prescription.exercise.defaultSeriesProtocol,
-              },
-              prescription: {
-                seriesProtocol: prescription.seriesProtocol,
-                sets: prescription.sets,
-                repsText: prescription.repsText,
-                durationSeconds: prescription.durationSeconds,
-                restSeconds: prescription.restSeconds,
-                loadText: prescription.loadText,
-                notes: prescription.notes,
-              },
-            });
+          sessionExercises: {
+            create: dayTemplate.prescriptions
+              .filter((prescription) => !prescription.exerciseId || !excludedExerciseIds.has(prescription.exerciseId))
+              .map((prescription, filteredIndex) => {
+              const resolved = resolveSeriesProtocol({
+                exercise: {
+                  defaultSeriesProtocol: prescription.exercise?.defaultSeriesProtocol ?? SeriesProtocol.NONE,
+                },
+                prescription: {
+                  seriesProtocol: prescription.seriesProtocol,
+                  sets: prescription.sets,
+                  repsText: prescription.repsText,
+                  durationSeconds: prescription.durationSeconds,
+                  restSeconds: prescription.restSeconds,
+                  loadText: prescription.loadText,
+                  notes: prescription.notes,
+                },
+              });
 
-            return {
-              exerciseId: prescription.exerciseId,
-              orderIndex: filteredIndex + 1,
-              seriesProtocol: resolved.effectiveSeriesProtocol,
-              sets: resolved.sets,
-              repsText: resolved.repsText,
-              durationSeconds: resolved.durationSeconds,
-              restSeconds: resolved.restSeconds,
-              loadText: resolved.loadText,
-              notes: resolved.notes,
-            };
-          }),
-        },
+              return {
+                exerciseId: prescription.exerciseId,
+                name: prescription.name ?? prescription.exercise?.name ?? "Ejercicio",
+                description: prescription.description ?? prescription.exercise?.description ?? null,
+                equipment: prescription.equipment ?? prescription.exercise?.equipment ?? null,
+                category: prescription.category ?? prescription.exercise?.category ?? null,
+                requiresWeight: Boolean(prescription.requiresWeight ?? prescription.exercise?.requiresLoad),
+                perLeg: Boolean(prescription.perLeg ?? prescription.exercise?.perLeg),
+                evolutionGoals: prescription.evolutionGoals ?? [],
+                zone: prescription.zone ?? null,
+                isBlock: Boolean(prescription.isBlock),
+                blockItems: (prescription.blockItems ?? undefined) as never,
+                videoUrl: prescription.videoUrl ?? null,
+                orderIndex: filteredIndex + 1,
+                seriesProtocol: resolved.effectiveSeriesProtocol,
+                sets: resolved.sets,
+                repsText: resolved.repsText,
+                durationSeconds: resolved.durationSeconds,
+                restSeconds: resolved.restSeconds,
+                loadText: resolved.loadText,
+                notes: resolved.notes,
+              };
+            }),
+          },
       },
     });
 
@@ -636,27 +656,7 @@ export async function fetchTemplateForGeneration(
     return null;
   }
 
-  const templateDays = template.days as Array<{
-    dayNumber: number;
-    title: string;
-    dayType: DayType;
-    notes: string | null;
-    prescriptions: Array<{
-      exerciseId: string;
-      orderIndex: number;
-      seriesProtocol: SeriesProtocol;
-      sets: number | null;
-      repsText: string | null;
-      durationSeconds: number | null;
-      restSeconds: number | null;
-      loadText: string | null;
-      notes: string | null;
-      exercise: {
-        id: string;
-        defaultSeriesProtocol: SeriesProtocol;
-      };
-    }>;
-  }>;
+  const templateDays = template.days as unknown as ProgramTemplateWithDays["days"];
 
   if (templateDays.length === 0 && template.phases.length > 0) {
     let absoluteDay = 0;
@@ -680,24 +680,30 @@ export async function fetchTemplateForGeneration(
           title: `${phaseLabel}/D\u00eda ${dayAbsolute}${titleSuffix}`,
           dayType: day.dayType,
           notes: day.notes,
-          prescriptions: day.tasks
-            .filter(
-              (task): task is typeof task & { exerciseId: string; exercise: { id: string; defaultSeriesProtocol: SeriesProtocol } } =>
-                task.exerciseId != null && task.exercise != null,
-            )
-            .map((task, idx) => {
+          prescriptions: day.tasks.map((task, idx) => {
               const parsedDuration = parseTimeTextToSeconds(task.repsOrTimeText);
               return {
-                exerciseId: task.exerciseId,
+                exerciseId: task.exerciseId ?? null,
+                name: task.name,
+                description: task.description ?? null,
+                equipment: task.equipment ?? null,
+                category: task.category ?? task.exercise?.category ?? null,
+                requiresWeight: task.requiresWeight,
+                perLeg: task.isUnilateral,
+                evolutionGoals: task.evolutionGoals ?? [],
+                zone: task.zone ?? null,
+                isBlock: task.isBlock,
+                blockItems: task.blockItems ?? null,
+                videoUrl: task.videoUrl ?? null,
                 orderIndex: idx + 1,
-                seriesProtocol: (task.defaultSeriesProtocol as SeriesProtocol) ?? task.exercise.defaultSeriesProtocol ?? SeriesProtocol.NONE,
+                seriesProtocol: (task.defaultSeriesProtocol as SeriesProtocol) ?? task.exercise?.defaultSeriesProtocol ?? SeriesProtocol.NONE,
                 sets: task.sets ?? null,
                 repsText: parsedDuration ? null : (task.repsOrTimeText ?? null),
                 durationSeconds: parsedDuration,
                 restSeconds: null,
                 loadText: task.requiresWeight ? "Registrar carga" : null,
-                notes: [task.description, task.notes, task.equipment ? `Equipo: ${task.equipment}` : null].filter(Boolean).join(" ") || null,
-                exercise: { ...task.exercise, defaultSeriesProtocol: task.exercise.defaultSeriesProtocol },
+                notes: [task.description ? null : null, task.notes].filter(Boolean).join(" ") || null,
+                exercise: task.exercise ? { ...task.exercise, defaultSeriesProtocol: task.exercise.defaultSeriesProtocol } : null,
               };
             }),
         });

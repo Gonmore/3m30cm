@@ -125,7 +125,7 @@ export default function ExerciseSession() {
         method: "POST",
         body: JSON.stringify({
           completedExerciseIds: Array.from(completedIds),
-          metrics: selectedExercise.exercise.requiresLoad
+          metrics: (selectedExercise.exercise?.requiresLoad ?? selectedExercise.requiresWeight)
             ? { sets: selectedExercise.sets, reps: repsInput, rpe: rpeInput ? parseInt(rpeInput) : undefined }
             : { sets: selectedExercise.sets, reps: repsInput },
           notes: `Completado: ${repsInput} rep`,
@@ -308,10 +308,10 @@ export default function ExerciseSession() {
           method: "POST",
           body: JSON.stringify({
             completedExerciseIds: Array.from(completedIds),
-            metrics: currentExercise.exercise.requiresLoad
+            metrics: (currentExercise.exercise?.requiresLoad ?? currentExercise.requiresWeight)
               ? { sets: currentExercise.sets, reps: repsInput || "", rpe: rpeInput ? parseInt(rpeInput) : undefined }
               : { sets: currentExercise.sets, reps: repsInput || "" },
-            notes: `Completado: ${currentExercise.exercise.name}`,
+            notes: `Completado: ${currentExercise.exercise?.name ?? currentExercise.name ?? "Ejercicio"}`,
           }),
         });
         setExercisesDone(completedIds);
@@ -467,7 +467,7 @@ export default function ExerciseSession() {
     );
   }
 
-  const primaryAsset = currentExercise.exercise.mediaAssets.find((a) => a.isPrimary) ?? currentExercise.exercise.mediaAssets[0];
+  const primaryAsset = (currentExercise.exercise?.mediaAssets ?? []).find((a) => a.isPrimary) ?? (currentExercise.exercise?.mediaAssets ?? [])[0];
   const isTimedExercise = !!currentExercise.durationSeconds && currentExercise.durationSeconds > 0;
   const remainingTime = isTimedExercise ? Math.max(0, timerSeconds) : 0;
   const timerTotal = currentExercise.durationSeconds ?? 0;
@@ -483,7 +483,7 @@ export default function ExerciseSession() {
     return id ? `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&rel=0` : url;
   };
 
-  const mediaUrl = primaryAsset?.url ?? currentExercise.exercise.mediaAssets[0]?.url ?? null;
+  const mediaUrl = primaryAsset?.url ?? (currentExercise.exercise?.mediaAssets ?? [])[0]?.url ?? null;
 
   return (
     <div className="relative min-h-screen flex flex-col">
@@ -519,7 +519,7 @@ export default function ExerciseSession() {
                  isYouTube(mediaUrl) ? (
                    <iframe
                      src={toYouTubeEmbed(mediaUrl)}
-                     title={primaryAsset?.title ?? currentExercise.exercise.name}
+                     title={primaryAsset?.title ?? (currentExercise.exercise?.name ?? currentExercise.name ?? "Ejercicio")}
                      className="w-full h-full min-h-[300px]"
                      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                      allowFullScreen
@@ -528,7 +528,7 @@ export default function ExerciseSession() {
                    <video
                      src={mediaUrl}
                      className="w-full h-full object-cover"
-                     title={primaryAsset?.title ?? currentExercise.exercise.name}
+                     title={primaryAsset?.title ?? (currentExercise.exercise?.name ?? currentExercise.name ?? "Ejercicio")}
                      autoPlay
                      muted
                      loop
@@ -538,7 +538,7 @@ export default function ExerciseSession() {
                  ) : (
                    <img
                      src={mediaUrl}
-                     alt={primaryAsset?.title ?? currentExercise.exercise.name}
+                     alt={primaryAsset?.title ?? (currentExercise.exercise?.name ?? currentExercise.name ?? "Ejercicio")}
                      className="w-full h-full object-cover"
                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                    />
@@ -551,7 +551,7 @@ export default function ExerciseSession() {
 
             <div className="space-y-4">
               <div className="flex items-start justify-between">
-                <h3 className={`text-lg font-bold ${textColor}`}>{currentExercise.exercise.name}</h3>
+                <h3 className={`text-lg font-bold ${textColor}`}>{(currentExercise.exercise?.name ?? currentExercise.name ?? "Ejercicio")}</h3>
                 <span className={`rounded-full px-2 py-1 text-xs ${currentExercise.completed ? "bg-green-900/20 text-green-400" : "bg-blue-900/20 text-blue-400"}`}>
                   {currentExercise.completed ? "Completado" : "Pendiente"}
                 </span>
@@ -633,9 +633,9 @@ export default function ExerciseSession() {
                  </div>
                </div>
 
-              {currentExercise.exercise.description && (
+              {(currentExercise.exercise?.description ?? currentExercise.description ?? null) && (
                 <div className="rounded-lg border border-surface-700 bg-surface-900/50 p-3">
-                  <p className="text-sm text-surface-300">{currentExercise.exercise.description}</p>
+                  <p className="text-sm text-surface-300">{(currentExercise.exercise?.description ?? currentExercise.description ?? null)}</p>
                 </div>
               )}
 
