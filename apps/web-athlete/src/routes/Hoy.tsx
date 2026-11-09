@@ -8,6 +8,8 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   checkSessionReminders,
   getNotificationsEnabledPreference,
+  isIosDevice,
+  isStandalonePwa,
   notificationsSupported,
   requestSessionNotificationPermission,
 } from "../lib/sessionReminders";
@@ -73,18 +75,22 @@ export default function HoyScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [showIosHelp, setShowIosHelp] = useState(false);
+  const iosDevice = isIosDevice();
+  const standalonePwa = isStandalonePwa();
+  const canUseNotifications = notificationsSupported();
   useEffect(() => {
     const handler = (e: any) => {
       e.preventDefault();
       setInstallPrompt(e);
     };
     window.addEventListener("beforeinstallprompt", handler);
-    if (notificationsSupported() && typeof Notification !== "undefined" && Notification.permission === "granted") {
+    if (canUseNotifications && typeof Notification !== "undefined" && Notification.permission === "granted") {
       setNotificationsEnabled(getNotificationsEnabledPreference());
       void checkSessionReminders();
     }
     return () => window.removeEventListener("beforeinstallprompt", handler);
-  }, []);
+  }, [canUseNotifications]);
   const [error, setError] = useState<string | null>(null);
 
   const [heightCm, setHeightCm] = useState(170);
@@ -151,13 +157,65 @@ export default function HoyScreen() {
     return payload as never;
   }, [user, heightCm, weightKg, trainsSport, sportTrainingDays, weeklyGameCount]);
 
+  const fetchHoyData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [meRes, progressRes, availableRes, sessionsRes] = await Promise.all([
+        api("/athlete/me"),
+        api("/athlete/progress"),
+        api("/athlete/programs/available"),
+        api("/athlete/sessions"),
+      ]);
+      const me = await handleApiResponse<MeResponse>(meRes);
+      const progress = await handleApiResponse<ProgressResponse>(progressRes);
+      const available = await handleApiResponse<AvailableResponse>(availableRes);
+      const sessionsData = await handleApiResponse<SessionsListResponse>(sessionsRes);
+      setMeData(me);
+      setProgressData(progress);
+      setTemplates(available.templates ?? []);
+
+      const today = new Date().toISOString().slice(0, 10);
+      const todaySession = sessionsData.sessions?.find((s) => s.scheduledDate.slice(0, 10) === today);
+      setTodaySession(todaySession ?? null);
+      setSessionExerciseCount(todaySession?.exerciseCount ?? 0);
+
+      if (todaySession) {
+        try {
+          const sessionDetailRes = await api(`/athlete/sessions/${todaySession.id}`);
+          const sessionDetail = await handleApiResponse<{
+            session: ProgressResponse["nextSession"];
+            guidance?: any;
+          }>(sessionDetailRes);
+          if (sessionDetail.session?.sessionExercises) {
+            setTodaySessionExercises(sessionDetail.session.sessionExercises);
+          }
+        } catch (err) {
+          console.error("Error fetching session details:", err);
+        }
+      }
+
+      if (me.athleteProfile?.onboardingCompletedAt) {
+        return;
+      }
+
+      const freeTemplates = (available.templates ?? []).filter((t) => !t.isPremium);
+      // No default selection: user must choose a plan explicitly.
+      void freeTemplates;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al cargar datos");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [api]);
+
   const handleSaveAndGenerate = async () => {
-    if (!selectedTemplateCode) {
-      setError("Seleccioná un programa");
+    if (!selectedTemplateCode || isSaving || isGenerating) {
+      if (!selectedTemplateCode) setError("Seleccioná un programa");
       return;
     }
 
     setIsSaving(true);
+    setIsGenerating(true);
     setError(null);
     try {
       const onboardingRes = await api("/athlete/onboarding", {
@@ -166,22 +224,24 @@ export default function HoyScreen() {
       });
       await handleApiResponse<unknown>(onboardingRes);
 
-      // Generate program directly
-      await handleGenerateProgram(false);
-      setIsSaving(false);
+      await handleGenerateProgram(false, { manageSaving: false });
+      await fetchHoyData();
     } catch (err) {
       if (err instanceof Error && (err as any).data) {
         const data = (err as any).data;
         console.error("Onboarding validation issues:", JSON.stringify(data?.issues ?? data, null, 2));
       }
-      setIsSaving(false);
       setError(err instanceof Error ? err.message : "Error al guardar y generar programa");
+    } finally {
+      setIsSaving(false);
+      setIsGenerating(false);
     }
   };
 
-  const handleGenerateProgram = async (includePreparationPhase: boolean) => {
+  const handleGenerateProgram = async (includePreparationPhase: boolean, opts?: { manageSaving?: boolean }) => {
+    const manageSaving = opts?.manageSaving ?? true;
     setAdaptationModalOpen(false);
-    setIsGenerating(true);
+    if (manageSaving) setIsGenerating(true);
     setError(null);
     try {
       const today = new Date();
@@ -210,75 +270,23 @@ export default function HoyScreen() {
       await handleApiResponse<unknown>(generateRes);
 
       setShowSuccessGif(true);
-      setTimeout(() => {
-        setShowSuccessGif(false);
-        navigate("/", { replace: true });
-      }, 2000);
+      window.setTimeout(() => setShowSuccessGif(false), 1500);
+      if (manageSaving) await fetchHoyData();
     } catch (err) {
       if (err instanceof Error && (err as any).data) {
         const data = (err as any).data;
         console.error("Generate validation issues:", JSON.stringify(data?.issues ?? data, null, 2));
       }
       setError(err instanceof Error ? err.message : "Error al generar programa");
+      throw err;
     } finally {
-      setIsGenerating(false);
+      if (manageSaving) setIsGenerating(false);
     }
   };
 
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const [meRes, progressRes, availableRes, sessionsRes] = await Promise.all([
-          api("/athlete/me"),
-          api("/athlete/progress"),
-          api("/athlete/programs/available"),
-          api("/athlete/sessions"),
-        ]);
-        const me = await handleApiResponse<MeResponse>(meRes);
-        const progress = await handleApiResponse<ProgressResponse>(progressRes);
-        const available = await handleApiResponse<AvailableResponse>(availableRes);
-        const sessionsData = await handleApiResponse<SessionsListResponse>(sessionsRes);
-        setMeData(me);
-        setProgressData(progress);
-        setTemplates(available.templates ?? []);
-
-        const today = new Date().toISOString().slice(0, 10);
-        const todaySession = sessionsData.sessions?.find((s) => s.scheduledDate.slice(0, 10) === today);
-        setTodaySession(todaySession ?? null);
-        setSessionExerciseCount(todaySession?.exerciseCount ?? 0);
-
-        if (todaySession) {
-          try {
-            const sessionDetailRes = await api(`/athlete/sessions/${todaySession.id}`);
-            const sessionDetail = await handleApiResponse<{
-              session: ProgressResponse["nextSession"];
-              guidance?: any;
-            }>(sessionDetailRes);
-            if (sessionDetail.session?.sessionExercises) {
-              setTodaySessionExercises(sessionDetail.session.sessionExercises);
-            }
-          } catch (err) {
-            console.error("Error fetching session details:", err);
-          }
-        }
-
-        if (me.athleteProfile?.onboardingCompletedAt) {
-          return;
-        }
-
-        const freeTemplates = (available.templates ?? []).filter((t) => !t.isPremium);
-        // No default selection: user must choose a plan explicitly.
-        void freeTemplates;
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Error al cargar datos");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    void fetchData();
-  }, [api]);
+    void fetchHoyData();
+  }, [fetchHoyData]);
 
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
@@ -471,10 +479,10 @@ export default function HoyScreen() {
 
               <button
                 onClick={handleSaveAndGenerate}
-                disabled={isSaving || !selectedTemplateCode}
+                disabled={isSaving || isGenerating || !selectedTemplateCode}
                 className="w-full rounded-lg bg-amber-500 py-4 text-sm font-bold text-black transition-colors hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSaving ? "Guardando…" : "Generar hoy"}
+                {isSaving || isGenerating ? "Generando programa…" : "Generar hoy"}
               </button>
             </div>
 
@@ -532,31 +540,62 @@ export default function HoyScreen() {
       <div className="relative z-10 flex flex-col px-4 py-4">
         <div className="mx-auto max-w-5xl">
           <div className="space-y-6">
-            {(installPrompt || notificationsSupported()) && (
-              <div className="flex flex-wrap gap-2">
-                {installPrompt && (
-                  <button
-                    onClick={async () => {
-                      await installPrompt.prompt();
-                      setInstallPrompt(null);
-                    }}
-                    className="flex items-center gap-2 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-amber-400"
-                  >
-                    <img src="/pwa-192.png" alt="Instalar" className="h-6 w-6 rounded" />
-                    Instalar app
-                  </button>
-                )}
-                {notificationsSupported() && (
-                  <button
-                    onClick={async () => {
-                      const perm = await requestSessionNotificationPermission();
-                      setNotificationsEnabled(perm === "granted");
-                    }}
-                    className="flex items-center gap-2 rounded-md border border-surface-700 px-3 py-1.5 text-xs font-medium text-surface-300 hover:bg-surface-800"
-                  >
-                    <img src="/pwa-192.png" alt="" className="h-5 w-5 rounded" />
-                    {notificationsEnabled ? "Notificaciones activas" : "Activar recordatorios"}
-                  </button>
+            {(installPrompt || canUseNotifications || iosDevice) && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  {installPrompt && (
+                    <button
+                      onClick={async () => {
+                        await installPrompt.prompt();
+                        setInstallPrompt(null);
+                      }}
+                      className="flex items-center gap-2 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-amber-400"
+                    >
+                      <img src="/pwa-192.png" alt="Instalar" className="h-6 w-6 rounded" />
+                      Instalar app
+                    </button>
+                  )}
+                  {canUseNotifications && (
+                    <button
+                      onClick={async () => {
+                        const perm = await requestSessionNotificationPermission();
+                        setNotificationsEnabled(perm === "granted");
+                      }}
+                      className="flex items-center gap-2 rounded-md border border-surface-700 px-3 py-1.5 text-xs font-medium text-surface-300 hover:bg-surface-800"
+                    >
+                      <img src="/pwa-192.png" alt="" className="h-5 w-5 rounded" />
+                      {notificationsEnabled ? "Notificaciones activas" : "Activar recordatorios"}
+                    </button>
+                  )}
+                  {iosDevice && !canUseNotifications && (
+                    <button
+                      onClick={() => setShowIosHelp((v) => !v)}
+                      className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/20"
+                    >
+                      <img src="/pwa-192.png" alt="" className="h-5 w-5 rounded" />
+                      Instalar en iPhone
+                    </button>
+                  )}
+                  {iosDevice && canUseNotifications && !standalonePwa && !notificationsEnabled && (
+                    <button
+                      onClick={() => setShowIosHelp((v) => !v)}
+                      className="rounded-md border border-surface-700 px-3 py-1.5 text-xs font-medium text-surface-300 hover:bg-surface-800"
+                    >
+                      Ayuda iPhone
+                    </button>
+                  )}
+                </div>
+                {showIosHelp && iosDevice && (
+                  <div className="rounded-lg border border-surface-700 bg-surface-900/90 p-3 text-xs text-surface-300">
+                    <p className="font-medium text-surface-100">Para instalar y activar recordatorios en iPhone</p>
+                    <ol className="mt-2 list-decimal space-y-1 pl-4">
+                      <li>Abrí esta página en <strong>Safari</strong>.</li>
+                      <li>Tocá <strong>Compartir</strong> y elegí <strong>Agregar a pantalla de inicio</strong>.</li>
+                      <li>Abrí 3m30cm desde el ícono instalado.</li>
+                      <li>Entrá a esta pantalla y tocá <strong>Activar recordatorios</strong>.</li>
+                    </ol>
+                    <p className="mt-2 text-surface-400">iOS no muestra el botón automático de instalación. Las notificaciones web requieren iOS 16.4+ y abrir la app instalada.</p>
+                  </div>
                 )}
               </div>
             )}
@@ -670,21 +709,13 @@ export default function HoyScreen() {
         </div>
       </div>
       {showSuccessGif && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/60">
           <img
             src={theme === "dark" ? "/dark_check.gif" : "/check.gif"}
             alt="Completado"
             className="h-48 w-48"
           />
-        </div>
-      )}
-      {showSuccessGif && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <img
-            src={theme === "dark" ? "/dark_check.gif" : "/check.gif"}
-            alt="Completado"
-            className="h-48 w-48"
-          />
+          {(isSaving || isGenerating) && <p className="text-sm font-medium text-white">Preparando tu programa…</p>}
         </div>
       )}
     </div>

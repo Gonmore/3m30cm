@@ -6,6 +6,20 @@ export function notificationsSupported() {
   return typeof window !== "undefined" && "Notification" in window && "serviceWorker" in navigator;
 }
 
+export function isIosDevice() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const iOSUA = /iPad|iPhone|iPod/.test(ua);
+  const iPadDesktopUA = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+  return iOSUA || iPadDesktopUA;
+}
+
+export function isStandalonePwa() {
+  if (typeof window === "undefined") return false;
+  const nav = window.navigator as Navigator & { standalone?: boolean };
+  return window.matchMedia?.("(display-mode: standalone)").matches || nav.standalone === true;
+}
+
 export function getNotificationsEnabledPreference() {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(STORAGE_KEY) === "1";
