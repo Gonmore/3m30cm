@@ -32,8 +32,10 @@ export default function ExerciseSession() {
   const [showMedia, setShowMedia] = useState(true);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
+  const [timerMuted, setTimerMuted] = useState(false);
   const timerRef = useRef<number | null>(null);
   const timerInitializedRef = useRef(false);
+  const timerMutedRef = useRef(false);
 
   const exercises = session?.session.sessionExercises ?? [];
 
@@ -45,7 +47,12 @@ export default function ExerciseSession() {
     setTimerRunning(false);
   };
 
+  useEffect(() => {
+    timerMutedRef.current = timerMuted;
+  }, [timerMuted]);
+
   const playBeep = (freq = 660, duration = 0.08) => {
+    if (timerMutedRef.current) return;
     try {
       const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
@@ -58,6 +65,13 @@ export default function ExerciseSession() {
       gain.gain.value = 0.1;
       osc.start();
       osc.stop(ctx.currentTime + duration);
+      osc.onended = () => {
+        try {
+          ctx.close();
+        } catch {
+          // ignore
+        }
+      };
     } catch {
       // ignore
     }
@@ -234,14 +248,15 @@ export default function ExerciseSession() {
 
   useEffect(() => {
     const ex = session?.session.sessionExercises?.[currentExerciseIndex];
-    if (!timerInitializedRef.current && sessionStarted && ex?.durationSeconds && !timerRunning) {
-      startTimer(ex.durationSeconds);
+    clearTimer();
+    if (ex?.durationSeconds && ex.durationSeconds > 0) {
+      setTimerSeconds(ex.durationSeconds);
       timerInitializedRef.current = true;
-    }
-    if (!ex || !ex.durationSeconds) {
+    } else {
+      setTimerSeconds(0);
       timerInitializedRef.current = false;
     }
-  }, [currentExerciseIndex, session, sessionStarted, timerRunning]);
+  }, [currentExerciseIndex, session]);
 
   if (isLoading) {
     return (
@@ -455,6 +470,11 @@ export default function ExerciseSession() {
   const primaryAsset = currentExercise.exercise.mediaAssets.find((a) => a.isPrimary) ?? currentExercise.exercise.mediaAssets[0];
   const isTimedExercise = !!currentExercise.durationSeconds && currentExercise.durationSeconds > 0;
   const remainingTime = isTimedExercise ? Math.max(0, timerSeconds) : 0;
+  const timerTotal = currentExercise.durationSeconds ?? 0;
+  const timerProgress = timerTotal > 0 ? (timerTotal - remainingTime) / timerTotal : 0;
+  const timerRadius = 58;
+  const timerCircumference = 2 * Math.PI * timerRadius;
+  const timerStrokeOffset = timerCircumference * (1 - timerProgress);
 
   const isYouTube = (url?: string | null) => !!url && /youtube\.com|youtu\.be/.test(url);
   const toYouTubeEmbed = (url: string) => {
@@ -538,12 +558,51 @@ export default function ExerciseSession() {
               </div>
 
               {isTimedExercise && (
-                <div className="flex items-center justify-center gap-3">
-                  <span className="text-3xl font-mono font-bold text-amber-400">
-                    {Math.floor(remainingTime / 60)}:{String(remainingTime % 60).padStart(2, "0")}
-                  </span>
-                  <button onClick={() => (timerRunning ? clearTimer() : startTimer(remainingTime))} className={`rounded-md px-3 py-1 text-xs font-medium text-white transition-colors ${timerRunning ? "bg-red-900/30 text-red-400 hover:bg-red-800/50" : "bg-amber-900/30 text-amber-400 hover:bg-amber-800/50"}`}>
-                    {timerRunning ? "Pausar" : "Reanudar"}
+                <div className="flex flex-col items-center gap-3 py-2">
+                  <div className="relative h-36 w-36">
+                    <svg className="h-full w-full -rotate-90" viewBox="0 0 140 140" aria-hidden="true">
+                      <circle
+                        cx="70"
+                        cy="70"
+                        r={timerRadius}
+                        fill="none"
+                        stroke="currentColor"
+                        className="text-surface-700"
+                        strokeWidth="8"
+                      />
+                      <circle
+                        cx="70"
+                        cy="70"
+                        r={timerRadius}
+                        fill="none"
+                        stroke="currentColor"
+                        className="text-amber-400 transition-[stroke-dashoffset] duration-300 ease-linear"
+                        strokeWidth="8"
+                        strokeLinecap="round"
+                        strokeDasharray={timerCircumference}
+                        strokeDashoffset={timerStrokeOffset}
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="font-mono text-3xl font-bold text-amber-400">
+                        {Math.floor(remainingTime / 60)}:{String(remainingTime % 60).padStart(2, "0")}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => (timerRunning ? clearTimer() : startTimer(remainingTime))}
+                        className={`mt-1 rounded-md px-2.5 py-0.5 text-xs font-medium transition-colors ${timerRunning ? "text-red-400 hover:bg-red-900/30" : "text-amber-400 hover:bg-amber-900/30"}`}
+                      >
+                        {timerRunning ? "Pausar" : remainingTime === 0 ? "Reiniciar" : "Iniciar"}
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTimerMuted((v) => !v)}
+                    className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${cardBorder} ${textSecondaryColor} hover:bg-surface-800`}
+                    aria-pressed={timerMuted}
+                  >
+                    {timerMuted ? "🔇 Sonido silenciado" : "🔊 Silenciar sonido"}
                   </button>
                 </div>
               )}

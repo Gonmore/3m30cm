@@ -5,6 +5,12 @@ import { useApi, handleApiResponse } from "../api/client";
 import { type AvailableTemplate, type SessionsListResponse } from "../types/api";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
+import {
+  checkSessionReminders,
+  getNotificationsEnabledPreference,
+  notificationsSupported,
+  requestSessionNotificationPermission,
+} from "../lib/sessionReminders";
 
 const weekdayNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
@@ -73,8 +79,9 @@ export default function HoyScreen() {
       setInstallPrompt(e);
     };
     window.addEventListener("beforeinstallprompt", handler);
-    if ("Notification" in window && Notification.permission === "granted") {
-      setNotificationsEnabled(true);
+    if (notificationsSupported() && typeof Notification !== "undefined" && Notification.permission === "granted") {
+      setNotificationsEnabled(getNotificationsEnabledPreference());
+      void checkSessionReminders();
     }
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
@@ -525,7 +532,7 @@ export default function HoyScreen() {
       <div className="relative z-10 flex flex-col px-4 py-4">
         <div className="mx-auto max-w-5xl">
           <div className="space-y-6">
-            {(installPrompt || "Notification" in window) && (
+            {(installPrompt || notificationsSupported()) && (
               <div className="flex flex-wrap gap-2">
                 {installPrompt && (
                   <button
@@ -539,18 +546,16 @@ export default function HoyScreen() {
                     Instalar app
                   </button>
                 )}
-                {"Notification" in window && (
+                {notificationsSupported() && (
                   <button
                     onClick={async () => {
-                      const perm = await Notification.requestPermission();
+                      const perm = await requestSessionNotificationPermission();
                       setNotificationsEnabled(perm === "granted");
-                      if (perm === "granted") {
-                        new Notification("3m30cm", { body: "Notificaciones activadas" });
-                      }
                     }}
-                    className="rounded-md border border-surface-700 px-3 py-1.5 text-xs font-medium text-surface-300 hover:bg-surface-800"
+                    className="flex items-center gap-2 rounded-md border border-surface-700 px-3 py-1.5 text-xs font-medium text-surface-300 hover:bg-surface-800"
                   >
-                    {notificationsEnabled ? "Notificaciones activas" : "Activar notificaciones"}
+                    <img src="/pwa-192.png" alt="" className="h-5 w-5 rounded" />
+                    {notificationsEnabled ? "Notificaciones activas" : "Activar recordatorios"}
                   </button>
                 )}
               </div>

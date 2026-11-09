@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
+import { useSessionReminders } from "../lib/useSessionReminders";
 import Avatar from "./Avatar";
 import Footer from "./Footer";
 import Sidebar from "./Sidebar";
@@ -18,6 +19,7 @@ const menuItems = [
 export default function Layout() {
   const { user, logout, updateAvatar } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  useSessionReminders();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
