@@ -84,16 +84,24 @@ export interface ExerciseTaskTemplate {
   exerciseId: string | null;
   orderIndex: number;
   name: string;
+  category?: string | null;
+  equipment?: string | null;
   sets: number | null;
   repsOrTimeText: string | null;
   description: string | null;
   requiresWeight: boolean;
   isUnilateral: boolean;
+  defaultSeriesProtocol?: string;
   evolution: string;
+  evolutionGoals?: string[];
   zone: string;
+  isBlock?: boolean;
+  blockItems?: unknown;
   videoUrl: string | null;
   notes: string | null;
-  exercise?: { id: string; name: string; slug: string } | null;
+  sourceDayId?: string | null;
+  sourceTaskId?: string | null;
+  exercise?: { id: string; name: string; slug: string; category?: string } | null;
   variants?: ExerciseTaskVariant[];
 }
 

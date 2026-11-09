@@ -72,15 +72,23 @@ const createWizardTaskSchema = z.object({
   exerciseId: z.string().min(1).nullable().optional(),
   orderIndex: z.number().int().positive().optional(),
   name: z.string().trim().min(1),
+  category: z.string().trim().nullable().optional(),
+  equipment: z.string().trim().nullable().optional(),
   sets: z.number().int().positive().nullable().optional(),
   repsOrTimeText: z.string().trim().nullable().optional(),
   description: z.string().trim().nullable().optional(),
   requiresWeight: z.boolean().default(false),
   isUnilateral: z.boolean().default(false),
-  evolution: z.enum(["WEIGHT", "TIME", "VELOCITY", "HYBRID"]).default("WEIGHT"),
-  zone: z.enum(["LOWER", "UPPER", "CORE", "FULL"]).default("FULL"),
+  defaultSeriesProtocol: z.enum(["NONE","STRENGTH_EXPLOSION","PLYOMETRIC_SPEED"]).default("NONE"),
+  evolution: z.enum(["WEIGHT","TIME","VELOCITY","HYBRID"]).default("WEIGHT"),
+  evolutionGoals: z.array(z.string().trim().min(1)).max(10).default([]),
+  zone: z.enum(["LOWER","UPPER","CORE","FULL"]).default("FULL"),
+  isBlock: z.boolean().default(false),
+  blockItems: z.unknown().nullable().optional(),
   videoUrl: z.string().trim().nullable().optional(),
   notes: z.string().trim().nullable().optional(),
+  sourceDayId: z.string().min(1).nullable().optional(),
+  sourceTaskId: z.string().min(1).nullable().optional(),
 });
 
 const updateWizardTaskSchema = createWizardTaskSchema.partial().refine((v) => Object.keys(v).length > 0, { message: "At least one field must be provided" });
@@ -517,6 +525,33 @@ coachTemplatesRouter.delete("/program-templates/:id/phases/:phaseId", async (req
   }
 });
 
+coachTemplatesRouter.post("/program-templates/:id/phases/:phaseId/days/link", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const id = getStringParam(req.params.id); const phaseId = getStringParam(req.params.phaseId);
+    if (!id || !phaseId) { res.status(400).json({ message: "Template id and phase id are required" }); return; }
+    const payload = z.object({ sourceDayId: z.string().min(1), dayNumber: z.number().int().positive().optional(), title: z.string().trim().nullable().optional() }).parse(req.body);
+    const owned = await resolvePhaseOwnership(req, id, phaseId);
+    if (!owned) { res.status(404).json({ message: "Phase not found for this template" }); return; }
+    const sourceDay = await prisma.programPhaseDayTemplate.findUnique({ where: { id: payload.sourceDayId }, include: { tasks: { orderBy: { orderIndex: "asc" } }, phaseTemplate: { select: { programTemplateId: true } } } });
+    if (!sourceDay || sourceDay.phaseTemplate.programTemplateId !== owned.template.id) { res.status(404).json({ message: "Source day not found for this template" }); return; }
+    const phases = await prisma.$transaction(async (tx) => {
+      const last = await tx.programPhaseDayTemplate.findFirst({ where: { phaseTemplateId: phaseId }, orderBy: { dayNumber: "desc" }, select: { dayNumber: true } });
+      const dayNumber = payload.dayNumber ?? (last?.dayNumber ?? 0) + 1;
+      const day = await tx.programPhaseDayTemplate.create({ data: { phaseTemplateId: phaseId, dayNumber, title: payload.title ?? sourceDay.title, dayType: sourceDay.dayType, notes: sourceDay.notes } });
+      for (const t of sourceDay.tasks) {
+        await tx.exerciseTaskTemplate.create({ data: { phaseDayTemplateId: day.id, exerciseId: t.exerciseId, orderIndex: t.orderIndex, name: t.name, category: t.category, equipment: t.equipment, sets: t.sets, repsOrTimeText: t.repsOrTimeText, description: t.description, requiresWeight: t.requiresWeight, isUnilateral: t.isUnilateral, defaultSeriesProtocol: t.defaultSeriesProtocol, evolution: t.evolution, evolutionGoals: t.evolutionGoals, zone: t.zone, isBlock: t.isBlock, blockItems: t.blockItems as never, videoUrl: t.videoUrl, notes: t.notes, sourceDayId: sourceDay.id, sourceTaskId: t.id } });
+      }
+      await syncTemplateCycleLengthFromPhases(tx, owned.template.id);
+      return loadWizardPhases(tx, owned.template.id);
+    });
+    res.status(201).json({ templateCode: owned.template.code, phases });
+  } catch (error) {
+    if (error instanceof z.ZodError) { res.status(400).json({ message: "Invalid day link payload", issues: error.issues }); return; }
+    console.error("Failed to link day", error);
+    res.status(500).json({ message: "Failed to link day" });
+  }
+});
+
 coachTemplatesRouter.post("/program-templates/:id/phases/:phaseId/days", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const id = getStringParam(req.params.id);
@@ -568,6 +603,28 @@ coachTemplatesRouter.delete("/program-templates/:id/phases/:phaseId/days/:dayId"
   }
 });
 
+coachTemplatesRouter.post("/program-templates/:id/phases/:phaseId/days/:dayId/tasks/copy", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const id = getStringParam(req.params.id); const phaseId = getStringParam(req.params.phaseId); const dayId = getStringParam(req.params.dayId);
+    if (!id || !phaseId || !dayId) { res.status(400).json({ message: "Template id, phase id and day id are required" }); return; }
+    const payload = z.object({ sourceTaskId: z.string().min(1) }).parse(req.body);
+    const owned = await resolveDayOwnership(req, id, phaseId, dayId);
+    if (!owned) { res.status(404).json({ message: "Day not found for this template" }); return; }
+    const source = await prisma.exerciseTaskTemplate.findUnique({ where: { id: payload.sourceTaskId }, include: { phaseDayTemplate: { include: { phaseTemplate: { select: { programTemplateId: true } } } } } });
+    if (!source || source.phaseDayTemplate.phaseTemplate.programTemplateId !== owned.template.id) { res.status(404).json({ message: "Source task not found for this template" }); return; }
+    const phases = await prisma.$transaction(async (tx) => {
+      const last = await tx.exerciseTaskTemplate.findFirst({ where: { phaseDayTemplateId: dayId }, orderBy: { orderIndex: "desc" }, select: { orderIndex: true } });
+      await tx.exerciseTaskTemplate.create({ data: { phaseDayTemplateId: dayId, exerciseId: source.exerciseId, orderIndex: (last?.orderIndex ?? 0) + 1, name: source.name, category: source.category, equipment: source.equipment, sets: source.sets, repsOrTimeText: source.repsOrTimeText, description: source.description, requiresWeight: source.requiresWeight, isUnilateral: source.isUnilateral, defaultSeriesProtocol: source.defaultSeriesProtocol, evolution: source.evolution, evolutionGoals: source.evolutionGoals, zone: source.zone, isBlock: source.isBlock, blockItems: source.blockItems as never, videoUrl: source.videoUrl, notes: source.notes, sourceDayId: source.phaseDayTemplateId, sourceTaskId: source.id } });
+      return loadWizardPhases(tx, owned.template.id);
+    });
+    res.status(201).json({ templateCode: owned.template.code, phases });
+  } catch (error) {
+    if (error instanceof z.ZodError) { res.status(400).json({ message: "Invalid task copy payload", issues: error.issues }); return; }
+    console.error("Failed to copy task", error);
+    res.status(500).json({ message: "Failed to copy task" });
+  }
+});
+
 coachTemplatesRouter.post("/program-templates/:id/phases/:phaseId/days/:dayId/tasks", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const id = getStringParam(req.params.id); const phaseId = getStringParam(req.params.phaseId); const dayId = getStringParam(req.params.dayId);
@@ -598,7 +655,7 @@ coachTemplatesRouter.put("/program-templates/:id/phases/:phaseId/days/:dayId/tas
     if (!owned) { res.status(404).json({ message: "Day not found for this template" }); return; }
     const task = await prisma.exerciseTaskTemplate.findUnique({ where: { id: taskId }, select: { id: true, phaseDayTemplateId: true } });
     if (!task || task.phaseDayTemplateId !== dayId) { res.status(404).json({ message: "Task not found for this day" }); return; }
-    await prisma.exerciseTaskTemplate.update({ where: { id: taskId }, data: { ...(payload.exerciseId !== undefined ? { exerciseId: payload.exerciseId } : {}), ...(payload.orderIndex !== undefined ? { orderIndex: payload.orderIndex } : {}), ...(payload.name !== undefined ? { name: payload.name } : {}), ...(payload.sets !== undefined ? { sets: payload.sets } : {}), ...(payload.repsOrTimeText !== undefined ? { repsOrTimeText: payload.repsOrTimeText } : {}), ...(payload.description !== undefined ? { description: payload.description } : {}), ...(payload.requiresWeight !== undefined ? { requiresWeight: payload.requiresWeight } : {}), ...(payload.isUnilateral !== undefined ? { isUnilateral: payload.isUnilateral } : {}), ...(payload.evolution !== undefined ? { evolution: payload.evolution as never } : {}), ...(payload.zone !== undefined ? { zone: payload.zone as never } : {}), ...(payload.videoUrl !== undefined ? { videoUrl: payload.videoUrl } : {}), ...(payload.notes !== undefined ? { notes: payload.notes } : {}) } });
+    await prisma.exerciseTaskTemplate.update({ where: { id: taskId }, data: { ...(payload.exerciseId !== undefined ? { exerciseId: payload.exerciseId } : {}), ...(payload.orderIndex !== undefined ? { orderIndex: payload.orderIndex } : {}), ...(payload.name !== undefined ? { name: payload.name } : {}), ...(payload.category !== undefined ? { category: payload.category } : {}), ...(payload.equipment !== undefined ? { equipment: payload.equipment } : {}), ...(payload.sets !== undefined ? { sets: payload.sets } : {}), ...(payload.repsOrTimeText !== undefined ? { repsOrTimeText: payload.repsOrTimeText } : {}), ...(payload.description !== undefined ? { description: payload.description } : {}), ...(payload.requiresWeight !== undefined ? { requiresWeight: payload.requiresWeight } : {}), ...(payload.isUnilateral !== undefined ? { isUnilateral: payload.isUnilateral } : {}), ...(payload.defaultSeriesProtocol !== undefined ? { defaultSeriesProtocol: payload.defaultSeriesProtocol as never } : {}), ...(payload.evolution !== undefined ? { evolution: payload.evolution as never } : {}), ...(payload.evolutionGoals !== undefined ? { evolutionGoals: payload.evolutionGoals } : {}), ...(payload.zone !== undefined ? { zone: payload.zone as never } : {}), ...(payload.isBlock !== undefined ? { isBlock: payload.isBlock } : {}), ...(payload.blockItems !== undefined ? { blockItems: payload.blockItems as never } : {}), ...(payload.videoUrl !== undefined ? { videoUrl: payload.videoUrl } : {}), ...(payload.notes !== undefined ? { notes: payload.notes } : {}), ...(payload.sourceDayId !== undefined ? { sourceDayId: payload.sourceDayId } : {}), ...(payload.sourceTaskId !== undefined ? { sourceTaskId: payload.sourceTaskId } : {}) } });
     res.json({ templateCode: owned.template.code, phases: await loadWizardPhases(prisma, owned.template.id) });
   } catch (error) {
     if (error instanceof z.ZodError) { res.status(400).json({ message: "Invalid task payload", issues: error.issues }); return; }

@@ -614,12 +614,13 @@ export async function fetchTemplateForGeneration(
             include: {
               tasks: {
                 orderBy: { orderIndex: "asc" },
-                where: { exerciseId: { not: null } },
                 include: {
                   exercise: {
                     select: {
                       id: true,
                       defaultSeriesProtocol: true,
+                      category: true,
+                      equipment: true,
                     },
                   },
                 },
@@ -689,14 +690,14 @@ export async function fetchTemplateForGeneration(
               return {
                 exerciseId: task.exerciseId,
                 orderIndex: idx + 1,
-                seriesProtocol: SeriesProtocol.NONE,
+                seriesProtocol: (task.defaultSeriesProtocol as SeriesProtocol) ?? task.exercise.defaultSeriesProtocol ?? SeriesProtocol.NONE,
                 sets: task.sets ?? null,
                 repsText: parsedDuration ? null : (task.repsOrTimeText ?? null),
                 durationSeconds: parsedDuration,
                 restSeconds: null,
-                loadText: null,
-                notes: [task.description, task.notes].filter(Boolean).join(" ") || null,
-                exercise: task.exercise,
+                loadText: task.requiresWeight ? "Registrar carga" : null,
+                notes: [task.description, task.notes, task.equipment ? `Equipo: ${task.equipment}` : null].filter(Boolean).join(" ") || null,
+                exercise: { ...task.exercise, defaultSeriesProtocol: task.exercise.defaultSeriesProtocol },
               };
             }),
         });

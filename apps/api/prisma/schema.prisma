@@ -368,15 +368,23 @@ model ExerciseTaskTemplate {
   exerciseId           String?
   orderIndex           Int
   name                 String
+  category             String?
+  equipment            String?
   sets                 Int?
   repsOrTimeText       String?
   description          String?
   requiresWeight       Boolean            @default(false)
   isUnilateral         Boolean            @default(false)
-  evolution            ExerciseEvolution
-  zone                 ExerciseZone
+  defaultSeriesProtocol SeriesProtocol    @default(NONE)
+  evolution            ExerciseEvolution  @default(WEIGHT)
+  evolutionGoals       String[]           @default([])
+  zone                 ExerciseZone       @default(FULL)
+  isBlock              Boolean            @default(false)
+  blockItems           Json?
   videoUrl             String?
   notes                String?
+  sourceDayId          String?
+  sourceTaskId         String?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   phaseDayTemplate     ProgramPhaseDayTemplate @relation(fields: [phaseDayTemplateId], references: [id], onDelete: Cascade)
