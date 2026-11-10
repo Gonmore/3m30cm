@@ -1706,11 +1706,28 @@ La validacion paso despues del refactor del cliente.
 - npx tsc --noEmit (api y web-athlete) OK
 - npx vite build (web-athlete) OK
 
-### 2026-11-09 — Coach mode en `web-athlete` (plan `.kilo/plans/1794233487103-web-athlete-coach-mode-plan.md`)
-- **API/schema**: `ProgramTemplate` agrega `objective`, `displayPriceCents`, `currency` (ARS), `usesPhases`. Migración `20261109_add_template_commercial_fields`. `athlete` templates/assignments/request exponen campos comerciales.
-- **Admin/SUPERADMIN**: `admin-users.ts` (`GET /admin/users`, `PATCH /admin/users/:userId/role`) montado en `admin.ts`; audit log y confirmación anti auto-democión.
-- **Coach API**: `coach.ts` corrige scope SUPERADMIN global (sin `?coachUserId=`) en `/programs`, `/requests`, approve/reject, `/athletes`, progreso; `/programs` devuelve conteo aprobado e ingreso esperado display-only (`APPROVED × displayPriceCents`).
-- **Editor coach ownership**: nuevo `coach-templates.ts` en `/coach` (CRUD plantillas, fases/días/tareas/variantes wizard, parse/import, welcome video, media por tarea, picker read-only ejercicios). Coherce ownership server-side en IDs anidados.
+### 2026-11-09 ï¿½ Coach mode en `web-athlete` (plan `.kilo/plans/1794233487103-web-athlete-coach-mode-plan.md`)
+- **API/schema**: `ProgramTemplate` agrega `objective`, `displayPriceCents`, `currency` (ARS), `usesPhases`. Migraciï¿½n `20261109_add_template_commercial_fields`. `athlete` templates/assignments/request exponen campos comerciales.
+- **Admin/SUPERADMIN**: `admin-users.ts` (`GET /admin/users`, `PATCH /admin/users/:userId/role`) montado en `admin.ts`; audit log y confirmaciï¿½n anti auto-demociï¿½n.
+- **Coach API**: `coach.ts` corrige scope SUPERADMIN global (sin `?coachUserId=`) en `/programs`, `/requests`, approve/reject, `/athletes`, progreso; `/programs` devuelve conteo aprobado e ingreso esperado display-only (`APPROVED ï¿½ displayPriceCents`).
+- **Editor coach ownership**: nuevo `coach-templates.ts` en `/coach` (CRUD plantillas, fases/dï¿½as/tareas/variantes wizard, parse/import, welcome video, media por tarea, picker read-only ejercicios). Coherce ownership server-side en IDs anidados.
 - **Web-athlete**: `ViewModeContext` (athlete|coach, persistido por user), shell/sidebar/rutas actualizadas (`/coach/programas`, `/nuevo`, `/:id`, `/coach/atletas`, `/coach/solicitudes`, `/coach/entrenadores` SUPERADMIN). Pantallas coach reescritas para contratos reales; editor MVP con campos comerciales + estructura fases/tareas/URL media.
-- **Validación**: `apps/api` `tsc --noEmit` OK, `apps/web-athlete` `tsc --noEmit` OK. Migración creada pero **no aplicada** automáticamente en este entorno.
-- **Pendiente/seguimiento**: ejecutar migración Prisma en entorno objetivo; smoke ownership/roles/SUPERADMIN; retiro real de `apps/web` es paso separado; ampliar editor (uploads S3 UI, variantes avanzadas, reorder drag) según necesidad.
+- **Validaciï¿½n**: `apps/api` `tsc --noEmit` OK, `apps/web-athlete` `tsc --noEmit` OK. Migraciï¿½n creada pero **no aplicada** automï¿½ticamente en este entorno.
+- **Pendiente/seguimiento**: ejecutar migraciï¿½n Prisma en entorno objetivo; smoke ownership/roles/SUPERADMIN; retiro real de `apps/web` es paso separado; ampliar editor (uploads S3 UI, variantes avanzadas, reorder drag) segï¿½n necesidad.
+
+### 35. Premium gating, notificaciones y editor de fases/DnD en coach (2026-11-10, rama `coach`)
+
+**Objetivo:** completar flujo premium (solicitud/aprobaciÃ³n/gating), notificaciones persistidas y mejorar la UX/consistencia del editor de programas por fases.
+
+**Cambios aplicados:**
+
+- **Schema/API (premium)**: `PersonalProgram.assignmentId` (Ãºnico) y relaciÃ³n con `ProgramAssignment`; modelo `UserNotification` (`apps/api/src/lib/notifications.ts` con `notifyUsers`/`notifySuperAdmins`). `POST /athlete/programs/generate` en template premium crea/reusa assignment pendiente, vincula programa y responde `pendingApproval`; notifica coach+SUPERADMIN.
+- **Gating y progreso**: `GET /athlete/sessions` desbloquea solo la primera sesiÃ³n cuando el premium estÃ¡ `PENDING` (resto `locked`, `lockReason: PENDING_COACH_APPROVAL`, `exerciseCount: 0`) y expone `pendingPaidApproval`; `GET /athlete/sessions/:id` devuelve 403 locked; `GET /athlete/progress` ajusta `nextSession`.
+- **AprobaciÃ³n/rechazo**: `apps/api/src/routes/coach.ts` permite a `SUPERADMIN` gestionar solicitudes; aprueba/desbloquea o genera+vincula programa y notifica atleta+SUPERADMIN.
+- **GeneraciÃ³n y wizard**: `apps/api/src/lib/athlete-programs.ts` expande fases repitiendo bloque maestro hasta `durationDays` (segÃºn `masterBlockDays`/dÃ­as cargados); `apps/api/src/routes/coach-templates.ts` acepta `masterBlockDays` 1..365 (â‰¤ `durationDays`) en create/update/import.
+- **Web athlete**: manejo de `pendingApproval`/locked en `Onboarding`, `Hoy`, `Programa`, `ExerciseSession` y tipos. `CoachProgramEditor`: duraciÃ³n total programa/fase, estructura de dÃ­as (todos diferentes o ciclo 7/14), ayuda/warnings y aviso suma de fases, pill `Fase N` y drag & drop de fases con persistencia de `orderIndex` (ademÃ¡s de DnD de ejercicios).
+- **Dev/local**: `docker-compose.local.yml` ejecuta `prisma db push --accept-data-loss` en arranque de `api-3m30cm` para aplicar constraints nuevos (p.ej. `PersonalProgram.assignmentId`) antes de seed/dev. En prod usar migraciones (`api-migrate`/`deploy.sh`).
+
+**ValidaciÃ³n:** `tsc --noEmit` OK en `apps/api` y `apps/web-athlete`.
+
+**Pendiente:** UI/endpoints de lectura in-app para `UserNotification` y push/FCM; flujo de carga/historial para snapshots sin `exerciseId`; endpoint coach para crear/vincular `Exercise` global con `createdByUserId`.

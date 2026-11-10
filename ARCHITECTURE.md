@@ -227,7 +227,7 @@ Alternative dev scripts (root `package.json`):
 - **Web Athlete:** `Dockerfile.prod` builds Vite static assets; served by nginx on port 80 (mapped to 4174 in local compose).
 - **Mobile2:** EAS build (`eas.json`); APK build via `npm run apk:vjump` (see README for stability constraints).
 - **Mobile (legacy):** Maintained alongside mobile2; provides shared component library via `@mobile/*` aliases.
-- **Database/Migrations:** `prisma:push` for dev, standard Prisma migrations for prod.
+- **Database/Migrations:** local dev compose runs `prisma db push --accept-data-loss` on `api-3m30cm` startup (needed for new unique constraints like `PersonalProgram.assignmentId`); use standard Prisma migrations in prod.
 - **Assets:** MinIO (S3-compatible) behind the API `/api/v1/assets/:bucket/*` route; public URLs optionally served directly when `MINIO_PUBLIC_BASE_URL` is configured.
 
 ## Related Documentation
@@ -237,5 +237,13 @@ Alternative dev scripts (root `package.json`):
 - `README.md` — project overview and development setup
 ## Notas recientes (2026-11-06)
 
-- Web Athlete: ExerciseSession ahora es split-screen con media y timer; Programa agrupa sesiones por fase colapsable; Evolucion incluye compartir imagen.
-- API: se elimino la restriccion de una sola sesion completada por dia en POST /api/v1/athlete/sessions/:id/logs.
+- Web Athlete: ExerciseSession ahora es split-screen con media y timer; Programa agrupa sesiones por fase colapsable; Evolución incluye compartir imagen.
+- API: se eliminó la restricción de una sola sesión completada por día en `POST /api/v1/athlete/sessions/:id/logs`.
+
+## Notas recientes (2026-11-10, rama `coach`)
+
+- **Coach/plantillas (web-athlete)**: editor con duración total de programa/fase, estructura de días (todos diferentes o ciclo 7/14), warnings de completitud y suma de fases, pill `Fase N` y drag & drop de fases (reorden persistido por `orderIndex`) además de DnD de ejercicios.
+- **Wizard/API de fases**: `masterBlockDays` aceptado en rango `1..365` (`<= durationDays`) en create/update/import; `athlete-programs` expande fases repitiendo el bloque maestro (`masterBlockDays`/días cargados) hasta `durationDays`.
+- **Premium/gating**: generación de template premium crea/reusa `ProgramAssignment` (`PENDING|APPROVED`) vinculada a `PersonalProgram` y responde `pendingApproval`; con premium pendiente solo la primera sesión queda desbloqueada (`GET /athlete/sessions` incluye `locked`/`lockReason: PENDING_COACH_APPROVAL`, `pendingPaidApproval`; `GET /athlete/sessions/:id` 403 locked).
+- **Notificaciones**: `apps/api/src/lib/notifications.ts` persiste en `UserNotification` (coach + SUPERADMIN en solicitud, atleta + SUPERADMIN en aprobación). Sin UI in-app/push todavía.
+- **Dev Compose**: arranque local de `api-3m30cm` usa `prisma db push --accept-data-loss` antes de seed/dev por constraints únicos nuevos; en prod seguir migraciones (`api-migrate`/`deploy.sh`).

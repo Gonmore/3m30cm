@@ -168,9 +168,11 @@ Genera o regenera el programa activo del atleta.
 
 Notas:
 - reutiliza el mismo payload base del onboarding deportivo
-- `heightCm` y `weightKg` también son requeridos
-- `includePreparationPhase` (boolean, default: `false`) — si `true`, agrega una fase de adecuación de 2 semanas al inicio del programa
-- si ya existía un programa activo, el backend deja solo uno vigente y archiva lógicamente los anteriores
+- `heightCm` y `weightKg` tambi�n son requeridos
+- `includePreparationPhase` (boolean, default: `false`) � si `true`, agrega una fase de adecuaci�n de 2 semanas al inicio del programa
+- si ya exist�a un programa activo, el backend deja solo uno vigente y archiva l�gicamente los anteriores
+- si el template es `isPremium`, crea/reusa `ProgramAssignment` (`PENDING|APPROVED`), vincula `PersonalProgram.assignmentId` y notifica a coach + SUPERADMIN (`premium_program_request`)
+- responde `pendingApproval: { assignmentId, coachName, templateName } | null` (premium pendiente ? programa generado pero sujeto a aprobaci�n)
 
 ### GET `/athlete/programs/available`
 Lista las plantillas de programa disponibles para el atleta, con su estado de asignación (`assignmentStatus`: `PENDING` / `APPROVED` / `REJECTED`) y si ya tiene un programa activo.
@@ -202,8 +204,16 @@ Detalle de una asignación específica por código de plantilla.
 ### GET `/athlete/sessions`
 Lista las sesiones programadas del atleta.
 
+Notas:
+- si el programa activo proviene de template premium con `assignment.status === PENDING`, solo la primera sesi�n del programa queda desbloqueada; el resto retorna `locked: true`, `lockReason: "PENDING_COACH_APPROVAL"`, `pendingCoachName`, `exerciseCount: 0`
+- incluye `pendingPaidApproval: { coachName, templateName, firstSessionId } | null` a nivel respuesta cuando aplica
+
 ### GET `/athlete/sessions/:sessionId`
-Detalle completo de una sesión: ejercicios, instrucciones, media assets, bloques.
+Detalle completo de una sesi�n: ejercicios, instrucciones, media assets, bloques.
+- devuelve `403` con `{ message, locked: true, lockReason: "PENDING_COACH_APPROVAL", coachName }` si es una sesi�n premium bloqueada pendiente de aprobaci�n.
+
+### GET `/athlete/progress`
+Progreso del atleta; si existe aprobaci�n premium pendiente, `nextSession` se ajusta a la primera sesi�n desbloqueada (con indicaci�n de pendiente).
 
 ### PATCH `/athlete/sessions/:sessionId`
 Actualiza estado de sesión (PLANNED → COMPLETED | SKIPPED), notas.
@@ -274,10 +284,10 @@ Lista las plantillas de programa del coach (incluye `isPremium` y `coachId`).
 Lista las solicitudes de programa (asignaciones pendientes) para una plantilla del coach.
 
 ### POST `/coach/assignments/:id/approve`
-Aprueba una asignación de programa: genera el `PersonalProgram` y aplica ajustes de competición.
+Aprueba una asignaci�n de programa: si ya existe `PersonalProgram` vinculado al `assignment` lo aprueba/desbloquea, si no genera el `PersonalProgram` y lo vincula; aplica ajustes de competici�n. Notifica al atleta y a SUPERADMIN (`premium_program_approved`). Accesible para el coach due�o o `SUPERADMIN`.
 
 ### POST `/coach/assignments/:id/reject`
-Rechaza una asignación de programa.
+Rechaza una asignaci�n de programa. Accesible para el coach due�o o `SUPERADMIN`.
 
 ### GET `/coach/athletes`
 Lista atletas asignados al coach.
@@ -382,7 +392,7 @@ Persistencia directa de un bloque maestro dentro de una fase del template.
   "phaseName": "string (required when phaseId is absent)",
   "orderIndex": "number (optional, create only)",
   "durationDays": "number (required)",
-  "masterBlockDays": "7 | 14 (required)",
+  "masterBlockDays": "number 1-365, <= durationDays (required)",
   "notes": "string | null (optional)"
 }
 ```
@@ -852,13 +862,20 @@ Como contexto rapido:
 - [ ] Endpoint de comparación entre sesiones (atleta vs programa ideal)
 ## Nota reciente (2026-11-06)
 
-- POST /api/v1/athlete/sessions/:id/logs ya no aplica la restriccion de una sola sesion completada por dia; permite multiples sesiones por dia.
+- POST /api/v1/athlete/sessions/:id/logs ya no aplica la restricci�n de una sola sesi�n completada por d�a; permite m�ltiples sesiones por d�a.
+
+## Nota reciente (2026-11-10, rama `coach`)
+
+- **Premium/gating atleta**: `POST /athlete/programs/generate` en templates premium genera solicitud/assignment pendiente (`pendingApproval`) y notifica; `GET /athlete/sessions` y `GET /athlete/sessions/:id` aplican bloqueo por aprobaci�n (`PENDING_COACH_APPROVAL`, solo primera sesi�n desbloqueada) y exponen `pendingPaidApproval`; `GET /athlete/progress` ajusta `nextSession`.
+- **Coach/SUPERADMIN**: approve/reject accesibles tambi�n para SUPERADMIN; aprobaci�n aprueba/desbloquea o genera+vincula `PersonalProgram` y notifica.
+- **Wizard fases**: `masterBlockDays` soporta `1..365` (? `durationDays`) en create/update/import; generaci�n expande repitiendo el bloque maestro.
+- **Notificaciones**: persistidas en BD v�a `apps/api/src/lib/notifications.ts` (`UserNotification`); sin endpoints/UI de lectura ni push a�n.
 
 ### Editor plantillas coach (`/coach/program-templates/*`, ownership)
 - `GET/POST /program-templates`, `GET/PUT /program-templates/:id`
 - `POST /program-templates/:id/welcome-video` (multipart `video`)
 - CRUD wizard: `GET/POST /phases`, `PUT/DELETE /phases/:phaseId`, days/tasks/variants bajo ownership, parse/import, `POST /tasks/:taskId/media` (multipart `file`)
-- `GET /coach/exercises?q=` (read-only cat�logo global)
+- `GET /coach/exercises?q=` (read-only cat�logo global)
 
 ## Admin users (`/admin`, SUPERADMIN)
 - `GET /admin/users?q=&role=&page=&pageSize=`
