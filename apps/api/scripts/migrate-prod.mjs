@@ -121,6 +121,21 @@ async function columnsExist(client, tableName, columns) {
   return (result.rows[0]?.count ?? 0) === columns.length;
 }
 
+async function getFailedMigrations(client) {
+  if (!(await tableExists(client, "_prisma_migrations"))) {
+    return [];
+  }
+
+  const result = await client.query(`
+    SELECT migration_name, applied_steps_count
+    FROM "_prisma_migrations"
+    WHERE finished_at IS NULL AND rolled_back_at IS NULL
+    ORDER BY started_at ASC
+  `);
+
+  return result.rows;
+}
+
 async function main() {
   let client = await openClient();
 
@@ -152,6 +167,23 @@ async function main() {
         runPrisma(["migrate", "resolve", "--applied", migration.name, "--schema", schemaPath]);
         client = await openClient();
         appliedMigrations = await getAppliedMigrations(client);
+      }
+    }
+
+    const failedMigrations = await getFailedMigrations(client);
+    for (const failed of failedMigrations) {
+      const steps = Number(failed.applied_steps_count ?? 0);
+      if (steps === 0) {
+        console.log(
+          `[migrate-prod] Migración fallida sin pasos aplicados detectada (${failed.migration_name}). La marco como rolled-back para permitir retry.`,
+        );
+        await client.end();
+        runPrisma(["migrate", "resolve", "--rolled-back", failed.migration_name, "--schema", schemaPath]);
+        client = await openClient();
+      } else {
+        throw new Error(
+          `[migrate-prod] Migración fallida con pasos aplicados: ${failed.migration_name} (applied_steps_count=${steps}). Requiere intervención manual.`,
+        );
       }
     }
 
