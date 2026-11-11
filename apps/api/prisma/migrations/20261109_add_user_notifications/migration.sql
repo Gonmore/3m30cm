@@ -1,4 +1,4 @@
-﻿-- CreateTable
+-- CreateTable
 CREATE TABLE "UserNotification" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,

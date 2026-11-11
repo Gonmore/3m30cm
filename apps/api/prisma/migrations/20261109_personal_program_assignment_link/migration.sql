@@ -1,4 +1,4 @@
-﻿-- AlterTable
+-- AlterTable
 ALTER TABLE "PersonalProgram" ADD COLUMN "assignmentId" TEXT;
 
 -- CreateIndex
