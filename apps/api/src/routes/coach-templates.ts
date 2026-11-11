@@ -42,7 +42,7 @@ const updateTemplateSchema = z.object({
 const createWizardPhaseSchema = z.object({
   name: z.string().trim().min(2),
   durationDays: z.number().int().min(1).max(365),
-  masterBlockDays: z.union([z.literal(7), z.literal(14)]),
+  masterBlockDays: z.number().int().min(1).max(365),
   notes: z.string().trim().nullable().optional(),
   orderIndex: z.number().int().positive().optional(),
 });
@@ -50,7 +50,7 @@ const createWizardPhaseSchema = z.object({
 const updateWizardPhaseSchema = z.object({
   name: z.string().trim().min(2).optional(),
   durationDays: z.number().int().min(1).max(365).optional(),
-  masterBlockDays: z.union([z.literal(7), z.literal(14)]).optional(),
+  masterBlockDays: z.number().int().min(1).max(365).optional(),
   notes: z.string().trim().nullable().optional(),
   orderIndex: z.number().int().positive().optional(),
 }).refine((v) => Object.keys(v).length > 0, { message: "At least one field must be provided" });
@@ -123,11 +123,14 @@ const persistExerciseTaskImportSchema = z.object({
   phaseName: z.string().trim().min(2).optional(),
   orderIndex: z.number().int().positive().optional(),
   durationDays: z.number().int().positive().max(365),
-  masterBlockDays: z.union([z.literal(7), z.literal(14)]),
+  masterBlockDays: z.number().int().min(1).max(365),
   notes: z.string().trim().nullable().optional(),
 }).superRefine((value, ctx) => {
   if (!value.phaseId && !value.phaseName) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "phaseId or phaseName is required", path: ["phaseName"] });
+  }
+  if (value.masterBlockDays > value.durationDays) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "masterBlockDays cannot exceed durationDays", path: ["masterBlockDays"] });
   }
 });
 

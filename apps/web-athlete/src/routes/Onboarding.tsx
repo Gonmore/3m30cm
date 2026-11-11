@@ -31,6 +31,7 @@ export default function OnboardingFlow() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTemplateCode, setSelectedTemplateCode] = useState<string>("");
+  const [pendingInfo, setPendingInfo] = useState<{ coachName: string; templateName: string } | null>(null);
   const [data, setData] = useState<OnboardingData>({
     trainsSport: false,
     sportTrainingDays: [],
@@ -56,9 +57,9 @@ export default function OnboardingFlow() {
           navigate("/", { replace: true });
         }
 
-        const freeTemplates = (availableData.templates ?? []).filter((t) => !t.isPremium);
-        if (freeTemplates.length > 0 && !selectedTemplateCode) {
-          setSelectedTemplateCode(freeTemplates[0]?.code ?? "");
+        const all = availableData.templates ?? [];
+        if (all.length > 0 && !selectedTemplateCode) {
+          setSelectedTemplateCode((all.find((t) => !t.isPremium) ?? all[0])?.code ?? "");
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al cargar perfil");
@@ -80,7 +81,7 @@ export default function OnboardingFlow() {
     });
   };
 
-  const handleSaveAndGenerate = async () => {
+  const submitSaveAndGenerate = async () => {
     if (!selectedTemplateCode) {
       setError("Seleccioná un programa");
       return;
@@ -149,14 +150,27 @@ export default function OnboardingFlow() {
         method: "POST",
         body: JSON.stringify(generatePayload),
       });
-      await handleApiResponse<unknown>(generateRes);
-
+      const genData = await handleApiResponse<any>(generateRes);
+      if (genData?.pendingApproval) {
+        setPendingInfo({ coachName: genData.pendingApproval.coachName, templateName: genData.pendingApproval.templateName });
+        return;
+      }
       navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar y generar programa");
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSaveAndGenerate = () => {
+    const selected = templates.find((t) => t.code === selectedTemplateCode);
+    if (selected?.isPremium) {
+      const coachName = [selected.coach?.firstName, selected.coach?.lastName].filter(Boolean).join(" ") || selected.coach?.email || "el coach";
+      const ok = window.confirm(`Este es un programa de pago. Se enviará una solicitud a ${coachName} y a los administradores para su aprobación. Podrás realizar solo la sesión del primer día mientras esperas la aprobación. ¿Deseas continuar?`);
+      if (!ok) return;
+    }
+    void submitSaveAndGenerate();
   };
 
   if (isLoading) {

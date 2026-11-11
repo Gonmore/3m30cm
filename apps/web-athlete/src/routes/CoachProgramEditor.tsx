@@ -54,6 +54,13 @@ function SortableTaskRow(props: { task: ExerciseTaskTemplate; onEdit: () => void
   );
 }
 
+function SortablePhaseCard(props: { id: string; disabled?: boolean; children: (args: { dragHandle: React.ReactNode; isDragging: boolean; setNodeRef: (el: HTMLElement | null) => void; style: React.CSSProperties }) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.id, ...(props.disabled ? { disabled: true } : {}) });
+  const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1 };
+  const dragHandle = <button type="button" className="cursor-grab touch-none rounded p-1 text-surface-500 hover:bg-surface-800" {...attributes} {...listeners} aria-label="Arrastrar fase" title="Mover fase">⋮⋮</button>;
+  return <>{props.children({ dragHandle, isDragging, setNodeRef, style })}</>;
+}
+
 function TaskEditorModal(props: {
   task: ExerciseTaskTemplate; allDays: Array<{ phaseId: string; phaseName: string; dayId: string; label: string; tasks: ExerciseTaskTemplate[] }>; exerciseResults: ExercisePick[]; onSearch: (q: string) => void;
   onClose: () => void; onSave: (patch: Partial<ExerciseTaskTemplate>) => void; onPickExercise: (ex: ExercisePick) => void; onCopyFrom: (source: ExerciseTaskTemplate) => void;
@@ -126,12 +133,12 @@ export default function CoachProgramEditor() {
   const [name, setName] = useState(""); const [code, setCode] = useState(""); const [objective, setObjective] = useState(""); const [description, setDescription] = useState("");
   const [isPremium, setIsPremium] = useState(false); const [price, setPrice] = useState(""); const [currency, setCurrency] = useState("USD");
   const [usesPhases, setUsesPhases] = useState(false); const [cycleLengthDays, setCycleLengthDays] = useState(14);
-  const [phaseName, setPhaseName] = useState("Fase 1"); const [phaseDuration, setPhaseDuration] = useState(14); const [masterBlockDays, setMasterBlockDays] = useState<7 | 14>(7);
+  const [phaseName, setPhaseName] = useState(""); const [phaseDuration, setPhaseDuration] = useState(28); const [phaseStructure, setPhaseStructure] = useState<"all" | "7" | "14">("7");
   const [exerciseResults, setExerciseResults] = useState<ExercisePick[]>([]);
   const [openPhases, setOpenPhases] = useState<Set<string>>(new Set());
   const [openDays, setOpenDays] = useState<Set<string>>(new Set());
   const [editingPhase, setEditingPhase] = useState<ProgramPhaseTemplate | null>(null);
-  const [phaseEditDraft, setPhaseEditDraft] = useState<{ name: string; durationDays: number; masterBlockDays: 7 | 14 } | null>(null);
+  const [phaseEditDraft, setPhaseEditDraft] = useState<{ name: string; durationDays: number; structure: "all" | "7" | "14" } | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; message: string; run: () => void } | null>(null);
   const [editingDay, setEditingDay] = useState<{ phaseId: string; day: ProgramPhaseDayTemplate } | null>(null);
   const [editingTask, setEditingTask] = useState<{ phaseId: string; dayId: string; task: ExerciseTaskTemplate } | null>(null);
@@ -172,16 +179,25 @@ export default function CoachProgramEditor() {
   const allDays = useMemo(() => phases.flatMap((p) => (p.days ?? []).map((d) => ({ phaseId: p.id, phaseName: p.name, dayId: d.id, label: `Día ${d.dayNumber}${d.title ? ` — ${d.title}` : ""}`, tasks: d.tasks ?? [] }))), [phases]);
   const toggle = (set: Set<string>, key: string, setter: (s: Set<string>) => void) => { const n = new Set(set); if (n.has(key)) n.delete(key); else n.add(key); setter(n); };
 
+  const structureToMaster = (durationDays: number, structure: "all" | "7" | "14") => (structure === "all" ? Math.max(1, durationDays) : Number(structure));
+  const masterToStructure = (durationDays: number, masterBlockDays: number): "all" | "7" | "14" => (masterBlockDays === 7 ? "7" : masterBlockDays === 14 ? "14" : "all");
   const startEditPhase = (phase: ProgramPhaseTemplate) => {
     setEditingPhase(phase);
-    setPhaseEditDraft({ name: phase.name, durationDays: phase.durationDays, masterBlockDays: (phase.masterBlockDays === 14 ? 14 : 7) as 7 | 14 });
+    setPhaseEditDraft({ name: phase.name, durationDays: phase.durationDays, structure: masterToStructure(phase.durationDays, phase.masterBlockDays) });
     setOpenPhases((prev) => new Set(prev).add(phase.id));
   };
   const commitPhaseEdit = () => {
-    if (editingPhase && phaseEditDraft) void apiMutate(`/coach/program-templates/${id}/phases/${editingPhase.id}`, "PUT", phaseEditDraft);
+    if (editingPhase && phaseEditDraft) {
+      const masterBlockDays = structureToMaster(phaseEditDraft.durationDays, phaseEditDraft.structure);
+      void apiMutate(`/coach/program-templates/${id}/phases/${editingPhase.id}`, "PUT", { name: phaseEditDraft.name, durationDays: phaseEditDraft.durationDays, masterBlockDays });
+    }
     setEditingPhase(null); setPhaseEditDraft(null);
   };
-  const addPhase = () => void apiMutate(`/coach/program-templates/${id}/phases`, "POST", { name: phaseName, durationDays: phaseDuration, masterBlockDays, orderIndex: phases.length + 1 });
+  const addPhase = () => {
+    const masterBlockDays = structureToMaster(phaseDuration, phaseStructure);
+    void apiMutate(`/coach/program-templates/${id}/phases`, "POST", { name: phaseName || "Fase", durationDays: phaseDuration, masterBlockDays, orderIndex: phases.length + 1 });
+    setPhaseName("");
+  };
   const delPhase = (phaseId: string) => void apiMutate(`/coach/program-templates/${id}/phases/${phaseId}`, "DELETE");
   const addDay = (phaseId: string) => { const ph = phases.find((p) => p.id === phaseId); void apiMutate(`/coach/program-templates/${id}/phases/${phaseId}/days`, "POST", { dayNumber: (ph?.days?.length ?? 0) + 1, title: `Día ${(ph?.days?.length ?? 0) + 1}`, dayType: "OTHER" as DayType }); };
   const saveDay = (phaseId: string, dayId: string, patch: Partial<ProgramPhaseDayTemplate>) => void apiMutate(`/coach/program-templates/${id}/phases/${phaseId}/days/${dayId}`, "PUT", patch);
@@ -191,13 +207,28 @@ export default function CoachProgramEditor() {
   const createTask = (phaseId: string, dayId: string, ex?: ExercisePick) => void apiMutate(`/coach/program-templates/${id}/phases/${phaseId}/days/${dayId}/tasks`, "POST", { name: ex?.name ?? "Nuevo ejercicio", exerciseId: ex?.id ?? null, category: ex?.category ?? null, equipment: ex?.equipment ?? null, description: ex?.description ?? null, requiresWeight: Boolean(ex?.requiresLoad), isUnilateral: Boolean(ex?.perLeg), evolution: (ex?.evolution as "WEIGHT" | "TIME" | "VELOCITY" | "HYBRID") ?? "WEIGHT", evolutionGoals: ex?.evolution ? [ex.evolution] : ["WEIGHT"], zone: (ex?.zone as "LOWER" | "UPPER" | "CORE" | "FULL") ?? "FULL", defaultSeriesProtocol: ex?.defaultSeriesProtocol ?? "NONE" });
   const saveTask = (phaseId: string, dayId: string, taskId: string, patch: Partial<ExerciseTaskTemplate>) => void apiMutate(`/coach/program-templates/${id}/phases/${phaseId}/days/${dayId}/tasks/${taskId}`, "PUT", patch);
   const delTask = (phaseId: string, dayId: string, taskId: string) => void apiMutate(`/coach/program-templates/${id}/phases/${phaseId}/days/${dayId}/tasks/${taskId}`, "DELETE");
-  const onDragEnd = (phaseId: string, dayId: string, tasks: ExerciseTaskTemplate[], e: DragEndEvent) => {
+  const onTaskDragEnd = (phaseId: string, dayId: string, tasks: ExerciseTaskTemplate[], e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return;
     const old = tasks.findIndex((t) => t.id === e.active.id); const nw = tasks.findIndex((t) => t.id === e.over!.id);
     if (old < 0 || nw < 0) return;
     const ordered = arrayMove(tasks, old, nw);
     setTemplate((prev) => prev ? ({ ...prev, phases: (prev.phases ?? []).map((p) => p.id !== phaseId ? p : ({ ...p, days: (p.days ?? []).map((d) => d.id !== dayId ? d : ({ ...d, tasks: ordered })) })) }) : prev);
     void saveTask(phaseId, dayId, String(e.active.id), { orderIndex: nw + 1 });
+  };
+  const onPhaseDragEnd = async (e: DragEndEvent) => {
+    if (!e.over || e.active.id === e.over.id || !id) return;
+    const old = phases.findIndex((p) => p.id === e.active.id); const nw = phases.findIndex((p) => p.id === e.over!.id);
+    if (old < 0 || nw < 0) return;
+    const ordered = arrayMove(phases, old, nw);
+    setTemplate((prev) => prev ? ({ ...prev, phases: ordered }) : prev);
+    try {
+      const res = await api(`/coach/program-templates/${id}/phases/${String(e.active.id)}`, { method: "PUT", body: JSON.stringify({ orderIndex: nw + 1 }) });
+      const data = await handleApiResponse<{ phases?: ProgramPhaseTemplate[] }>(res);
+      if (data.phases) setTemplate((prev) => prev ? ({ ...prev, phases: data.phases ?? [] }) : prev); else await load(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al reordenar fases");
+      await load(id);
+    }
   };
 
   return (
@@ -212,7 +243,7 @@ export default function CoachProgramEditor() {
         <label className="block text-sm text-surface-300">Objetivo<input value={objective} onChange={(e) => setObjective(e.target.value)} className="mt-1 w-full rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-surface-100" /></label>
         <label className="block text-sm text-surface-300">Descripción<textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="mt-1 w-full rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-surface-100" /></label>
         <div className="grid gap-3 sm:grid-cols-4">
-          <label className="text-sm text-surface-300">Ciclo (días)<input type="number" min={1} value={cycleLengthDays} onChange={(e) => setCycleLengthDays(Number(e.target.value))} className="mt-1 w-full rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-surface-100" /></label>
+          <label className="text-sm text-surface-300">Duración total del programa (días)<input type="number" min={1} value={cycleLengthDays} onChange={(e) => setCycleLengthDays(Number(e.target.value))} placeholder="Ej.: 84" className="mt-1 w-full rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-surface-100" /><span className="mt-1 block text-xs text-surface-500">Cantidad total de días/sesiones del programa completo.</span></label>
           <label className="flex items-center gap-2 pt-6 text-sm text-surface-300"><input type="checkbox" checked={usesPhases} onChange={(e) => setUsesPhases(e.target.checked)} /> Usa fases</label>
           <label className="block pt-1 text-sm text-surface-300"><span className="flex items-center gap-2"><input type="checkbox" checked={isPremium} onChange={(e) => setIsPremium(e.target.checked)} /> De Pago</span><span className="block text-xs text-surface-500">Requiere aprobación del coach para activarse al atleta.</span></label>
           <div className="grid grid-cols-[1fr_auto] gap-2"><label className="text-sm text-surface-300">Precio<input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0" className="mt-1 w-full rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-surface-100" /></label><label className="text-sm text-surface-300">Divisa<select value={currency} onChange={(e) => setCurrency(e.target.value)} className="mt-1 rounded-md border border-surface-700 bg-surface-950 px-2 py-2 text-surface-100"><option value="USD">USD ($)</option><option value="ARS">ARS</option><option value="EUR">EUR (€)</option></select></label></div>
@@ -224,57 +255,81 @@ export default function CoachProgramEditor() {
       {!isNew && id && (
         <section className="space-y-3 rounded-lg bg-surface-900 p-4">
           <h3 className="text-lg font-semibold text-surface-100">Fases, días y ejercicios</h3>
-          <div className="grid gap-2 sm:grid-cols-4">
-            <input value={phaseName} onChange={(e) => setPhaseName(e.target.value)} placeholder="Nombre fase" className="rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-sm text-surface-100" />
-            <input type="number" min={1} value={phaseDuration} onChange={(e) => setPhaseDuration(Number(e.target.value))} className="rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-sm text-surface-100" />
-            <select value={masterBlockDays} onChange={(e) => setMasterBlockDays(Number(e.target.value) as 7 | 14)} className="rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-sm text-surface-100"><option value={7}>Bloque 7</option><option value={14}>Bloque 14</option></select>
-            <button type="button" onClick={addPhase} className="rounded-md bg-surface-800 px-3 py-2 text-sm text-surface-100">+ Agregar fase</button>
+          <p className="text-xs text-surface-500">Cada fase tiene una duración total. Podés cargar todos los días o definir un bloque (7 o 14 días) que se repite hasta completar la fase.</p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="text-xs text-surface-400">Nombre de la fase<input value={phaseName} onChange={(e) => setPhaseName(e.target.value)} placeholder="ADECUACIÓN" className="mt-1 w-full rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-sm text-surface-100" /></label>
+            <label className="text-xs text-surface-400">Duración total de la fase (días)<input type="number" min={1} value={phaseDuration} onChange={(e) => setPhaseDuration(Number(e.target.value))} placeholder="Duración total de la fase" className="mt-1 w-full rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-sm text-surface-100" /></label>
+            <label className="text-xs text-surface-400">Estructura de días<select value={phaseStructure} onChange={(e) => setPhaseStructure(e.target.value as "all" | "7" | "14")} className="mt-1 w-full rounded-md border border-surface-700 bg-surface-950 px-3 py-2 text-sm text-surface-100"><option value="all">Todos los días son diferentes</option><option value="7">Ciclo repetitivo de 7 días</option><option value="14">Ciclo repetitivo de 14 días</option></select><span className="mt-1 block text-[11px] text-surface-500">{phaseStructure === "all" ? `Cargarás ${phaseDuration} día(s).` : `Cargarás ${phaseStructure} día(s) y se repetirán para completar ${phaseDuration} día(s).`}</span></label>
+            <div className="flex items-end"><button type="button" onClick={addPhase} className="w-full rounded-md bg-surface-800 px-3 py-2 text-sm text-surface-100">+ Agregar fase</button></div>
           </div>
-          {phases.length === 0 ? <p className="text-sm text-surface-500">Todo contraído / vacío. Agregá una fase.</p> : phases.map((phase) => {
-            const open = openPhases.has(phase.id);
-            return (
-              <div key={phase.id} className="rounded-md border border-surface-800">
-                <div className="flex items-center justify-between gap-2 p-3">
-                  <button type="button" onClick={() => toggle(openPhases, phase.id, setOpenPhases)} className="text-left"><p className="font-medium text-surface-100">{open ? "▾" : "▸"} {phase.name}</p><p className="text-xs text-surface-500">{phase.durationDays} días · bloque {phase.masterBlockDays} · {(phase.days ?? []).length} días</p></button>
-                  <div className="flex items-center gap-1">
-                    <button type="button" onClick={(e) => { e.stopPropagation(); startEditPhase(phase); }} className="rounded p-1 text-blue-500 hover:bg-surface-800" aria-label="Editar fase" title="Editar"><IconEdit className="h-5 w-5" /></button>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setConfirm({ title: "Eliminar fase", message: `¿Eliminar "${phase.name}"? Se eliminarán sus días y ejercicios del programa.`, run: () => { delPhase(phase.id); if (editingPhase?.id === phase.id) { setEditingPhase(null); setPhaseEditDraft(null); } } }); }} className="rounded p-1 text-red-500 hover:bg-surface-800" aria-label="Eliminar fase" title="Eliminar"><IconDelete className="h-5 w-5" /></button>
-                  </div>
-                </div>
-                {open ? <div className="border-t border-surface-800 p-3">
-                  {editingPhase?.id === phase.id && phaseEditDraft ? <div className="mb-3 grid gap-2 rounded bg-surface-950 p-2 sm:grid-cols-4"><input value={phaseEditDraft.name} onChange={(e) => setPhaseEditDraft({ ...phaseEditDraft, name: e.target.value })} className="rounded border border-surface-700 bg-surface-900 px-2 py-1 text-sm text-surface-100" /><input type="number" value={phaseEditDraft.durationDays} onChange={(e) => setPhaseEditDraft({ ...phaseEditDraft, durationDays: Number(e.target.value) })} className="rounded border border-surface-700 bg-surface-900 px-2 py-1 text-sm text-surface-100" /><select value={phaseEditDraft.masterBlockDays} onChange={(e) => setPhaseEditDraft({ ...phaseEditDraft, masterBlockDays: Number(e.target.value) as 7 | 14 })} className="rounded border border-surface-700 bg-surface-900 px-2 py-1 text-sm text-surface-100"><option value={7}>7</option><option value={14}>14</option></select><div className="flex gap-2"><button type="button" onClick={commitPhaseEdit} className="rounded bg-primary-600 px-2 py-1 text-xs text-white">Guardar</button><button type="button" onClick={() => { setEditingPhase(null); setPhaseEditDraft(null); }} className="text-xs text-surface-400">Cancelar</button></div></div> : null}
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {(phase.days ?? []).map((day, dayIdx, arr) => {
-                      const dopen = openDays.has(day.id);
-                      const canDeleteDay = dayIdx === arr.length - 1;
-                      return (
-                        <div key={day.id} className="rounded bg-surface-950 p-2">
-                          <div className="flex items-center justify-between gap-1">
-                            <button type="button" onClick={() => toggle(openDays, day.id, setOpenDays)} className="min-w-0 flex-1 text-left text-sm text-surface-100">{dopen ? "▾" : "▸"} Día {day.dayNumber}{day.title ? ` — ${day.title}` : ""}</button>
-                            <div className="flex shrink-0 items-center">
-                              <button type="button" onClick={() => setEditingDay({ phaseId: phase.id, day })} className="rounded p-1 text-blue-500 hover:bg-surface-800" aria-label="Editar día" title="Editar"><IconEdit /></button>
-                              {canDeleteDay ? <button type="button" onClick={() => setConfirm({ title: "Eliminar día", message: `¿Eliminar el Día ${day.dayNumber}${day.title ? ` — ${day.title}` : ""}? Se eliminarán sus ejercicios.`, run: () => { delDay(phase.id, day.id); setEditingDay(null); } })} className="rounded p-1 text-red-500 hover:bg-surface-800" aria-label="Eliminar día" title="Eliminar (solo último día)"><IconDelete /></button> : null}
+          {phases.length === 0 ? <p className="text-sm text-surface-500">Todavía no hay fases. Agregá una fase para comenzar.</p> : (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onPhaseDragEnd}>
+              <SortableContext items={phases.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2">
+                  {phases.map((phase, idx) => {
+                    const open = openPhases.has(phase.id);
+                    const requiredDays = Math.max(1, Math.min(phase.masterBlockDays, phase.durationDays));
+                    const loadedDays = Math.min((phase.days ?? []).length, requiredDays);
+                    const phaseIncomplete = loadedDays < requiredDays;
+                    return (
+                      <SortablePhaseCard key={phase.id} id={phase.id}>
+                        {({ dragHandle, setNodeRef, style }) => (
+                          <div ref={setNodeRef} style={style} className={`rounded-md border ${phaseIncomplete ? "border-amber-700/50" : "border-surface-800"}`}>
+                            <div className="flex items-start justify-between gap-2 p-3">
+                              <div className="flex min-w-0 items-start gap-2">
+                                <div className="pt-0.5">{dragHandle}</div>
+                                <button type="button" onClick={() => toggle(openPhases, phase.id, setOpenPhases)} className="min-w-0 text-left">
+                                  <p className="font-medium text-surface-100">{open ? "▾" : "▸"} {phase.name}</p>
+                                  <p className="text-xs text-surface-500">{phase.durationDays} días totales · {phase.masterBlockDays >= phase.durationDays ? `todos diferentes` : `bloque de ${phase.masterBlockDays} días repetido`} · {loadedDays}/{requiredDays} días cargados</p>
+                                  {phaseIncomplete ? <p className="mt-1 text-xs text-amber-400">⚠ Faltan cargar {requiredDays - loadedDays} día(s) para completar la estructura de esta fase.</p> : <p className="mt-1 text-xs text-green-400">Estructura de fase completa.</p>}
+                                  <span className="mt-1 inline-flex rounded-full border border-primary-500/40 bg-primary-500/10 px-2.5 py-0.5 text-xs font-medium text-primary-300">Fase {idx + 1}</span>
+                                </button>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <button type="button" onClick={(e) => { e.stopPropagation(); startEditPhase(phase); }} className="rounded p-1 text-blue-500 hover:bg-surface-800" aria-label="Editar fase" title="Editar"><IconEdit className="h-5 w-5" /></button>
+                                <button type="button" onClick={(e) => { e.stopPropagation(); setConfirm({ title: "Eliminar fase", message: `¿Eliminar "${phase.name}"? Se eliminarán sus días y ejercicios del programa.`, run: () => { delPhase(phase.id); if (editingPhase?.id === phase.id) { setEditingPhase(null); setPhaseEditDraft(null); } } }); }} className="rounded p-1 text-red-500 hover:bg-surface-800" aria-label="Eliminar fase" title="Eliminar"><IconDelete className="h-5 w-5" /></button>
+                              </div>
                             </div>
+                            {open ? <div className="border-t border-surface-800 p-3">
+                              {editingPhase?.id === phase.id && phaseEditDraft ? <div className="mb-3 grid gap-2 rounded bg-surface-950 p-2 sm:grid-cols-2 lg:grid-cols-4"><label className="text-xs text-surface-400">Nombre<input value={phaseEditDraft.name} onChange={(e) => setPhaseEditDraft({ ...phaseEditDraft, name: e.target.value })} placeholder="ADECUACIÓN" className="mt-1 w-full rounded border border-surface-700 bg-surface-900 px-2 py-1 text-sm text-surface-100" /></label><label className="text-xs text-surface-400">Duración total (días)<input type="number" min={1} value={phaseEditDraft.durationDays} onChange={(e) => setPhaseEditDraft({ ...phaseEditDraft, durationDays: Number(e.target.value) })} placeholder="Duración total de la fase" className="mt-1 w-full rounded border border-surface-700 bg-surface-900 px-2 py-1 text-sm text-surface-100" /></label><label className="text-xs text-surface-400">Estructura de días<select value={phaseEditDraft.structure} onChange={(e) => setPhaseEditDraft({ ...phaseEditDraft, structure: e.target.value as "all" | "7" | "14" })} className="mt-1 w-full rounded border border-surface-700 bg-surface-900 px-2 py-1 text-sm text-surface-100"><option value="all">Todos los días son diferentes</option><option value="7">Ciclo repetitivo de 7 días</option><option value="14">Ciclo repetitivo de 14 días</option></select><span className="mt-1 block text-[11px] text-surface-500">{phaseEditDraft.structure === "all" ? `Cargarás ${phaseEditDraft.durationDays} día(s).` : `Cargarás ${phaseEditDraft.structure} día(s) y se repetirán para completar ${phaseEditDraft.durationDays} día(s).`}</span></label><div className="flex items-end gap-2"><button type="button" onClick={commitPhaseEdit} className="rounded bg-primary-600 px-2 py-1.5 text-xs text-white">Guardar</button><button type="button" onClick={() => { setEditingPhase(null); setPhaseEditDraft(null); }} className="text-xs text-surface-400">Cancelar</button></div></div> : null}
+                              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                {(phase.days ?? []).map((day, dayIdx, arr) => {
+                                  const dopen = openDays.has(day.id);
+                                  const canDeleteDay = dayIdx === arr.length - 1;
+                                  return (
+                                    <div key={day.id} className="rounded bg-surface-950 p-2">
+                                      <div className="flex items-center justify-between gap-1">
+                                        <button type="button" onClick={() => toggle(openDays, day.id, setOpenDays)} className="min-w-0 flex-1 text-left text-sm text-surface-100">{dopen ? "▾" : "▸"} Día {day.dayNumber}{day.title ? ` — ${day.title}` : ""}</button>
+                                        <div className="flex shrink-0 items-center">
+                                          <button type="button" onClick={() => setEditingDay({ phaseId: phase.id, day })} className="rounded p-1 text-blue-500 hover:bg-surface-800" aria-label="Editar día" title="Editar"><IconEdit /></button>
+                                          {canDeleteDay ? <button type="button" onClick={() => setConfirm({ title: "Eliminar día", message: `¿Eliminar el Día ${day.dayNumber}${day.title ? ` — ${day.title}` : ""}? Se eliminarán sus ejercicios.`, run: () => { delDay(phase.id, day.id); setEditingDay(null); } })} className="rounded p-1 text-red-500 hover:bg-surface-800" aria-label="Eliminar día" title="Eliminar (solo último día)"><IconDelete /></button> : null}
+                                        </div>
+                                      </div>
+                                      <p className="text-[11px] text-surface-500">{DAY_TYPES.find((x) => x.value === day.dayType)?.label ?? day.dayType} · {(day.tasks ?? []).length} ejercicios</p>
+                                      {dopen ? <div className="mt-2 space-y-1">
+                                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => onTaskDragEnd(phase.id, day.id, day.tasks ?? [], e)}>
+                                          <SortableContext items={(day.tasks ?? []).map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                                            {(day.tasks ?? []).map((task) => <SortableTaskRow key={task.id} task={task} onEdit={() => setEditingTask({ phaseId: phase.id, dayId: day.id, task })} onDelete={() => setConfirm({ title: "Eliminar ejercicio", message: `¿Eliminar "${task.name}" de este día?`, run: () => delTask(phase.id, day.id, task.id) })} />)}
+                                          </SortableContext>
+                                        </DndContext>
+                                        <button type="button" onClick={() => { setAddTaskTarget({ phaseId: phase.id, dayId: day.id }); setAddTaskMode("new"); setAddTaskQuery(""); setExerciseResults([]); }} className="text-xs text-primary-400">+ Ejercicio</button>
+                                      </div> : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2 text-xs"><button type="button" onClick={() => addDay(phase.id)} className="text-primary-400">+ Día</button><select onChange={(e) => { if (e.target.value) linkDay(phase.id, e.target.value); e.target.value = ""; }} defaultValue="" className="rounded border border-surface-700 bg-surface-950 px-2 py-1 text-surface-300"><option value="">Vincular día existente…</option>{allDays.map((d) => <option key={d.dayId} value={d.dayId}>{d.phaseName} / {d.label}</option>)}</select></div>
+                            </div> : null}
                           </div>
-                          <p className="text-[11px] text-surface-500">{DAY_TYPES.find((x) => x.value === day.dayType)?.label ?? day.dayType} · {(day.tasks ?? []).length} ejercicios</p>
-                          {dopen ? <div className="mt-2 space-y-1">
-                            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => onDragEnd(phase.id, day.id, day.tasks ?? [], e)}>
-                              <SortableContext items={(day.tasks ?? []).map((t) => t.id)} strategy={verticalListSortingStrategy}>
-                                {(day.tasks ?? []).map((task) => <SortableTaskRow key={task.id} task={task} onEdit={() => setEditingTask({ phaseId: phase.id, dayId: day.id, task })} onDelete={() => setConfirm({ title: "Eliminar ejercicio", message: `¿Eliminar "${task.name}" de este día?`, run: () => delTask(phase.id, day.id, task.id) })} />)}
-                              </SortableContext>
-                            </DndContext>
-                            <button type="button" onClick={() => { setAddTaskTarget({ phaseId: phase.id, dayId: day.id }); setAddTaskMode("new"); setAddTaskQuery(""); setExerciseResults([]); }} className="text-xs text-primary-400">+ Ejercicio</button>
-                          </div> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs"><button type="button" onClick={() => addDay(phase.id)} className="text-primary-400">+ Día</button><select onChange={(e) => { if (e.target.value) linkDay(phase.id, e.target.value); e.target.value = ""; }} defaultValue="" className="rounded border border-surface-700 bg-surface-950 px-2 py-1 text-surface-300"><option value="">Vincular día existente…</option>{allDays.map((d) => <option key={d.dayId} value={d.dayId}>{d.phaseName} / {d.label}</option>)}</select></div>
-                </div> : null}
-              </div>
-            );
-          })}
-          <p className="text-xs text-surface-500">2B-lite: los coaches editan ejercicios/prescripciones del programa (no el catálogo global `Exercise`). Vinculá un ejercicio global para habilitar carga/historial. DnD móvil: `@dnd-kit` touch/pointer. Subida S3/MinIO por ejercicio: <code>POST /coach/program-templates/:id/tasks/:taskId/media</code>.</p>
+                        )}
+                      </SortablePhaseCard>
+                    );
+                  })}
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
+          {(() => { const sum = phases.reduce((a, p) => a + (p.durationDays || 0), 0); return sum !== cycleLengthDays ? <div className="rounded-md border border-amber-700/40 bg-amber-900/20 p-3 text-xs text-amber-300">Aviso: la suma de fases es {sum} día(s) y la duración total del programa es {cycleLengthDays} día(s). Revisá que coincidan.</div> : null; })()}
         </section>
       )}
 

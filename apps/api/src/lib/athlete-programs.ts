@@ -81,6 +81,7 @@ interface GeneratePersonalProgramInput {
   notes?: string | undefined;
   includePreparationPhase?: boolean;
   totalSessions?: number;
+  assignmentId?: string;
 }
 
 const preparationPhaseBlueprints: PreparationSessionBlueprint[] = [
@@ -400,6 +401,7 @@ export async function generatePersonalProgram(input: GeneratePersonalProgramInpu
     data: {
       athleteProfileId: athleteProfile.id,
       templateId: template.id,
+      ...(input.assignmentId ? { assignmentId: input.assignmentId } : {}),
       name: includePreparationPhase ? `${athleteName} - Adecuacion + ${template.name}` : `${athleteName} - ${template.name}`,
       startDate,
       phase,
@@ -661,14 +663,15 @@ export async function fetchTemplateForGeneration(
   if (templateDays.length === 0 && template.phases.length > 0) {
     let absoluteDay = 0;
     const expanded = template.phases.flatMap((phase, phaseIndex) => {
-      const blockDays = phase.days;
+      const blockDays = [...phase.days].sort((a, b) => a.dayNumber - b.dayNumber);
       const totalDays = phase.durationDays;
+      const blockLen = Math.max(1, Math.min(phase.masterBlockDays || blockDays.length || 1, blockDays.length || 1));
       const phaseLabel = phase.name
         ? `Fase ${phaseIndex + 1}: ${phase.name}`
         : `Fase ${phaseIndex + 1}`;
       const expandedDays: typeof templateDays = [];
       for (let i = 0; i < totalDays; i++) {
-        const day = blockDays[i % blockDays.length];
+        const day = blockDays[i % blockLen];
         if (!day) {
           continue;
         }
@@ -677,7 +680,7 @@ export async function fetchTemplateForGeneration(
         const titleSuffix = day.title ? `: ${day.title}` : "";
         expandedDays.push({
           dayNumber: absoluteDay,
-          title: `${phaseLabel}/D\u00eda ${dayAbsolute}${titleSuffix}`,
+          title: `${phaseLabel}/Día ${dayAbsolute}${titleSuffix}`,
           dayType: day.dayType,
           notes: day.notes,
           prescriptions: day.tasks.map((task, idx) => {

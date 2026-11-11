@@ -1,4 +1,4 @@
-import {
+﻿import {
   AssignmentStatus,
   ProgramStatus,
   Role,
@@ -18,6 +18,7 @@ import {
 import { applyCompetitionAdjustments } from "../lib/schedule-adjustments.js";
 import { deduceSeasonPhase } from "../lib/season-deduction.js";
 import { requireAuth, requireRole, type AuthenticatedRequest } from "../middleware/auth.js";
+import { notifySuperAdmins, notifyUsers } from "../lib/notifications.js";
 
 const coachUserSelect = {
   id: true,
@@ -243,7 +244,7 @@ coachRouter.get("/sessions/:sessionId", async (req: AuthenticatedRequest, res: R
   }
 });
 
-// ── Program templates ────────────────────────────────────────────────────────
+// â”€â”€ Program templates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 coachRouter.get("/programs", async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -314,7 +315,7 @@ coachRouter.get("/requests", async (req: AuthenticatedRequest, res: Response) =>
   }
 });
 
-// ── Assignment / request management ───────────────────────────────────────────
+// â”€â”€ Assignment / request management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 coachRouter.get("/programs/:templateId/requests", async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -421,7 +422,8 @@ coachRouter.post("/assignments/:assignmentId/approve", async (req: Authenticated
       return;
     }
 
-    if (assignment.coachId !== coachId) {
+    const isSuperAdmin = req.auth?.platformRole === Role.SUPERADMIN;
+    if (assignment.coachId !== coachId && !isSuperAdmin) {
       res.status(403).json({ message: "You do not have permission to manage this assignment" });
       return;
     }
@@ -434,6 +436,39 @@ coachRouter.post("/assignments/:assignmentId/approve", async (req: Authenticated
       return;
     }
 
+    const athleteProfile = assignment.athleteProfile;
+
+    // If premium request already generated a linked program, just approve and notify
+    const linkedProgram = await prisma.personalProgram.findFirst({
+      where: { assignmentId: assignment.id, athleteProfileId: athleteProfile.id },
+      select: { id: true },
+    });
+    if (linkedProgram) {
+      const updated = await prisma.programAssignment.update({
+        where: { id: assignmentId },
+        data: { status: AssignmentStatus.APPROVED, approvedAt: new Date() },
+        include: {
+          template: { select: { id: true, code: true, name: true } },
+          athleteProfile: { include: { user: { select: coachUserSelect } } },
+        },
+      });
+      const athleteUserId = (updated as any).athleteProfile?.userId ?? (await prisma.athleteProfile.findUnique({ where: { id: updated.athleteProfileId }, select: { userId: true } }))?.userId;
+      const fullProgram = await prisma.personalProgram.findUnique({
+        where: { id: linkedProgram.id },
+        include: {
+          athleteProfile: { include: { user: { select: coachUserSelect } } },
+          template: { select: { id: true, code: true, name: true } },
+          sessions: { select: { id: true, title: true, dayType: true, status: true, scheduledDate: true } },
+        },
+      });
+      if (athleteUserId) {
+        await notifyUsers([athleteUserId], { type: "premium_program_approved", title: "Tu plan premium fue aprobado", body: `Tu coach aprobÃ³ \"${updated.template?.name ?? "tu programa"}\". Ya puedes acceder a todas las sesiones.`, data: { assignmentId, programId: linkedProgram.id } as any });
+      }
+      await notifySuperAdmins({ type: "premium_program_approved", title: "Solicitud premium aprobada", body: `Se aprobÃ³ \"${updated.template?.name ?? "programa"}\" para el atleta.`, data: { assignmentId, programId: linkedProgram.id } as any });
+      res.json({ assignment: updated, program: fullProgram });
+      return;
+    }
+
     const template = await fetchTemplateForGeneration(assignment.templateId);
 
     if (!template) {
@@ -442,7 +477,6 @@ coachRouter.post("/assignments/:assignmentId/approve", async (req: Authenticated
     }
 
     const startDate = payload.startDate ? atLocalMidday(payload.startDate) : new Date();
-    const athleteProfile = assignment.athleteProfile;
     const programPreferences = parseAthleteProgramPreferences(athleteProfile.programPreferences);
     const phase = athleteProfile.seasonPhase ?? deduceSeasonPhase(athleteProfile.weeklyGameCount, athleteProfile.teamTrainingIntensity);
 
@@ -457,7 +491,7 @@ coachRouter.post("/assignments/:assignmentId/approve", async (req: Authenticated
 
     if (existingActiveProgram) {
       res.status(409).json({
-        message: "El atleta ya tiene un programa activo. Archiva el programa actual antes de aprobar una nueva asignación.",
+        message: "El atleta ya tiene un programa activo. Archiva el programa actual antes de aprobar una nueva asignaciÃ³n.",
       });
       return;
     }
@@ -471,7 +505,8 @@ coachRouter.post("/assignments/:assignmentId/approve", async (req: Authenticated
         phase,
         notes: payload.notes,
         includePreparationPhase: payload.includePreparationPhase ?? !programPreferences.skipPhase1,
-      });
+        assignmentId,
+      } as any);
 
       await transaction.programAssignment.update({
         where: { id: assignmentId },
@@ -519,6 +554,11 @@ coachRouter.post("/assignments/:assignmentId/approve", async (req: Authenticated
       },
     });
 
+    const athleteUserId = (athleteProfile as any).userId ?? (await prisma.athleteProfile.findUnique({ where: { id: athleteProfile.id }, select: { userId: true } }))?.userId;
+    if (athleteUserId) {
+      await notifyUsers([athleteUserId], { type: "premium_program_approved", title: "Tu plan premium fue aprobado", body: `Tu coach aprobÃ³ \"${assignment.template?.name ?? "tu programa"}\". Ya puedes acceder a todas las sesiones.`, data: { assignmentId, programId: program.id } as any });
+    }
+    await notifySuperAdmins({ type: "premium_program_approved", title: "Solicitud premium aprobada", body: `Se aprobÃ³ \"${assignment.template?.name ?? "programa"}\" para el atleta.`, data: { assignmentId, programId: program.id } as any });
     res.json({ assignment: { ...assignment, status: AssignmentStatus.APPROVED }, program: fullProgram });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -571,7 +611,8 @@ coachRouter.post("/assignments/:assignmentId/reject", async (req: AuthenticatedR
       return;
     }
 
-    if (assignment.coachId !== coachId) {
+    const isSuperAdmin = req.auth?.platformRole === Role.SUPERADMIN;
+    if (assignment.coachId !== coachId && !isSuperAdmin) {
       res.status(403).json({ message: "You do not have permission to manage this assignment" });
       return;
     }
@@ -616,7 +657,7 @@ coachRouter.post("/assignments/:assignmentId/reject", async (req: AuthenticatedR
   }
 });
 
-// ── Athletes managed by this coach ───────────────────────────────────────────
+// â”€â”€ Athletes managed by this coach â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 coachRouter.get("/athletes", async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -794,7 +835,7 @@ coachRouter.get("/athletes/:athleteId/progress", async (req: AuthenticatedReques
   }
 });
 
-// ── Sessions overview ───────────────────────────────────────────────────────
+// â”€â”€ Sessions overview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const sessionsQuerySchema = z.object({
   athleteId: z.string().optional(),

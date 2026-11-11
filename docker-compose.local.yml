@@ -10,7 +10,7 @@ services:
       [
         "sh",
         "-lc",
-        "npm install --workspace @jump/api --include-workspace-root false && npm run prisma:generate --workspace @jump/api && npm run db:ensure --workspace @jump/api && npm run prisma:push --workspace @jump/api && npm run db:seed --workspace @jump/api && npm run dev --workspace @jump/api",
+        "npm install --workspace @jump/api --include-workspace-root false && npm run prisma:generate --workspace @jump/api && npm run db:ensure --workspace @jump/api && npx prisma db push --schema apps/api/prisma/schema.prisma --accept-data-loss && npm run db:seed --workspace @jump/api && npm run dev --workspace @jump/api",
       ]
     volumes:
       - .:/workspace

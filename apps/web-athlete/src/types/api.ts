@@ -264,6 +264,9 @@ export interface ScheduledSession {
   notes: string | null;
   coachNotes: string | null;
   exerciseCount?: number;
+  locked?: boolean;
+  lockReason?: string | null;
+  pendingCoachName?: string | null;
   personalProgram: {
     id: string;
     name: string;
@@ -490,6 +493,7 @@ export interface ProgressResponse {
 
 export interface SessionsListResponse {
   sessions: ScheduledSession[];
+  pendingPaidApproval?: { coachName: string; templateName: string; firstSessionId: string } | null;
 }
 
 export interface AssignmentsListResponse {

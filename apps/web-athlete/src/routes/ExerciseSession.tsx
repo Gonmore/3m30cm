@@ -229,8 +229,14 @@ export default function ExerciseSession() {
         } else {
           setSessionStarted(true);
         }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Error al cargar sesión");
+      } catch (err: any) {
+        const locked = err?.data?.locked || err?.data?.lockReason === "PENDING_COACH_APPROVAL";
+        if (locked) {
+          const coachName = err?.data?.coachName || "tu coach";
+          setError(`Esta sesión está bloqueada hasta que ${coachName} apruebe tu programa premium. Solo puedes realizar la sesión del primer día.`);
+        } else {
+          setError(err instanceof Error ? err.message : "Error al cargar sesión");
+        }
       } finally {
         setIsLoading(false);
       }

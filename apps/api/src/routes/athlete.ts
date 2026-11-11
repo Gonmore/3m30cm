@@ -1,4 +1,4 @@
-import { AssignmentStatus, CheckInFatigue, DayType, Prisma, ProgramStatus, Role, SeasonPhase, SeriesProtocol, SessionStatus, TeamTrainingIntensity, WeeklyGameCount } from "@prisma/client";
+﻿import { AssignmentStatus, CheckInFatigue, DayType, Prisma, ProgramStatus, Role, SeasonPhase, SeriesProtocol, SessionStatus, TeamTrainingIntensity, WeeklyGameCount } from "@prisma/client";
 import { type Response, Router } from "express";
 import multer from "multer";
 import { z } from "zod";
@@ -21,6 +21,7 @@ import { deduceSeasonPhase } from "../lib/season-deduction.js";
 import { applyCompetitionAdjustments } from "../lib/schedule-adjustments.js";
 import { applyFatigueAdjustment, applyWeekendGamePrediction } from "../lib/weekly-adjuster.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
+import { notifySuperAdmins, notifyUsers } from "../lib/notifications.js";
 
 const athleteProfileInclude = {
   user: {
@@ -368,7 +369,7 @@ function buildAthleteFeedback(input: {
       summary: "Tus marcadores recientes permiten exigir calidad en potencia y ejecucion si la sesion lo pide.",
       actions: [
         "Busca intentos explosivos limpios y registra tu mejor salto.",
-        "Sostén la tecnica antes de aumentar volumen.",
+        "SosteÌn la tecnica antes de aumentar volumen.",
       ],
     };
   }
@@ -376,7 +377,7 @@ function buildAthleteFeedback(input: {
   return {
     status: "steady",
     title: "Mantener ritmo",
-    summary: "La señal general es estable. Conviene sostener el plan y seguir midiendo sin sobrecorregir.",
+    summary: "La seÃ±al general es estable. Conviene sostener el plan y seguir midiendo sin sobrecorregir.",
     actions: [
       "Cumple el bloque previsto y registra sensaciones con precision.",
       "Observa cambios en readiness y dolor durante la semana.",
@@ -559,7 +560,7 @@ function buildExerciseGuidance(input: {
   const cues = [
     exercise.requiresLoad || loadText
       ? `Carga: ${loadText ?? "usa la carga prevista y evita subirla si cae la calidad."}`
-      : `Volumen: ${sets ? `${sets} sets` : "prioriza calidad"}${repsText ? ` · ${repsText}` : ""}`,
+      : `Volumen: ${sets ? `${sets} sets` : "prioriza calidad"}${repsText ? ` Â· ${repsText}` : ""}`,
     durationSeconds
       ? `Tiempo de trabajo: mantente tecnico durante ${durationSeconds}s sin romper postura.`
       : `Descanso: ${restSeconds ? `${restSeconds}s entre series` : "usa pausas suficientes para repetir calidad."}`,
@@ -1131,6 +1132,135 @@ athleteRouter.post("/programs/generate", async (req: AuthenticatedRequest, res: 
       return;
     }
 
+    // Premium flow: create/reuse pending assignment, generate program linked but only first day usable until approved
+    if (template.isPremium) {
+      const isSuperAdmin = req.auth?.platformRole === Role.SUPERADMIN;
+      const coachIdOverride = isSuperAdmin ? getQueryParam(req.query.coachUserId) : null;
+      const resolvedCoachId = coachIdOverride ?? template.coachId ?? null;
+      if (!resolvedCoachId) {
+        res.status(400).json({ message: "Este programa premium no tiene un coach asignado. Contacta al administrador." });
+        return;
+      }
+
+      const existingActive = await prisma.personalProgram.findFirst({
+        where: { athleteProfileId: currentAthleteProfile.id, status: ProgramStatus.ACTIVE },
+        select: { id: true },
+      });
+      if (existingActive) {
+        res.status(409).json({ message: "Ya tienes un programa activo. Completa o archiva tu programa actual antes de solicitar uno nuevo." });
+        return;
+      }
+
+      let assignment = await prisma.programAssignment.findFirst({
+        where: {
+          athleteProfileId: currentAthleteProfile.id,
+          templateId: template.id,
+          status: { in: [AssignmentStatus.PENDING, AssignmentStatus.APPROVED] },
+        },
+        include: { coach: { select: { id: true, email: true, firstName: true, lastName: true } } },
+      });
+      if (!assignment) {
+        assignment = await prisma.programAssignment.create({
+          data: {
+            athleteProfileId: currentAthleteProfile.id,
+            templateId: template.id,
+            coachId: resolvedCoachId,
+            status: AssignmentStatus.PENDING,
+          },
+          include: { coach: { select: { id: true, email: true, firstName: true, lastName: true } } },
+        });
+      }
+
+      const existingLinked = await prisma.personalProgram.findFirst({
+        where: { athleteProfileId: currentAthleteProfile.id, assignmentId: assignment.id },
+        select: { id: true, name: true, phase: true, startDate: true, status: true },
+      });
+
+      const templateForGeneration = { id: template.id, name: template.name, code: template.code, days: templateDays };
+      const isPhaseTemplate = template.days.length === 0 && template.phases.length > 0;
+      const programPreferences = payload.programPreferences ?? parseAthleteProgramPreferences(currentAthleteProfile.programPreferences);
+      const deducedSeasonPhase = deduceSeasonPhase(payload.weeklyGameCount, payload.teamTrainingIntensity);
+      const phase = payload.phase ?? deducedSeasonPhase;
+      const includePreparationPhase = payload.includePreparationPhase ?? false;
+
+      let program = existingLinked as any;
+      if (!program) {
+        program = await prisma.$transaction(async (transaction) => {
+          const updatedAthleteProfile = await transaction.athleteProfile.update({
+            where: { id: currentAthleteProfile.id },
+            data: {
+              displayName: payload.displayName ?? currentAthleteProfile.displayName,
+              heightCm: payload.heightCm,
+              weightKg: payload.weightKg,
+              sport: payload.sport ?? null,
+              trainsSport: payload.trainsSport,
+              weeklyGameCount: payload.weeklyGameCount ?? currentAthleteProfile.weeklyGameCount,
+              teamTrainingIntensity: payload.teamTrainingIntensity ?? currentAthleteProfile.teamTrainingIntensity,
+              seasonPhase: deducedSeasonPhase,
+              weeklyAvailability: buildWeekdaysJson(payload.availableWeekdays),
+              sportTrainingDays: buildTrainingDaysJson(payload.trainsSport ? payload.sportTrainingDays : undefined),
+              programPreferences: buildAthleteProgramPreferencesJson(programPreferences),
+              notes: payload.notes ?? null,
+              onboardingCompletedAt: new Date(),
+            },
+            include: { user: { select: { email: true, firstName: true, lastName: true } } },
+          });
+
+          return generatePersonalProgram({
+            transaction,
+            athleteProfile: updatedAthleteProfile,
+            template: templateForGeneration,
+            startDate,
+            phase,
+            notes: payload.notes,
+            includePreparationPhase,
+            ...(isPhaseTemplate ? { totalSessions: templateDays.length } : {}),
+            assignmentId: assignment.id,
+          } as any);
+        });
+
+        if (program) {
+          await prisma.$transaction(async (tx) => {
+            await applyCompetitionAdjustments(
+              tx,
+              program.id,
+              payload.weeklyGameCount ?? currentAthleteProfile.weeklyGameCount,
+              payload.teamTrainingIntensity ?? currentAthleteProfile.teamTrainingIntensity,
+              phase,
+            );
+          });
+        }
+      }
+
+      const athleteName = [currentAthleteProfile.user?.firstName, currentAthleteProfile.user?.lastName].filter(Boolean).join(" ") || currentAthleteProfile.displayName || currentAthleteProfile.user?.email || "Un atleta";
+      const coachName = [assignment.coach?.firstName, assignment.coach?.lastName].filter(Boolean).join(" ") || assignment.coach?.email || "tu coach";
+      const reqTitle = "Nueva solicitud de plan premium";
+      const reqBody = `${athleteName} solicitÃ³ el programa "${template.name}".`;
+      const notifData = { assignmentId: assignment.id, templateId: template.id, templateCode: template.code, athleteProfileId: currentAthleteProfile.id };
+      await Promise.all([
+        notifyUsers([assignment.coachId], { type: "premium_program_request", title: reqTitle, body: reqBody, data: notifData as any }),
+        notifySuperAdmins({ type: "premium_program_request", title: reqTitle, body: `${reqBody} Coach asignado: ${coachName}.`, data: { ...notifData, coachId: assignment.coachId } as any }),
+      ]);
+
+      res.status(201).json({
+        program,
+        pendingApproval: assignment.status === AssignmentStatus.PENDING ? {
+          assignmentId: assignment.id,
+          coachName,
+          templateName: template.name,
+        } : null,
+        planningRecommendation: buildAthleteSetupRecommendation({
+          sport: payload.sport ?? currentAthleteProfile.sport,
+          trainsSport: payload.trainsSport,
+          sportTrainingDays: payload.trainsSport ? { trainingDays: payload.sportTrainingDays ?? [] } : null,
+          weeklyAvailability: { availableWeekdays: payload.availableWeekdays ?? [] },
+          programPreferences: buildAthleteProgramPreferencesJson(programPreferences),
+          hasActiveProgram: true,
+        }),
+      });
+      return;
+    }
+
     const templateForGeneration = { id: template.id, name: template.name, code: template.code, days: templateDays };
     const isPhaseTemplate = template.days.length === 0 && template.phases.length > 0;
 
@@ -1274,7 +1404,7 @@ athleteRouter.get("/programs", async (req: AuthenticatedRequest, res: Response) 
   }
 });
 
-// ── Available program templates (free + premium) ─────────────────────────────
+// â”€â”€ Available program templates (free + premium) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const programRequestSchema = z.object({
   templateCode: z.string().min(1),
@@ -1713,6 +1843,21 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
         new Date(session.scheduledDate).toISOString().slice(0, 10) >= nowDateStr &&
         (session.status === SessionStatus.PLANNED || session.status === SessionStatus.RESCHEDULED),
     );
+    let adjustedNextSession = upcomingSessions[0] ?? null;
+    if (activeProgramId) {
+      const prog = await prisma.personalProgram.findUnique({
+        where: { id: activeProgramId },
+        select: { template: { select: { isPremium: true } }, assignment: { select: { status: true } } },
+      });
+      if (prog?.template?.isPremium && prog.assignment?.status === AssignmentStatus.PENDING) {
+        const firstPending = await prisma.scheduledSession.findFirst({
+          where: { personalProgramId: activeProgramId },
+          orderBy: [{ scheduledDate: "asc" }, { sequenceOrder: "asc" }, { createdAt: "asc" }],
+          select: { id: true, title: true, scheduledDate: true, status: true, dayType: true },
+        });
+        if (firstPending) adjustedNextSession = { ...firstPending, pendingCoachApproval: true } as any;
+      }
+    }
 
     const serializedLogs = insightLogs.map((log) => ({
       ...log,
@@ -1894,7 +2039,7 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
         completionRate: dueSessions.length ? roundMetric((completedSessions / dueSessions.length) * 100) : 0,
         currentStreak: computeCurrentStreak(activeProgramSessions),
       },
-      nextSession: upcomingSessions[0] ?? null,
+      nextSession: adjustedNextSession,
       recentAverages,
       weeklyGoal: {
         targetSessions: weeklyTarget,
@@ -1957,7 +2102,7 @@ athleteRouter.get("/progress", async (req: AuthenticatedRequest, res: Response) 
   }
 });
 
-// ── Exercise load: save actual loads used per exercise in a session ─────────
+// â”€â”€ Exercise load: save actual loads used per exercise in a session â”€â”€â”€â”€â”€â”€â”€â”€â”€
 athleteRouter.post("/exercise-loads", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = getUserId(req);
@@ -2016,7 +2161,7 @@ athleteRouter.post("/exercise-loads", async (req: AuthenticatedRequest, res: Res
   }
 });
 
-// ── Exercise load hints: last load + suggested for exercises in a session ───
+// â”€â”€ Exercise load hints: last load + suggested for exercises in a session â”€â”€â”€
 athleteRouter.get("/sessions/:sessionId/exercise-load-hints", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = getUserId(req);
@@ -2106,7 +2251,7 @@ athleteRouter.get("/sessions/:sessionId/exercise-load-hints", async (req: Authen
   }
 });
 
-// ── Load trend: per-exercise load progression across all sessions ────────────
+// â”€â”€ Load trend: per-exercise load progression across all sessions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 athleteRouter.get("/progress/load-trend", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = getUserId(req);
@@ -2168,7 +2313,7 @@ athleteRouter.get("/progress/load-trend", async (req: AuthenticatedRequest, res:
   }
 });
 
-// ── Path to the Dunk: weekly power trajectory ─────────────────────────────
+// â”€â”€ Path to the Dunk: weekly power trajectory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 athleteRouter.get("/progress/power-path", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = getUserId(req);
@@ -2256,7 +2401,7 @@ athleteRouter.get("/progress/power-path", async (req: AuthenticatedRequest, res:
       for (const se of session.sessionExercises) {
         if (se.exercise?.zone !== "LOWER") continue;
         const sets = se.sets ?? 3;
-        // Estimate reps from repsText (e.g. "8", "8-10", "8x3") — default 8
+        // Estimate reps from repsText (e.g. "8", "8-10", "8x3") â€” default 8
         const repsMatch = se.repsText?.match(/\d+/);
         const reps = repsMatch ? parseInt(repsMatch[0], 10) : (se.durationSeconds ? Math.floor(se.durationSeconds / 5) : 8);
         sessionPower += sets * reps;
@@ -2311,7 +2456,7 @@ athleteRouter.get("/sessions", async (req: AuthenticatedRequest, res: Response) 
           status: ProgramStatus.ACTIVE,
         },
       },
-      orderBy: { scheduledDate: "asc" },
+      orderBy: [{ scheduledDate: "asc" }, { sequenceOrder: "asc" }, { createdAt: "asc" }],
       select: {
         id: true,
         title: true,
@@ -2326,6 +2471,8 @@ athleteRouter.get("/sessions", async (req: AuthenticatedRequest, res: Response) 
             name: true,
             phase: true,
             status: true,
+            template: { select: { isPremium: true, name: true } },
+            assignment: { select: { id: true, status: true, coach: { select: { firstName: true, lastName: true, email: true } } } },
           },
         },
         sessionExercises: {
@@ -2350,14 +2497,40 @@ athleteRouter.get("/sessions", async (req: AuthenticatedRequest, res: Response) 
       },
     });
 
+    const firstUnlockedByProgram = new Map<string, string>();
+    let pendingPaidApproval: { coachName: string; templateName: string; firstSessionId: string } | null = null;
+    for (const session of sessions) {
+      const program = (session as any).personalProgram;
+      const isPendingPremium = program?.template?.isPremium && program?.assignment?.status === AssignmentStatus.PENDING;
+      if (isPendingPremium && !firstUnlockedByProgram.has(program.id)) {
+        firstUnlockedByProgram.set(program.id, session.id);
+        if (!pendingPaidApproval) {
+          const coach = program.assignment.coach;
+          const coachName = [coach?.firstName, coach?.lastName].filter(Boolean).join(" ") || coach?.email || "tu coach";
+          pendingPaidApproval = { coachName, templateName: program.template?.name ?? "Programa premium", firstSessionId: session.id };
+        }
+      }
+    }
+
     res.json({
-      sessions: sessions.map((session) => ({
-        ...serializeSessionLogs(session),
-        originalScheduledDate: session.originalScheduledDate?.toISOString().slice(0, 10) ?? null,
-        scheduledDate: (session.scheduledDate as Date).toISOString().slice(0, 10),
-        sequenceOrder: session.sequenceOrder ?? null,
-        exerciseCount: session.sessionExercises.length,
-      })),
+      pendingPaidApproval,
+      sessions: sessions.map((session) => {
+        const program = (session as any).personalProgram;
+        const isPendingPremium = program?.template?.isPremium && program?.assignment?.status === AssignmentStatus.PENDING;
+        const locked = isPendingPremium && firstUnlockedByProgram.get(program.id) !== session.id;
+        const coach = program?.assignment?.coach;
+        const pendingCoachName = isPendingPremium ? ([coach?.firstName, coach?.lastName].filter(Boolean).join(" ") || coach?.email || "tu coach") : null;
+        return {
+          ...serializeSessionLogs(session),
+          originalScheduledDate: session.originalScheduledDate?.toISOString().slice(0, 10) ?? null,
+          scheduledDate: (session.scheduledDate as Date).toISOString().slice(0, 10),
+          sequenceOrder: session.sequenceOrder ?? null,
+          exerciseCount: locked ? 0 : session.sessionExercises.length,
+          locked,
+          lockReason: locked ? "PENDING_COACH_APPROVAL" : null,
+          pendingCoachName,
+        };
+      }),
     });
   } catch (error) {
     console.error("Failed to fetch athlete sessions", error);
@@ -2392,6 +2565,25 @@ athleteRouter.get("/sessions/:sessionId", async (req: AuthenticatedRequest, res:
     if (!session) {
       res.status(404).json({ message: "Session not found" });
       return;
+    }
+
+    // Premium pending: only first session unlocked
+    const programInfo = await prisma.personalProgram.findUnique({
+      where: { id: session.personalProgramId },
+      select: { template: { select: { isPremium: true } }, assignment: { select: { status: true, coach: { select: { firstName: true, lastName: true, email: true } } } } },
+    });
+    if (programInfo?.template?.isPremium && programInfo.assignment?.status === AssignmentStatus.PENDING) {
+      const first = await prisma.scheduledSession.findFirst({
+        where: { personalProgramId: session.personalProgramId },
+        orderBy: [{ scheduledDate: "asc" }, { sequenceOrder: "asc" }, { createdAt: "asc" }],
+        select: { id: true },
+      });
+      if (first && first.id !== session.id) {
+        const coach = programInfo.assignment.coach;
+        const coachName = [coach?.firstName, coach?.lastName].filter(Boolean).join(" ") || coach?.email || "tu coach";
+        res.status(403).json({ message: "Esta sesiÃ³n estarÃ¡ disponible cuando tu coach apruebe el programa.", locked: true, lockReason: "PENDING_COACH_APPROVAL", coachName });
+        return;
+      }
     }
 
     const recentAthleteLogs = await prisma.sessionLog.findMany({
@@ -2684,7 +2876,7 @@ athleteRouter.post("/device-tokens", async (req: AuthenticatedRequest, res: Resp
   }
 });
 
-// ── Avatar upload ──────────────────────────────────────────────────────────
+// â”€â”€ Avatar upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const avatarUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -3030,7 +3222,7 @@ athleteRouter.post("/technique/metrics", async (req: AuthenticatedRequest, res: 
   }
 });
 
-// ── Biomechanics: athlete self-analysis (no persist) ─────────────────────────
+// â”€â”€ Biomechanics: athlete self-analysis (no persist) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const athleteBiomechanicsRimAnnotationSchema = z.object({
   frameIndex: z.number().int().nonnegative(),
@@ -3213,7 +3405,7 @@ athleteRouter.get("/weekly-checkin", async (req: AuthenticatedRequest, res: Resp
   }
 });
 
-/** POST /athlete/weekly-checkin — fatigue check-in */
+/** POST /athlete/weekly-checkin â€” fatigue check-in */
 athleteRouter.post("/weekly-checkin", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = getUserId(req);
@@ -3285,7 +3477,7 @@ athleteRouter.post("/weekly-checkin", async (req: AuthenticatedRequest, res: Res
   }
 });
 
-/** PATCH /athlete/weekly-checkin/weekend-games — weekend game toggle */
+/** PATCH /athlete/weekly-checkin/weekend-games â€” weekend game toggle */
 athleteRouter.patch("/weekly-checkin/weekend-games", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = getUserId(req);

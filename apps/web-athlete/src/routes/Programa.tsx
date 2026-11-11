@@ -341,42 +341,49 @@ export default function ProgramaScreen() {
                                  DAY_TYPE_CONFIG[(session.dayType as DayType) ?? "OTHER"] || DAY_TYPE_CONFIG.OTHER;
                                const isToday = session.scheduledDate.slice(0, 10) === today;
                                const isCompleted = session.status === "COMPLETED";
-                               return (
-                                 <Link
-                                   key={session.id}
-                                   to={`/programa/sessions/${session.id}`}
-                                   className={`flex items-center gap-3 rounded-lg bg-surface-900/60 p-3 transition-colors hover:bg-surface-800 ${
-                                     isToday ? "ring-1 ring-amber-500/30" : ""
-                                   }`}
-                                 >
-                                   <span className={`text-xl ${config.color}`}>{config.emoji}</span>
-                                   <div className="flex-1">
-                                     <div className="flex items-center justify-between">
-                                       <p className={`font-medium ${isCompleted ? textSecondaryColor : textColor}`}>
-                                         {session.title}
+                               return session.locked ? (
+                                   <div
+                                     key={session.id}
+                                     className={`flex items-center gap-3 rounded-lg bg-surface-900/40 p-3 opacity-70 ${isToday ? "ring-1 ring-amber-500/30" : ""}`}
+                                   >
+                                     <span className="text-xl text-surface-500">🔒</span>
+                                     <div className="flex-1">
+                                       <div className="flex items-center justify-between">
+                                         <p className={`font-medium ${textSecondaryColor}`}>{session.title}</p>
+                                         <span className="rounded-full bg-amber-900/20 px-2 py-0.5 text-xs text-amber-400">Pendiente</span>
+                                       </div>
+                                       <p className={`text-xs ${textSecondaryColor}`}>
+                                         {new Date(session.scheduledDate).toLocaleDateString("es-ES", { weekday: "short", month: "short", day: "numeric" })}
                                        </p>
-                                       {isToday && (
-                                         <span className="rounded-full bg-amber-900/20 px-2 py-0.5 text-xs text-amber-400">
-                                           Hoy
-                                         </span>
+                                       <p className="text-xs text-amber-400/90">Disponible cuando {session.pendingCoachName || "tu coach"} apruebe el programa</p>
+                                     </div>
+                                   </div>
+                                 ) : (
+                                   <Link
+                                     key={session.id}
+                                     to={`/programa/sessions/${session.id}`}
+                                     className={`flex items-center gap-3 rounded-lg bg-surface-900/60 p-3 transition-colors hover:bg-surface-800 ${isToday ? "ring-1 ring-amber-500/30" : ""}`}
+                                   >
+                                     <span className={`text-xl ${config.color}`}>{config.emoji}</span>
+                                     <div className="flex-1">
+                                       <div className="flex items-center justify-between">
+                                         <p className={`font-medium ${isCompleted ? textSecondaryColor : textColor}`}>
+                                           {session.title}
+                                         </p>
+                                         {isToday && (
+                                           <span className="rounded-full bg-amber-900/20 px-2 py-0.5 text-xs text-amber-400">Hoy</span>
+                                         )}
+                                       </div>
+                                       <p className={`text-xs ${textSecondaryColor}`}>
+                                         {new Date(session.scheduledDate).toLocaleDateString("es-ES", { weekday: "short", month: "short", day: "numeric" })}
+                                       </p>
+                                       {session.exerciseCount !== undefined && (
+                                         <p className={`text-xs ${textSecondaryColor}`}>{session.exerciseCount} ejercicios</p>
                                        )}
                                      </div>
-                                     <p className={`text-xs ${textSecondaryColor}`}>
-                                       {new Date(session.scheduledDate).toLocaleDateString("es-ES", {
-                                         weekday: "short",
-                                         month: "short",
-                                         day: "numeric",
-                                       })}
-                                     </p>
-                                     {session.exerciseCount !== undefined && (
-                                       <p className={`text-xs ${textSecondaryColor}`}>
-                                         {session.exerciseCount} ejercicios
-                                       </p>
-                                     )}
-                                   </div>
-                                   {isCompleted && <span className="text-lg text-green-400">✓</span>}
-                                 </Link>
-                               );
+                                     {isCompleted && <span className="text-lg text-green-400">✓</span>}
+                                   </Link>
+                                 );
                              })}
                            </div>
                          )}

@@ -198,9 +198,7 @@ export default function HoyScreen() {
         return;
       }
 
-      const freeTemplates = (available.templates ?? []).filter((t) => !t.isPremium);
-      // No default selection: user must choose a plan explicitly.
-      void freeTemplates;
+      // No default selection: user must choose a plan explícitamente.
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {
@@ -212,6 +210,12 @@ export default function HoyScreen() {
     if (!selectedTemplateCode || isSaving || isGenerating) {
       if (!selectedTemplateCode) setError("Seleccioná un programa");
       return;
+    }
+    const selected = templates.find((t) => t.code === selectedTemplateCode);
+    if (selected?.isPremium) {
+      const coachName = [selected.coach?.firstName, selected.coach?.lastName].filter(Boolean).join(" ") || selected.coach?.email || "el coach";
+      const ok = window.confirm(`Este es un programa de pago. Se enviará una solicitud a ${coachName} y a los administradores para su aprobación. Podrás realizar solo la sesión del primer día mientras esperas. ¿Deseas continuar?`);
+      if (!ok) return;
     }
 
     setIsSaving(true);
@@ -267,8 +271,13 @@ export default function HoyScreen() {
           },
         }),
       });
-      await handleApiResponse<unknown>(generateRes);
-
+      const genData = await handleApiResponse<any>(generateRes);
+      if (genData?.pendingApproval) {
+        setShowSuccessGif(false);
+        window.alert(`Solicitud enviada: ${genData.pendingApproval.templateName}. ${genData.pendingApproval.coachName} y los administradores deben aprobarla. Podrás realizar solo la sesión del primer día mientras esperas.`);
+        if (manageSaving) await fetchHoyData();
+        return;
+      }
       setShowSuccessGif(true);
       window.setTimeout(() => setShowSuccessGif(false), 1500);
       if (manageSaving) await fetchHoyData();
