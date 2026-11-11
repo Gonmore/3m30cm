@@ -1,4 +1,4 @@
-﻿-- 2B-lite: coach-owned task template overrides, linking, template blocks (MVP)
+-- 2B-lite: coach-owned task template overrides, linking, template blocks (MVP)
 ALTER TABLE "ExerciseTaskTemplate"
   ADD COLUMN IF NOT EXISTS "category" TEXT,
   ADD COLUMN IF NOT EXISTS "equipment" TEXT,

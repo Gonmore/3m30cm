@@ -1,4 +1,4 @@
-﻿-- Snapshot session exercises for coach-created program exercises (no global Exercise required)
+-- Snapshot session exercises for coach-created program exercises (no global Exercise required)
 ALTER TABLE "Exercise" ADD COLUMN IF NOT EXISTS "createdByUserId" TEXT;
 CREATE INDEX IF NOT EXISTS "Exercise_createdByUserId_idx" ON "Exercise"("createdByUserId");
 DO $$ BEGIN
